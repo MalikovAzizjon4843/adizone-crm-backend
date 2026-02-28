@@ -1,6 +1,7 @@
 package com.crm.controller;
 
 import com.crm.dto.request.LeadAssignRequest;
+import com.crm.dto.request.LeadAmountRequest;
 import com.crm.dto.request.LeadCommentRequest;
 import com.crm.dto.request.LeadConvertRequest;
 import com.crm.dto.request.LeadCreateRequest;
@@ -147,13 +148,27 @@ public class LeadController {
                 leadService.assignLead(id, request)));
     }
 
+    /** Bosqich summa talab qilsa, {@code amount} majburiy bo'ladi. */
     @PatchMapping("/{id:\\d+}/status")
     public ResponseEntity<ApiResponse<LeadResponse>> updateStatus(
             @PathVariable Long id,
             @Valid @RequestBody LeadStatusRequest request) {
         return ResponseEntity.ok(ApiResponse.success(
                 "Status yangilandi",
-                leadService.updateStatus(id, request.getStatus())));
+                leadService.updateStatus(id, request.getStatus(), request.getAmount())));
+    }
+
+    /**
+     * Summani bosqichdan mustaqil tuzatish. {@code amount: null} — olib
+     * tashlash, lekin lid to'lov bosqichida bo'lsa bunga ruxsat yo'q.
+     */
+    @PatchMapping("/{id:\\d+}/amount")
+    public ResponseEntity<ApiResponse<LeadResponse>> updateAmount(
+            @PathVariable Long id,
+            @Valid @RequestBody LeadAmountRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Summa yangilandi",
+                leadService.updateAmount(id, request.getAmount())));
     }
 
     @PostMapping("/{id:\\d+}/comments")

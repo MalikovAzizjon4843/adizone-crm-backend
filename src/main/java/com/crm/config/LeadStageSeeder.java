@@ -32,6 +32,9 @@ import java.util.List;
  * <p>Uch tildagi nomlar frontend {@code src/locales/*.js} dagi
  * {@code leads.statusKanban} bilan bir xil bo'lishi kerak.
  *
+ * <p>{@code requiresAmount} faqat to'lov bosqichlarida true — o'sha
+ * bosqichga o'tishda summa so'raladi va avtomatik izoh yoziladi.
+ *
  * <p>O'chirish uchun: {@code app.lead-stages.seed: false}.
  */
 @Component
@@ -62,33 +65,33 @@ public class LeadStageSeeder implements ApplicationRunner {
 
         List<LeadStage> stages = List.of(
             stage(1, "NEW", "Yangi", "Новый", "New",
-                "secondary", StageKind.OPEN),
+                "secondary", StageKind.OPEN, false),
             stage(2, "CONTACTED", "Bog'lanildi", "Связались", "Contacted",
-                "info", StageKind.OPEN),
+                "info", StageKind.OPEN, false),
             stage(3, "ONLINE_ENROLLED", "Online yozildi",
                 "Онлайн записан", "Enrolled online",
-                "warning", StageKind.OPEN),
+                "warning", StageKind.OPEN, false),
             stage(4, "OFFLINE_ENROLLED", "Offline yozildi",
                 "Офлайн записан", "Enrolled offline",
-                "warning", StageKind.OPEN),
+                "warning", StageKind.OPEN, false),
             stage(5, "ONLINE_PAID", "Online to'ladi",
                 "Онлайн оплатил", "Paid online",
-                "success", StageKind.OPEN),
+                "success", StageKind.OPEN, true),
             stage(6, "OFFLINE_PAID", "Offline to'ladi",
                 "Офлайн оплатил", "Paid offline",
-                "success", StageKind.OPEN),
+                "success", StageKind.OPEN, true),
             // Ikkita konvert bosqichi: o'quvchi onlayn yoki oflayn o'qiydi va
             // kanbanda alohida ustunlarda turadi. Qaysi biriga tushishini
             // konvert so'rovidagi studyFormat hal qiladi.
             stage(7, "CONVERTED_ONLINE", "Online o'quvchi",
                 "Онлайн ученик", "Online student",
-                "success", StageKind.CONVERTED),
+                "success", StageKind.CONVERTED, false),
             stage(8, "CONVERTED_OFFLINE", "Offline o'quvchi",
                 "Офлайн ученик", "Offline student",
-                "success", StageKind.CONVERTED),
+                "success", StageKind.CONVERTED, false),
             stage(9, "REJECTED", "Rad etildi",
                 "Отклонён", "Rejected",
-                "danger", StageKind.REJECTED));
+                "danger", StageKind.REJECTED, false));
 
         try {
             leadStageRepository.saveAll(stages);
@@ -101,7 +104,8 @@ public class LeadStageSeeder implements ApplicationRunner {
 
     private static LeadStage stage(int sortOrder, String code,
                                    String nameUz, String nameRu, String nameEn,
-                                   String color, StageKind kind) {
+                                   String color, StageKind kind,
+                                   boolean requiresAmount) {
         return LeadStage.builder()
             .code(code)
             .nameUz(nameUz)
@@ -110,6 +114,7 @@ public class LeadStageSeeder implements ApplicationRunner {
             .color(color)
             .sortOrder(sortOrder)
             .kind(kind)
+            .requiresAmount(requiresAmount)
             .isActive(true)
             .build();
     }

@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -64,6 +65,16 @@ public class Lead {
     @Column(length = 30)
     @Builder.Default
     private String source = "WEBSITE";
+
+    /**
+     * Kutilayotgan to'lov summasi. Nullable: bosqich talab qilmasa
+     * so'ralmaydi va lid butun umri davomida summasiz qolishi mumkin.
+     *
+     * <p>Bir marta yozilgach, keyingi bosqichlarda O'CHIRILMAYDI — tarixiy
+     * qiymat sifatida qoladi va kanban yig'indisida sanaladi.
+     */
+    @Column(name = "amount", precision = 12, scale = 2)
+    private BigDecimal amount;
 
     @Column(columnDefinition = "TEXT")
     private String notes;

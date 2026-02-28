@@ -3,6 +3,7 @@ package com.crm.service;
 import com.crm.audit.AuditAction;
 import com.crm.audit.AuditContext;
 import com.crm.audit.Audited;
+import com.crm.config.Messages;
 import com.crm.dto.request.LeadAssignRequest;
 import com.crm.dto.request.LeadCommentRequest;
 import com.crm.dto.request.LeadNoteRequest;
@@ -52,6 +53,9 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import org.apache.poi.ss.usermodel.*;
@@ -60,6 +64,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -71,9 +76,20 @@ import java.util.stream.Collectors;
 public class LeadService {
 
     private static final String PAYMENT_COMMENT_TEXT = "To'lov qabul qilindi";
+    private static final String AMOUNT_CHANGED_TEXT = "To'lov summasi o'zgartirildi";
+    private static final String AMOUNT_REMOVED_TEXT = "To'lov summasi olib tashlandi";
 
-    /** To'lov qabul qilinganda avtomatik izoh yoziladigan bosqichlar. */
-    private static final Set<String> PAID_STATUSES = Set.of("ONLINE_PAID", "OFFLINE_PAID");
+    /**
+     * "850 000" — probel bilan, o'zbekcha pul yozilishi.
+     *
+     * <p>Har chaqiruvda yangisi yaratiladi: {@code DecimalFormat} thread-safe
+     * emas, umumiy static nusxa parallel so'rovlarda buzilgan matn berardi.
+     */
+    private static DecimalFormat moneyFormat() {
+        DecimalFormatSymbols symbols = new DecimalFormatSymbols(Locale.ROOT);
+        symbols.setGroupingSeparator(' ');
+        return new DecimalFormat("#,##0.##", symbols);
+    }
 
     private final LeadRepository leadRepository;
     private final LeadCommentRepository leadCommentRepository;
@@ -86,6 +102,7 @@ public class LeadService {
     private final TaskService taskService;
     private final LeadAccessService leadAccessService;
     private final LeadStageService leadStageService;
+    private final Messages messages;
 
     @Transactional
     @Audited(action = AuditAction.CREATE, entity = "Lead",
@@ -305,13 +322,30 @@ public class LeadService {
         summary = "'Lid bosqichi: ' + #result.status",
         entityId = "#result.id",
         label = "#result.fullName")
-    public LeadResponse updateStatus(Long id, String status) {
+    public LeadResponse updateStatus(Long id, String status, BigDecimal amount) {
         Lead lead = leadRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Lead", id));
         leadAccessService.assertCanAccessLead(lead);
 
         String newStatus = leadStageService.requireActiveCode(status);
         String oldStatus = lead.getStatus();
+
+        if (amount != null) {
+            if (amount.signum() < 0) {
+                throw new BadRequestException(messages.get("lead.amount.negative"));
+            }
+            AuditContext.change("amount", lead.getAmount(), amount);
+            lead.setAmount(amount);
+        }
+
+        // Bosqich summa talab qilsa, lidda hech qachon summa bo'lmagan bo'lsa
+        // — so'rab olamiz. Avval yozilgan summa yetarli: bir marta to'langan
+        // lid keyingi to'lov bosqichida qaytadan so'ralmaydi.
+        boolean requiresAmount = leadStageService.requiresAmount(newStatus);
+        if (requiresAmount && lead.getAmount() == null) {
+            throw new BadRequestException(messages.get("lead.amount.required"));
+        }
+
         lead.setStatus(newStatus);
 
         // Bir xil bosqichga qayta o'tish tarixni ham, auditni ham to'ldirmasin
@@ -320,14 +354,90 @@ public class LeadService {
             recordStatusChange(lead, oldStatus, newStatus, null);
         }
 
-        // To'lov bosqichlari kodda nom bilan qolgan yagona joy. Bosqichlar
-        // sozlanadigan bo'lgach bu qoida mo'rt: buyurtmachi kodni o'zgartira
-        // olmaydi, lekin yangi to'lov bosqichi qo'shsa bu ro'yxatga tushmaydi.
-        if (PAID_STATUSES.contains(newStatus)) {
-            addSystemComment(lead, PAYMENT_COMMENT_TEXT);
+        // Avval bu qoida kodda "ONLINE_PAID"/"OFFLINE_PAID" ro'yxati edi va
+        // buyurtmachi yangi to'lov bosqichi qo'shsa unga tushmasdi. Endi
+        // bosqichning o'z bayrog'i hal qiladi.
+        if (requiresAmount) {
+            addSystemComment(lead, paymentCommentText(lead.getAmount()));
         }
 
         return toResponse(leadRepository.save(lead));
+    }
+
+    /** "To'lov qabul qilindi: 850 000 UZS" — summa bo'sh bo'lsa faqat matn. */
+    private static String paymentCommentText(BigDecimal amount) {
+        if (amount == null) {
+            return PAYMENT_COMMENT_TEXT;
+        }
+        return PAYMENT_COMMENT_TEXT + ": " + moneyFormat().format(amount) + " UZS";
+    }
+
+    /**
+     * Summani bosqichdan mustaqil tuzatadi.
+     *
+     * <p>Kerak edi, chunki {@code updateStatus} summani faqat lidda u
+     * BO'LMAGANDA so'raydi: operator 850 000 o'rniga 8 500 000 yozib
+     * yuborsa, o'sha oqim orqali tuzatishning iloji yo'q edi.
+     *
+     * <p>{@code amount = null} — summani olib tashlash. Lekin lid to'lov
+     * bosqichida bo'lsa bunga yo'l qo'yilmaydi: aks holda "to'lagan" lid
+     * summasiz qolib, kanban yig'indisi bilan ziddiyatga tushardi.
+     */
+    @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "Lead",
+        summary = "'Lid summasi o''zgartirildi'",
+        entityId = "#id",
+        label = "#result.fullName")
+    public LeadResponse updateAmount(Long id, BigDecimal amount) {
+        Lead lead = leadRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Lead", id));
+        leadAccessService.assertCanAccessLead(lead);
+
+        if (amount != null && amount.signum() < 0) {
+            throw new BadRequestException(messages.get("lead.amount.negative"));
+        }
+        if (amount == null && leadStageService.requiresAmount(lead.getStatus())) {
+            throw new BadRequestException(messages.get("lead.amount.notRemovable"));
+        }
+
+        // compareTo, equals emas: BigDecimal da 850000 va 850000.00 teng emas,
+        // lekin bu yerda ular bir xil summa.
+        BigDecimal previous = lead.getAmount();
+        boolean unchanged = previous == null
+                ? amount == null
+                : amount != null && previous.compareTo(amount) == 0;
+        if (unchanged) {
+            // Lentaga ham, auditga ham yozmaymiz: "o'zgartirildi" deb turgan,
+            // lekin hech nima o'zgarmagan yozuv jurnalni chalkashtiradi.
+            AuditContext.skip();
+            return toResponse(lead);
+        }
+
+        AuditContext.change("amount", previous, amount);
+        lead.setAmount(amount);
+        addSystemComment(lead, amountChangeText(previous, amount));
+
+        return toResponse(leadRepository.save(lead));
+    }
+
+    /**
+     * "To'lov summasi o'zgartirildi: 8 500 000 → 850 000 UZS".
+     *
+     * <p>Eski qiymat ham ko'rsatiladi: lentada yuqorida "To'lov qabul
+     * qilindi: 8 500 000 UZS" yozuvi turadi va faqat yangi sonni yozsak,
+     * o'qiyotgan odam qaysi biri to'g'riligini bilmay qolardi.
+     */
+    private static String amountChangeText(BigDecimal from, BigDecimal to) {
+        if (to == null) {
+            return AMOUNT_REMOVED_TEXT
+                + (from != null ? " (" + moneyFormat().format(from) + " UZS)" : "");
+        }
+        String formatted = moneyFormat().format(to);
+        if (from == null) {
+            return AMOUNT_CHANGED_TEXT + ": " + formatted + " UZS";
+        }
+        return AMOUNT_CHANGED_TEXT + ": "
+            + moneyFormat().format(from) + " → " + formatted + " UZS";
     }
 
     @Transactional
@@ -592,17 +702,24 @@ public class LeadService {
 
         // Bosqichlar tartibi lead_stages dan — bo'sh ustun ham qaytadi.
         Map<String, Long> counts = new LinkedHashMap<>();
-        leadStageService.orderedCodes().forEach(code -> counts.put(code, 0L));
+        Map<String, BigDecimal> amounts = new LinkedHashMap<>();
+        leadStageService.orderedCodes().forEach(code -> {
+            counts.put(code, 0L);
+            amounts.put(code, BigDecimal.ZERO);
+        });
 
         long unassigned = 0L;
+        BigDecimal unassignedAmount = BigDecimal.ZERO;
         for (Object[] row : rows) {
             String code = row[0] != null ? row[0].toString() : null;
             if (code != null) {
                 // merge emas: o'chirilgan bosqichdagi eski lid ustun
                 // yaratmasin, lekin yo'qolib ham ketmasin
                 counts.merge(code, toCount(row[1]), Long::sum);
+                amounts.merge(code, toAmount(row[3]), BigDecimal::add);
             }
             unassigned += toCount(row[2]);
+            unassignedAmount = unassignedAmount.add(toAmount(row[4]));
         }
 
         List<LeadKanbanColumnDto> columns = new java.util.ArrayList<>(counts.size());
@@ -610,20 +727,31 @@ public class LeadService {
                 .status(code)
                 .statusLabel(leadStageService.label(code))
                 .count(count)
-                .totalAmount(null)
+                .totalAmount(amounts.getOrDefault(code, BigDecimal.ZERO))
                 .build()));
 
         return LeadKanbanStatsResponse.builder()
                 .columns(columns)
                 .unassigned(LeadKanbanColumnDto.builder()
                         .count(unassigned)
-                        .totalAmount(null)
+                        .totalAmount(unassignedAmount)
                         .build())
                 .build();
     }
 
     private static long toCount(Object value) {
         return value instanceof Number n ? n.longValue() : 0L;
+    }
+
+    /** SUM() dialektga qarab BigDecimal, Long yoki Double qaytarishi mumkin. */
+    private static BigDecimal toAmount(Object value) {
+        if (value instanceof BigDecimal b) {
+            return b;
+        }
+        if (value instanceof Number n) {
+            return BigDecimal.valueOf(n.doubleValue());
+        }
+        return BigDecimal.ZERO;
     }
 
     @Transactional(readOnly = true)
@@ -894,6 +1022,7 @@ public class LeadService {
                 .format(lead.getFormat())
                 .status(lead.getStatus())
                 .statusLabel(leadStageService.label(lead.getStatus()))
+                .amount(lead.getAmount())
                 .source(lead.getSource())
                 .notes(lead.getNotes())
                 .converted(lead.getConverted())

@@ -64,7 +64,8 @@ public class LeadStageService {
 
     /** Keshdagi bitta bosqich — entity emas, sessiyaga bog'liq bo'lmasin. */
     private record Snapshot(String code, String nameUz, String nameRu, String nameEn,
-                            StageKind kind, boolean active, int sortOrder) {
+                            StageKind kind, boolean active, int sortOrder,
+                            boolean requiresAmount) {
     }
 
     @Transactional(readOnly = true)
@@ -92,6 +93,7 @@ public class LeadStageService {
                 ? request.getSortOrder()
                 : leadStageRepository.findMaxSortOrder() + 1)
             .kind(StageKind.OPEN)
+            .requiresAmount(Boolean.TRUE.equals(request.getRequiresAmount()))
             .isActive(request.getIsActive() == null || request.getIsActive())
             .build();
         LeadStage saved = leadStageRepository.save(stage);
@@ -123,6 +125,11 @@ public class LeadStageService {
         stage.setColor(color);
         if (request.getSortOrder() != null) {
             stage.setSortOrder(request.getSortOrder());
+        }
+        if (request.getRequiresAmount() != null) {
+            AuditContext.change("requiresAmount",
+                stage.getRequiresAmount(), request.getRequiresAmount());
+            stage.setRequiresAmount(request.getRequiresAmount());
         }
         if (request.getIsActive() != null) {
             stage.setIsActive(request.getIsActive());
@@ -254,6 +261,15 @@ public class LeadStageService {
         return key != null && convertedCodes().contains(key);
     }
 
+    /**
+     * Shu bosqichga o'tishda summa majburiymi. Keshdan o'qiladi —
+     * status o'zgartirish har lid uchun alohida SQL yubormasin.
+     */
+    public boolean requiresAmount(String code) {
+        Snapshot stage = cache().get(normalize(code));
+        return stage != null && stage.requiresAmount();
+    }
+
     public boolean isClosed(String code) {
         Snapshot stage = cache().get(normalize(code));
         return stage != null && stage.kind().isFinal();
@@ -312,7 +328,8 @@ public class LeadStageService {
             loaded.put(stage.getCode(), new Snapshot(
                 stage.getCode(), stage.getNameUz(), stage.getNameRu(), stage.getNameEn(),
                 stage.getKind(), Boolean.TRUE.equals(stage.getIsActive()),
-                stage.getSortOrder() != null ? stage.getSortOrder() : 0));
+                stage.getSortOrder() != null ? stage.getSortOrder() : 0,
+                Boolean.TRUE.equals(stage.getRequiresAmount())));
         }
         log.debug("lead_stages keshi yuklandi: {} ta bosqich", loaded.size());
         return loaded;
@@ -417,6 +434,7 @@ public class LeadStageService {
             .color(stage.getColor())
             .sortOrder(stage.getSortOrder())
             .kind(stage.getKind())
+            .requiresAmount(stage.getRequiresAmount())
             .isActive(stage.getIsActive())
             .deletable(!stage.getKind().isFinal())
             .createdAt(stage.getCreatedAt())

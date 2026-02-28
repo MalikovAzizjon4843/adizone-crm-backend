@@ -24,6 +24,8 @@ public class LeadStageResponse {
     private String color;
     private Integer sortOrder;
     private StageKind kind;
+    /** Shu bosqichga o'tishda summa majburiymi. */
+    private Boolean requiresAmount;
     private Boolean isActive;
     /** CONVERTED va REJECTED o'chirilmaydi — frontend tugmani shunga qarab yashiradi. */
     private boolean deletable;

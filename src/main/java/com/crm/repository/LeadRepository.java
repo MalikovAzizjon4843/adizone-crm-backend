@@ -54,14 +54,20 @@ public interface LeadRepository extends JpaRepository<Lead, Long>, JpaSpecificat
     /**
      * Kanban sarlavhalari: bosqich, lidlar soni, shulardan biriktirilmaganlari.
      *
-     * <p>Uchinchi ustun shu yerda ataylab: "Неразобранное" hisoblagichini
-     * alohida so'rovsiz berish uchun qatorlar bo'yicha yig'iladi. Ya'ni
-     * butun kanban bitta GROUP BY bilan qoplanadi.
+     * <p>Uchinchi va beshinchi ustun shu yerda ataylab: "Неразобранное"
+     * hisoblagichi va uning summasi alohida so'rovsiz, qatorlar bo'yicha
+     * yig'iladi. Ya'ni butun kanban bitta GROUP BY bilan qoplanadi.
+     *
+     * <p>{@code COALESCE} kerak: summasi yo'q lid yig'indiga 0 qo'shadi,
+     * butun ustunni null qilib yubormaydi.
      */
     @Query("""
         SELECT l.status,
                COUNT(l),
-               SUM(CASE WHEN l.assignedUser IS NULL THEN 1 ELSE 0 END)
+               SUM(CASE WHEN l.assignedUser IS NULL THEN 1 ELSE 0 END),
+               COALESCE(SUM(COALESCE(l.amount, 0)), 0),
+               COALESCE(SUM(CASE WHEN l.assignedUser IS NULL
+                                 THEN COALESCE(l.amount, 0) ELSE 0 END), 0)
         FROM Lead l
         GROUP BY l.status
         """)
@@ -75,7 +81,10 @@ public interface LeadRepository extends JpaRepository<Lead, Long>, JpaSpecificat
     @Query("""
         SELECT l.status,
                COUNT(l),
-               SUM(CASE WHEN l.assignedUser IS NULL THEN 1 ELSE 0 END)
+               SUM(CASE WHEN l.assignedUser IS NULL THEN 1 ELSE 0 END),
+               COALESCE(SUM(COALESCE(l.amount, 0)), 0),
+               COALESCE(SUM(CASE WHEN l.assignedUser IS NULL
+                                 THEN COALESCE(l.amount, 0) ELSE 0 END), 0)
         FROM Lead l
         WHERE l.assignedUser.id = :userId
         GROUP BY l.status

@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -27,6 +28,9 @@ public class LeadResponse {
     /** Joriy tildagi nomi — {@code lead_stages} dan. */
     private String statusLabel;
     private String source;
+    /** Kutilayotgan to'lov summasi. Bosqich talab qilmasa null. */
+    private BigDecimal amount;
+
     private String notes;
     private Boolean converted;
     private Long studentId;

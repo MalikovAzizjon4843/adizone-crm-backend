@@ -31,6 +31,12 @@ public class LeadStageRequest {
     @NotBlank(message = "{leadStage.color.required}")
     private String color;
 
+    /**
+     * Shu bosqichga o'tishda summa majburiymi. Berilmasa mavjud qiymat
+     * saqlanadi (yaratishda — {@code false}).
+     */
+    private Boolean requiresAmount;
+
     /** Berilmasa yangi bosqich ro'yxat oxiriga qo'yiladi. */
     private Integer sortOrder;
 

@@ -68,6 +68,21 @@ public class LeadStage extends BaseEntity {
     @Builder.Default
     private StageKind kind = StageKind.OPEN;
 
+    /**
+     * Shu bosqichga o'tishda summa MAJBURIY bo'ladimi.
+     *
+     * <p>Avval bu qoida kodda {@code Set.of("ONLINE_PAID", "OFFLINE_PAID")}
+     * bo'lib turardi va buyurtmachi yangi to'lov bosqichi qo'shsa u ro'yxatga
+     * tushmasdi. Endi bayroq bosqichning o'zida — sozlash sahifasidan
+     * belgilanadi.
+     *
+     * <p>Shu bayroqli bosqichga o'tganda avtomatik "to'lov qabul qilindi"
+     * izohi ham yoziladi.
+     */
+    @Column(name = "requires_amount", nullable = false)
+    @Builder.Default
+    private Boolean requiresAmount = false;
+
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private Boolean isActive = true;

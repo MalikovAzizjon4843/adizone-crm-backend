@@ -13,11 +13,9 @@ import java.math.BigDecimal;
  * <p>{@code status} biriktirilmaganlar ustunida null — u bosqich emas,
  * kesim.
  *
- * <p>{@code totalAmount} HOZIRCHA HAR DOIM null: {@code Lead} entity'sida
- * summa/budjet maydoni yo'q. Maydon shartnomada ataylab qoldirilgan —
- * budjet qo'shilsa javob shakli o'zgarmaydi, faqat null o'rniga son
- * keladi. {@code NON_NULL} qo'llanmagan, ya'ni frontend bu maydon
- * mavjudligini va hozircha bo'sh ekanini ko'rib turadi.
+ * <p>{@code totalAmount} — {@code Lead.amount} yig'indisi. Summasi yo'q
+ * lidlar 0 qo'shadi, ya'ni ustun hech qachon null qaytmaydi: 0 va "ma'lumot
+ * yo'q" bir xil ko'rinmasin.
  */
 @Data
 @Builder
