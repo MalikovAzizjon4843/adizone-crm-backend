@@ -3,6 +3,7 @@ package com.crm.controller;
 import com.crm.dto.request.LeadAssignRequest;
 import com.crm.dto.request.LeadCommentRequest;
 import com.crm.dto.request.LeadConvertRequest;
+import com.crm.dto.request.LeadCreateRequest;
 import com.crm.dto.request.LeadNoteRequest;
 import com.crm.dto.request.LeadRequest;
 import com.crm.dto.request.LeadStatusRequest;
@@ -11,6 +12,7 @@ import com.crm.dto.response.LeadCommentResponse;
 import com.crm.dto.response.LeadConvertResponse;
 import com.crm.dto.response.LeadOperatorResponse;
 import com.crm.dto.response.LeadResponse;
+import com.crm.dto.response.LeadKanbanStatsResponse;
 import com.crm.dto.response.LeadStatsResponse;
 import com.crm.dto.response.LeadNoteResponse;
 import com.crm.dto.response.LeadStatusHistoryResponse;
@@ -64,16 +66,28 @@ public class LeadController {
                         "Ariza qabul qilindi", leadService.createLead(request)));
     }
 
+    /**
+     * Xodim tomonidan lid yaratish — kanbandagi tez qo'shish.
+     * Ruxsat sinf darajasidan: SUPER_ADMIN, ADMIN, SALES_MANAGER.
+     * Ochiq sayt formasi uchun alohida {@code POST /public} bor.
+     */
+    @PostMapping
+    public ResponseEntity<ApiResponse<LeadResponse>> createLead(
+            @Valid @RequestBody LeadCreateRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(
+                "Lid yaratildi", leadService.createLeadByStaff(request)));
+    }
+
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<LeadResponse>>> getAll(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) String search,
-            @RequestParam(required = false) Long assignedUserId,
-            @RequestParam(required = false) Boolean unassigned,
-            @RequestParam(required = false) String fromDate,
-            @RequestParam(required = false) String toDate) {
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size,
+            @RequestParam(name = "status", required = false) String status,
+            @RequestParam(name = "search", required = false) String search,
+            @RequestParam(name = "assignedUserId", required = false) Long assignedUserId,
+            @RequestParam(name = "unassigned", required = false) Boolean unassigned,
+            @RequestParam(name = "fromDate", required = false) String fromDate,
+            @RequestParam(name = "toDate", required = false) String toDate) {
         return ResponseEntity.ok(ApiResponse.success(
                 leadService.getAll(page, size, status, search, assignedUserId, unassigned, fromDate, toDate)));
     }
@@ -81,10 +95,10 @@ public class LeadController {
     @GetMapping("/export")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<byte[]> exportLeads(
-            @RequestParam(required = false) String fromDate,
-            @RequestParam(required = false) String toDate,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) Long operatorId) {
+            @RequestParam(name = "fromDate", required = false) String fromDate,
+            @RequestParam(name = "toDate", required = false) String toDate,
+            @RequestParam(name = "status", required = false) String status,
+            @RequestParam(name = "operatorId", required = false) Long operatorId) {
         byte[] xlsx = leadService.exportLeadsXlsx(fromDate, toDate, status, operatorId);
         String filename = "lidlar_" + LocalDate.now() + ".xlsx";
 
@@ -100,6 +114,15 @@ public class LeadController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<LeadStatsResponse>> getStats() {
         return ResponseEntity.ok(ApiResponse.success(leadService.getStats()));
+    }
+
+    /**
+     * Kanban sarlavhalari. {@code /stats} dan farqli, bu SALES_MANAGER ga
+     * ham ochiq: javob uning o'z lidlari bilan cheklanadi.
+     */
+    @GetMapping("/kanban-stats")
+    public ResponseEntity<ApiResponse<LeadKanbanStatsResponse>> getKanbanStats() {
+        return ResponseEntity.ok(ApiResponse.success(leadService.getKanbanStats()));
     }
 
     @GetMapping("/operators")
@@ -145,8 +168,8 @@ public class LeadController {
     @GetMapping("/{id:\\d+}/comments")
     public ResponseEntity<ApiResponse<PageResponse<LeadCommentResponse>>> getComments(
             @PathVariable Long id,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size) {
         return ResponseEntity.ok(ApiResponse.success(leadService.getComments(id, page, size)));
     }
 

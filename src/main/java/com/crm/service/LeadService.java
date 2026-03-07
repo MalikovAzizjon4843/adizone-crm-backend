@@ -7,6 +7,7 @@ import com.crm.dto.request.LeadAssignRequest;
 import com.crm.dto.request.LeadCommentRequest;
 import com.crm.dto.request.LeadNoteRequest;
 import com.crm.dto.request.LeadConvertRequest;
+import com.crm.dto.request.LeadCreateRequest;
 import com.crm.dto.request.LeadRequest;
 import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.response.LeadCommentResponse;
@@ -15,6 +16,8 @@ import com.crm.dto.response.LeadConvertResponse;
 import com.crm.dto.response.LeadOperatorResponse;
 import com.crm.dto.response.LeadOperatorStatsResponse;
 import com.crm.dto.response.LeadResponse;
+import com.crm.dto.response.LeadKanbanColumnDto;
+import com.crm.dto.response.LeadKanbanStatsResponse;
 import com.crm.dto.response.LeadStatsResponse;
 import com.crm.dto.response.LeadStatusHistoryResponse;
 import com.crm.dto.response.PageResponse;
@@ -104,6 +107,79 @@ public class LeadService {
                 .converted(false)
                 .build();
         return toResponse(leadRepository.save(lead));
+    }
+
+    /**
+     * Xodim tomonidan lid yaratish — kanbandagi tez qo'shish uchun.
+     *
+     * <p>{@link #createLead} dan farqi: bosqich va operator berilishi mumkin,
+     * {@code createdBy} to'ldiriladi. Ochiq forma oqimi tegilmagan.
+     *
+     * <p>Telefon dublikati TEKSHIRILMAYDI — {@code /public} da ham
+     * tekshirilmaydi va ikkisi bir xil qoidada qolishi kerak. Bu ataylab
+     * qoldirilgan bo'shliq: {@code leads.phone} ustunida unique indeks yo'q.
+     */
+    @Transactional
+    @Audited(action = AuditAction.CREATE, entity = "Lead",
+        summary = "'Yangi lid (qo''lda): ' + #result.fullName",
+        entityId = "#result.id",
+        label = "#result.fullName")
+    public LeadResponse createLeadByStaff(LeadCreateRequest request) {
+        User current = leadAccessService.getCurrentUserOrThrow();
+        Optional<Long> scope = leadAccessService.resolveOperatorScope();
+        User assignee = resolveLeadAssignee(request.getAssignedUserId(), current, scope);
+
+        Lead lead = Lead.builder()
+                .fullName(request.getFullName())
+                .phone(request.getPhone())
+                .parentPhone(request.getParentPhone())
+                .address(request.getAddress())
+                .course(request.getCourse())
+                .format(request.getFormat() != null
+                        ? request.getFormat().toUpperCase()
+                        : "OFFLINE")
+                .source(request.getSource() != null
+                        ? request.getSource().toUpperCase()
+                        : "WEBSITE")
+                .notes(request.getNotes())
+                .status(request.getStatus() != null && !request.getStatus().isBlank()
+                        ? parseStatus(request.getStatus())
+                        : LeadStatus.NEW)
+                .assignedUser(assignee)
+                .assignedAt(assignee != null ? LocalDateTime.now() : null)
+                .createdBy(current)
+                .converted(false)
+                .build();
+        return toResponse(leadRepository.save(lead));
+    }
+
+    /**
+     * Yangi lid uchun operatorni aniqlaydi.
+     *
+     * <p>Berilmasa: SALES_MANAGER o'ziga oladi (aks holda o'zi yaratgan lidni
+     * darhol yo'qotardi), ADMIN/SUPER_ADMIN da null qoladi va lid
+     * "Biriktirilmagan" ustuniga tushadi.
+     *
+     * <p>Doirali foydalanuvchi boshqa odamga biriktira olmaydi — bu
+     * {@code TaskService.resolveAssignee} bilan bir xil qoida.
+     */
+    private User resolveLeadAssignee(Long requestedId, User current, Optional<Long> scope) {
+        if (requestedId == null) {
+            return scope.isPresent() ? current : null;
+        }
+        if (scope.isPresent() && !requestedId.equals(current.getId())) {
+            throw new ForbiddenException("Lidni faqat o'zingizga biriktira olasiz");
+        }
+        User target = userRepository.findById(requestedId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", requestedId));
+        if (!LeadAccessService.canBeOperator(target.getRole())) {
+            throw new BadRequestException(
+                "Faqat ADMIN, SUPER_ADMIN yoki SALES_MANAGER operator sifatida biriktiriladi");
+        }
+        if (!Boolean.TRUE.equals(target.getIsActive())) {
+            throw new BadRequestException("Faol bo'lmagan foydalanuvchiga lid biriktirilmaydi");
+        }
+        return target;
     }
 
     @Transactional(readOnly = true)
@@ -484,6 +560,60 @@ public class LeadService {
             .nextPaymentDate(student.getNextPaymentDate())
             .leadId(lead.getId())
             .build();
+    }
+
+    /**
+     * Kanban sarlavhalari uchun hisoblagichlar — bitta GROUP BY so'rov.
+     *
+     * <p>Bosqichlar avval nol bilan to'ldiriladi, keyin so'rov natijasi
+     * ustiga yoziladi: bo'sh ustun ham javobda qoladi va ro'yxat enum
+     * tartibida, ya'ni kanban ustunlari tartibida keladi.
+     *
+     * <p>SALES_MANAGER uchun doira {@code LeadAccessService} dan olinadi —
+     * u faqat o'ziga biriktirilgan lidlarni sanaydi va unda
+     * "biriktirilmagan" ustuni tabiiy ravishda nol bo'ladi.
+     *
+     * <p>{@code totalAmount} null: {@code Lead} da budjet maydoni yo'q.
+     */
+    @Transactional(readOnly = true)
+    public LeadKanbanStatsResponse getKanbanStats() {
+        Optional<Long> scope = leadAccessService.resolveOperatorScope();
+        List<Object[]> rows = scope
+                .map(leadRepository::countKanbanGroupedByUser)
+                .orElseGet(leadRepository::countKanbanGrouped);
+
+        Map<LeadStatus, Long> counts = new EnumMap<>(LeadStatus.class);
+        for (LeadStatus status : LeadStatus.values()) {
+            counts.put(status, 0L);
+        }
+
+        long unassigned = 0L;
+        for (Object[] row : rows) {
+            LeadStatus status = row[0] instanceof LeadStatus s
+                    ? s
+                    : LeadStatus.fromString(row[0] != null ? row[0].toString() : null);
+            counts.merge(status, toCount(row[1]), Long::sum);
+            unassigned += toCount(row[2]);
+        }
+
+        List<LeadKanbanColumnDto> columns = new java.util.ArrayList<>(counts.size());
+        counts.forEach((status, count) -> columns.add(LeadKanbanColumnDto.builder()
+                .status(status)
+                .count(count)
+                .totalAmount(null)
+                .build()));
+
+        return LeadKanbanStatsResponse.builder()
+                .columns(columns)
+                .unassigned(LeadKanbanColumnDto.builder()
+                        .count(unassigned)
+                        .totalAmount(null)
+                        .build())
+                .build();
+    }
+
+    private static long toCount(Object value) {
+        return value instanceof Number n ? n.longValue() : 0L;
     }
 
     @Transactional(readOnly = true)

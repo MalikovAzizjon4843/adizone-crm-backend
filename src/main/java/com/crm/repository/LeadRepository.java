@@ -32,6 +32,37 @@ public interface LeadRepository extends JpaRepository<Lead, Long>, JpaSpecificat
     @Query("SELECT l.status, COUNT(l) FROM Lead l GROUP BY l.status")
     List<Object[]> countByStatusGrouped();
 
+    /**
+     * Kanban sarlavhalari: bosqich, lidlar soni, shulardan biriktirilmaganlari.
+     *
+     * <p>Uchinchi ustun shu yerda ataylab: "Неразобранное" hisoblagichini
+     * alohida so'rovsiz berish uchun qatorlar bo'yicha yig'iladi. Ya'ni
+     * butun kanban bitta GROUP BY bilan qoplanadi.
+     */
+    @Query("""
+        SELECT l.status,
+               COUNT(l),
+               SUM(CASE WHEN l.assignedUser IS NULL THEN 1 ELSE 0 END)
+        FROM Lead l
+        GROUP BY l.status
+        """)
+    List<Object[]> countKanbanGrouped();
+
+    /**
+     * {@link #countKanbanGrouped} ning bitta operator uchun varianti.
+     * Uchinchi ustun bu yerda doim 0 — operatorda biriktirilmagan lid
+     * bo'lishi mumkin emas, lekin shakl bir xil qolsin.
+     */
+    @Query("""
+        SELECT l.status,
+               COUNT(l),
+               SUM(CASE WHEN l.assignedUser IS NULL THEN 1 ELSE 0 END)
+        FROM Lead l
+        WHERE l.assignedUser.id = :userId
+        GROUP BY l.status
+        """)
+    List<Object[]> countKanbanGroupedByUser(@Param("userId") Long userId);
+
     @Query("SELECT l.source, COUNT(l) FROM Lead l GROUP BY l.source")
     List<Object[]> countBySourceGrouped();
 
