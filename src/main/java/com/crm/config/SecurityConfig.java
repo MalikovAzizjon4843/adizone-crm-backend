@@ -43,12 +43,25 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
+                // Analytics — admin/super_admin only
                 .requestMatchers(HttpMethod.GET, "/api/analytics/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                // Finance
                 .requestMatchers("/api/finance/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                // Payroll — accountant and above only
+                .requestMatchers("/api/payroll/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                // Promotions — admin and above only
+                .requestMatchers("/api/promotions/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                // Parents — admin, super_admin, accountant
+                .requestMatchers("/api/parents/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                // Deletes — admin and above
                 .requestMatchers(HttpMethod.DELETE, "/api/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                // Everything else requires authentication
                 .anyRequest().authenticated()
             )
             .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

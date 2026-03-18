@@ -34,4 +34,6 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     @Query("SELECT COUNT(p) FROM Payment p WHERE p.paymentDate BETWEEN :from AND :to AND p.status = 'PAID'")
     long countPaidByDateRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
+
+    List<Payment> findTop10ByOrderByPaymentDateDesc();
 }

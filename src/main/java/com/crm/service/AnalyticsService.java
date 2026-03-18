@@ -1,6 +1,6 @@
 package com.crm.service;
 
-import com.crm.dto.response.DashboardResponse;
+import com.crm.dto.response.*;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.repository.*;
@@ -25,6 +25,13 @@ public class AnalyticsService {
     private final ExpenseRepository expenseRepository;
     private final AttendanceRepository attendanceRepository;
     private final StudentGroupRepository studentGroupRepository;
+    private final ParentRepository parentRepository;
+    private final ClassRepository classRepository;
+    private final SubjectRepository subjectRepository;
+    private final HomeworkRepository homeworkRepository;
+    private final LeaveRepository leaveRepository;
+    private final PayrollRepository payrollRepository;
+    private final NoticeRepository noticeRepository;
 
     @Transactional(readOnly = true)
     public DashboardResponse getDashboard() {
@@ -90,6 +97,31 @@ public class AnalyticsService {
                 growthChart.add(point);
             });
 
+        // New metrics
+        long totalParents = parentRepository.count();
+        long totalClasses = classRepository.countByIsActiveTrue();
+        long totalSubjects = subjectRepository.countByIsActiveTrue();
+        long totalHomeworks = homeworkRepository.countByIsActiveTrue();
+        long pendingLeaves = leaveRepository.countPending();
+        long unpaidPayroll = payrollRepository.countPending();
+
+        List<NoticeResponse> latestNotices = noticeRepository
+            .findTop5ByIsPublishedTrueOrderByPublishedAtDesc().stream()
+            .map(n -> NoticeResponse.builder()
+                .id(n.getId()).uuid(n.getUuid())
+                .title(n.getTitle()).content(n.getContent())
+                .noticeType(n.getNoticeType()).isPublished(n.getIsPublished())
+                .publishedAt(n.getPublishedAt()).createdAt(n.getCreatedAt()).build())
+            .collect(Collectors.toList());
+
+        List<PaymentResponse> recentPayments = paymentRepository
+            .findTop10ByOrderByPaymentDateDesc().stream()
+            .map(p -> PaymentResponse.builder()
+                .id(p.getId()).uuid(p.getUuid())
+                .amount(p.getAmount()).paymentDate(p.getPaymentDate())
+                .paymentMethod(p.getPaymentMethod()).status(p.getStatus()).build())
+            .collect(Collectors.toList());
+
         return DashboardResponse.builder()
             .totalStudents(totalStudents)
             .activeStudents(activeStudents)
@@ -105,6 +137,14 @@ public class AnalyticsService {
             .studentsBySource(studentsBySource)
             .revenueChart(revenueChart)
             .studentGrowthChart(growthChart)
+            .totalParents(totalParents)
+            .totalClasses(totalClasses)
+            .totalSubjects(totalSubjects)
+            .totalHomeworks(totalHomeworks)
+            .pendingLeaves(pendingLeaves)
+            .unpaidPayroll(unpaidPayroll)
+            .latestNotices(latestNotices)
+            .recentPayments(recentPayments)
             .build();
     }
 

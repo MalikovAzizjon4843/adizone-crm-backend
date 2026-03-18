@@ -1,0 +1,48 @@
+-- V5: Extend teachers table with all fields required by the frontend "Add Teacher" form
+
+-- Personal
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS teacher_code VARCHAR(50);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS gender VARCHAR(10);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS blood_group VARCHAR(5);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS date_of_birth DATE;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS marital_status VARCHAR(20);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS father_name VARCHAR(100);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS mother_name VARCHAR(100);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS religion VARCHAR(50);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS address TEXT;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS permanent_address TEXT;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS pan_number VARCHAR(50);
+
+-- Academic / Employment
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS qualification VARCHAR(255);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS work_experience VARCHAR(100);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS previous_school VARCHAR(255);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS previous_school_address TEXT;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS previous_school_phone VARCHAR(20);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS joining_date DATE;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS leaving_date DATE;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'ACTIVE';
+
+-- Payroll
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS epf_number VARCHAR(50);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS basic_salary DECIMAL(12,2);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS contract_type VARCHAR(50);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS work_shift VARCHAR(50);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS work_location VARCHAR(100);
+
+-- Leaves
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS medical_leaves INTEGER DEFAULT 0;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS casual_leaves INTEGER DEFAULT 0;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS maternity_leaves INTEGER DEFAULT 0;
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS sick_leaves INTEGER DEFAULT 0;
+
+-- Bank
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS bank_account_name VARCHAR(100);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS bank_account_number VARCHAR(50);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS bank_name VARCHAR(100);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS ifsc_code VARCHAR(20);
+ALTER TABLE teachers ADD COLUMN IF NOT EXISTS branch_name VARCHAR(100);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_teachers_teacher_code ON teachers(teacher_code);
+CREATE INDEX IF NOT EXISTS idx_teachers_status ON teachers(status);

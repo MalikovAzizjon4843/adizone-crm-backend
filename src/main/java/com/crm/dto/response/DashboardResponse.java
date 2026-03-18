@@ -19,4 +19,14 @@ public class DashboardResponse {
     private Map<String, Long> studentsBySource;
     private List<Map<String, Object>> revenueChart;
     private List<Map<String, Object>> studentGrowthChart;
+
+    // New fields (V4+)
+    private long totalParents;
+    private long totalClasses;
+    private long totalSubjects;
+    private long totalHomeworks;
+    private long pendingLeaves;
+    private long unpaidPayroll;
+    private List<NoticeResponse> latestNotices;
+    private List<PaymentResponse> recentPayments;
 }
