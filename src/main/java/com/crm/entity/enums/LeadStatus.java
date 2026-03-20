@@ -5,10 +5,13 @@ import java.util.Set;
 
 public enum LeadStatus {
     NEW,
-    DAY_1_WORKED,
-    DAY_2_WORKED,
-    DAY_3_WORKED,
-    DAY_4_WORKED,
+    /**
+     * Lid bilan bog'lanilgan. Avvalgi DAY_1_WORKED..DAY_4_WORKED to'rtligining
+     * o'rnini bosadi: "necha marta urinildi" endi vazifalar lentasida —
+     * har qo'ng'iroq o'z sanasi va natijasi bilan turadi, kanbanda esa
+     * to'rtta deyarli bo'sh ustun kerak emas.
+     */
+    CONTACTED,
     ONLINE_ENROLLED,
     OFFLINE_ENROLLED,
     ONLINE_PAID,
@@ -48,14 +51,23 @@ public enum LeadStatus {
         }
     }
 
+    /**
+     * Bazada qolib ketgan eski nomlarni tirik qiymatga o'giradi.
+     *
+     * <p>DAY_1..4_WORKED shu yerda ataylab saqlanib turibdi: ular enumdan
+     * olib tashlanganda baza ko'chirildi, lekin ko'chirish o'tkazib yuborgan
+     * ustun qolsa (masalan {@code lead_comments.status_at_comment}) yozuv
+     * NEW ga emas, CONTACTED ga tushsin — ya'ni ma'no yo'qolmasin.
+     * {@code LeadStatusConverter} bu metodga tayanadi va hech qachon
+     * istisno tashlamaydi.
+     */
     public static LeadStatus fromLegacy(String legacyStatus) {
         if (legacyStatus == null || legacyStatus.isBlank()) {
             return NEW;
         }
         return switch (legacyStatus.trim().toUpperCase()) {
-            case "CONTACTED" -> DAY_1_WORKED;
-            case "IN_PROGRESS" -> DAY_2_WORKED;
-            case "INTERESTED" -> DAY_3_WORKED;
+            case "DAY_1_WORKED", "DAY_2_WORKED", "DAY_3_WORKED", "DAY_4_WORKED" -> CONTACTED;
+            case "IN_PROGRESS", "INTERESTED" -> CONTACTED;
             case "ENROLLED" -> CONVERTED;
             default -> NEW;
         };

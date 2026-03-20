@@ -536,12 +536,24 @@ public class LeadService {
                 .build();
     }
 
+    /**
+     * Eski status nomlarini tirik qiymatlarga ko'chiradi
+     * ({@code POST /api/admin/repair/lead-statuses}).
+     *
+     * <p>DIQQAT: faqat {@code leads} jadvalini o'zgartiradi.
+     * {@code lead_comments.status_at_comment} va
+     * {@code lead_status_history} ustunlari bu yerda qamralmaydi —
+     * ular uchun {@code db/migration/V44__lead_status_contacted.sql}.
+     */
     @Transactional
     public Map<String, Object> migrateLeadStatuses() {
         Map<String, Integer> migrated = new LinkedHashMap<>();
-        migrated.put("CONTACTED", leadRepository.migrateStatus("CONTACTED", "DAY_1_WORKED"));
-        migrated.put("IN_PROGRESS", leadRepository.migrateStatus("IN_PROGRESS", "DAY_2_WORKED"));
-        migrated.put("INTERESTED", leadRepository.migrateStatus("INTERESTED", "DAY_3_WORKED"));
+        migrated.put("DAY_1_WORKED", leadRepository.migrateStatus("DAY_1_WORKED", "CONTACTED"));
+        migrated.put("DAY_2_WORKED", leadRepository.migrateStatus("DAY_2_WORKED", "CONTACTED"));
+        migrated.put("DAY_3_WORKED", leadRepository.migrateStatus("DAY_3_WORKED", "CONTACTED"));
+        migrated.put("DAY_4_WORKED", leadRepository.migrateStatus("DAY_4_WORKED", "CONTACTED"));
+        migrated.put("IN_PROGRESS", leadRepository.migrateStatus("IN_PROGRESS", "CONTACTED"));
+        migrated.put("INTERESTED", leadRepository.migrateStatus("INTERESTED", "CONTACTED"));
         migrated.put("ENROLLED_CONVERTED", leadRepository.migrateEnrolledConverted());
         migrated.put("ENROLLED_ONLINE", leadRepository.migrateEnrolledOnline());
         migrated.put("ENROLLED_OFFLINE", leadRepository.migrateEnrolledOffline());
@@ -910,10 +922,7 @@ public class LeadService {
         }
         return switch (status) {
             case NEW -> "Yangi";
-            case DAY_1_WORKED -> "1-kun ishlandi";
-            case DAY_2_WORKED -> "2-kun ishlandi";
-            case DAY_3_WORKED -> "3-kun ishlandi";
-            case DAY_4_WORKED -> "4-kun ishlandi";
+            case CONTACTED -> "Bog'lanildi";
             case ONLINE_ENROLLED -> "Online guruhga yozildi";
             case OFFLINE_ENROLLED -> "Offline guruhga yozildi";
             case ONLINE_PAID -> "Online to'ladi";
