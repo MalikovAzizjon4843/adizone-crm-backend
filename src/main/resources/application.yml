@@ -6,6 +6,7 @@ spring:
     url: jdbc:postgresql://localhost:5432/adizone
     username: postgres
     password: root123
+#    sercet '@dizone_Crm_2026$$'
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 20
