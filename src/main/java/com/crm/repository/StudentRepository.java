@@ -44,10 +44,10 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
     @Query("SELECT s.marketingSource, COUNT(s) FROM Student s GROUP BY s.marketingSource")
     List<Object[]> countByMarketingSourceGrouped();
 
-    @Query("SELECT FUNCTION('MONTH', s.createdAt), FUNCTION('YEAR', s.createdAt), COUNT(s) " +
+    @Query("SELECT EXTRACT(MONTH FROM s.createdAt), EXTRACT(YEAR FROM s.createdAt), COUNT(s) " +
            "FROM Student s WHERE s.createdAt >= :from " +
-           "GROUP BY FUNCTION('YEAR', s.createdAt), FUNCTION('MONTH', s.createdAt) " +
-           "ORDER BY FUNCTION('YEAR', s.createdAt), FUNCTION('MONTH', s.createdAt)")
+           "GROUP BY EXTRACT(YEAR FROM s.createdAt), EXTRACT(MONTH FROM s.createdAt) " +
+           "ORDER BY EXTRACT(YEAR FROM s.createdAt), EXTRACT(MONTH FROM s.createdAt)")
     List<Object[]> getStudentGrowthByMonth(@Param("from") LocalDateTime from);
 
     @Query("SELECT s.gender, COUNT(s) FROM Student s WHERE s.gender IS NOT NULL GROUP BY s.gender")

@@ -25,9 +25,9 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
            "WHERE e.expenseDate BETWEEN :from AND :to GROUP BY e.category")
     List<Object[]> sumByCategory(@Param("from") LocalDate from, @Param("to") LocalDate to);
 
-    @Query("SELECT MONTH(e.expenseDate), YEAR(e.expenseDate), SUM(e.amount) FROM Expense e " +
+    @Query("SELECT EXTRACT(MONTH FROM e.expenseDate), EXTRACT(YEAR FROM e.expenseDate), SUM(e.amount) FROM Expense e " +
            "WHERE e.expenseDate >= :from " +
-           "GROUP BY YEAR(e.expenseDate), MONTH(e.expenseDate) " +
-           "ORDER BY YEAR(e.expenseDate), MONTH(e.expenseDate)")
+           "GROUP BY EXTRACT(YEAR FROM e.expenseDate), EXTRACT(MONTH FROM e.expenseDate) " +
+           "ORDER BY EXTRACT(YEAR FROM e.expenseDate), EXTRACT(MONTH FROM e.expenseDate)")
     List<Object[]> getMonthlyExpenses(@Param("from") LocalDate from);
 }

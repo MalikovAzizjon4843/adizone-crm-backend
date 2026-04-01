@@ -23,10 +23,10 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
            "AND p.status = 'PAID'")
     BigDecimal sumAmountByDateRange(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 
-    @Query("SELECT MONTH(p.paymentDate), YEAR(p.paymentDate), SUM(p.amount) FROM Payment p " +
+    @Query("SELECT EXTRACT(MONTH FROM p.paymentDate), EXTRACT(YEAR FROM p.paymentDate), SUM(p.amount) FROM Payment p " +
            "WHERE p.status = 'PAID' AND p.paymentDate >= :from " +
-           "GROUP BY YEAR(p.paymentDate), MONTH(p.paymentDate) " +
-           "ORDER BY YEAR(p.paymentDate), MONTH(p.paymentDate)")
+           "GROUP BY EXTRACT(YEAR FROM p.paymentDate), EXTRACT(MONTH FROM p.paymentDate) " +
+           "ORDER BY EXTRACT(YEAR FROM p.paymentDate), EXTRACT(MONTH FROM p.paymentDate)")
     List<Object[]> getMonthlyRevenue(@Param("from") LocalDateTime from);
 
     @Query("SELECT p FROM Payment p WHERE p.paymentDate BETWEEN :from AND :to ORDER BY p.paymentDate DESC")
