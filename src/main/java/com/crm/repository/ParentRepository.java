@@ -14,8 +14,7 @@ public interface ParentRepository extends JpaRepository<Parent, Long> {
     Page<Parent> findByIsActiveTrue(Pageable pageable);
 
     @Query("SELECT p FROM Parent p WHERE p.isActive = true AND (" +
-           "LOWER(p.firstName) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
-           "LOWER(COALESCE(p.lastName,'')) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
+           "LOWER(p.fullName) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
            "COALESCE(p.phone,'') LIKE CONCAT('%', :search, '%'))")
     Page<Parent> searchParents(@Param("search") String search, Pageable pageable);
 }

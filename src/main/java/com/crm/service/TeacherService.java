@@ -41,6 +41,7 @@ public class TeacherService {
     public TeacherResponse createTeacher(TeacherRequest request) {
         Teacher teacher = buildFromRequest(new Teacher(), request);
         teacher.setIsActive(true);
+        teacher.setTeacherCode("TCH-" + String.format("%03d", teacherRepository.count() + 1));
 
         if (request.getUserId() != null) {
             User user = userRepository.findById(request.getUserId())
@@ -121,8 +122,6 @@ public class TeacherService {
             .orElseThrow(() -> new ResourceNotFoundException("Teacher", id));
     }
 
-    // ── Private helpers ────────────────────────────────────────────
-
     private Teacher buildFromRequest(Teacher t, TeacherRequest req) {
         t.setFirstName(req.getFirstName());
         t.setLastName(req.getLastName());
@@ -132,39 +131,23 @@ public class TeacherService {
         t.setMonthlySalary(req.getMonthlySalary());
         t.setHireDate(req.getHireDate());
         t.setNotes(req.getNotes());
-        t.setTeacherCode(req.getTeacherCode());
         t.setGender(req.getGender());
-        t.setBloodGroup(req.getBloodGroup());
         t.setDateOfBirth(req.getDateOfBirth());
         t.setMaritalStatus(req.getMaritalStatus());
         t.setFatherName(req.getFatherName());
         t.setMotherName(req.getMotherName());
-        t.setReligion(req.getReligion());
         t.setAddress(req.getAddress());
         t.setPermanentAddress(req.getPermanentAddress());
-        t.setPanNumber(req.getPanNumber());
+        t.setPassportInfo(req.getPassportInfo());
         t.setQualification(req.getQualification());
         t.setWorkExperience(req.getWorkExperience());
-        t.setPreviousSchool(req.getPreviousSchool());
-        t.setPreviousSchoolAddress(req.getPreviousSchoolAddress());
-        t.setPreviousSchoolPhone(req.getPreviousSchoolPhone());
         t.setJoiningDate(req.getJoiningDate());
-        t.setLeavingDate(req.getLeavingDate());
         if (req.getStatus() != null) t.setStatus(req.getStatus());
-        t.setEpfNumber(req.getEpfNumber());
         t.setBasicSalary(req.getBasicSalary());
-        t.setContractType(req.getContractType());
-        t.setWorkShift(req.getWorkShift());
-        t.setWorkLocation(req.getWorkLocation());
         if (req.getMedicalLeaves() != null) t.setMedicalLeaves(req.getMedicalLeaves());
         if (req.getCasualLeaves() != null) t.setCasualLeaves(req.getCasualLeaves());
         if (req.getMaternityLeaves() != null) t.setMaternityLeaves(req.getMaternityLeaves());
         if (req.getSickLeaves() != null) t.setSickLeaves(req.getSickLeaves());
-        t.setBankAccountName(req.getBankAccountName());
-        t.setBankAccountNumber(req.getBankAccountNumber());
-        t.setBankName(req.getBankName());
-        t.setIfscCode(req.getIfscCode());
-        t.setBranchName(req.getBranchName());
         return t;
     }
 
@@ -180,22 +163,14 @@ public class TeacherService {
             .isActive(t.getIsActive()).notes(t.getNotes())
             .activeGroupsCount((int) activeGroups)
             .teacherCode(t.getTeacherCode()).gender(t.getGender())
-            .bloodGroup(t.getBloodGroup()).dateOfBirth(t.getDateOfBirth())
-            .maritalStatus(t.getMaritalStatus()).fatherName(t.getFatherName())
-            .motherName(t.getMotherName()).religion(t.getReligion())
+            .dateOfBirth(t.getDateOfBirth()).maritalStatus(t.getMaritalStatus())
+            .fatherName(t.getFatherName()).motherName(t.getMotherName())
             .address(t.getAddress()).permanentAddress(t.getPermanentAddress())
-            .panNumber(t.getPanNumber()).qualification(t.getQualification())
-            .workExperience(t.getWorkExperience()).previousSchool(t.getPreviousSchool())
-            .previousSchoolAddress(t.getPreviousSchoolAddress())
-            .previousSchoolPhone(t.getPreviousSchoolPhone())
-            .joiningDate(t.getJoiningDate()).leavingDate(t.getLeavingDate())
-            .status(t.getStatus()).epfNumber(t.getEpfNumber())
-            .basicSalary(t.getBasicSalary()).contractType(t.getContractType())
-            .workShift(t.getWorkShift()).workLocation(t.getWorkLocation())
+            .passportInfo(t.getPassportInfo()).qualification(t.getQualification())
+            .workExperience(t.getWorkExperience()).joiningDate(t.getJoiningDate())
+            .status(t.getStatus()).basicSalary(t.getBasicSalary())
             .medicalLeaves(t.getMedicalLeaves()).casualLeaves(t.getCasualLeaves())
             .maternityLeaves(t.getMaternityLeaves()).sickLeaves(t.getSickLeaves())
-            .bankAccountName(t.getBankAccountName()).bankAccountNumber(t.getBankAccountNumber())
-            .bankName(t.getBankName()).ifscCode(t.getIfscCode()).branchName(t.getBranchName())
             .createdAt(t.getCreatedAt())
             .build();
     }

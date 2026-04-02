@@ -5,7 +5,12 @@ import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.response.GroupResponse;
 import com.crm.dto.response.ScheduleResponse;
 import com.crm.dto.response.StudentGroupResponse;
-import com.crm.entity.*;
+import com.crm.entity.Course;
+import com.crm.entity.Group;
+import com.crm.entity.GroupSchedule;
+import com.crm.entity.Student;
+import com.crm.entity.StudentGroup;
+import com.crm.entity.Teacher;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.DuplicateResourceException;
@@ -35,12 +40,12 @@ public class GroupService {
         List<Group> groups = status != null
             ? groupRepository.findByStatus(status)
             : groupRepository.findAll();
-        return groups.stream().map(this::toResponse).collect(Collectors.toList());
+        return groups.stream().map(g -> toResponse(g, false)).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public GroupResponse getGroupById(Long id) {
-        return toResponse(findById(id));
+        return toResponse(findById(id), true);
     }
 
     @Transactional
@@ -79,7 +84,7 @@ public class GroupService {
             groupRepository.save(saved);
         }
 
-        return toResponse(saved);
+        return toResponse(saved, false);
     }
 
     @Transactional
@@ -103,7 +108,7 @@ public class GroupService {
             group.setTeacher(null);
         }
 
-        return toResponse(groupRepository.save(group));
+        return toResponse(groupRepository.save(group), false);
     }
 
     @Transactional
@@ -146,6 +151,8 @@ public class GroupService {
 
         return StudentGroupResponse.builder()
             .id(saved.getId())
+            .studentId(student.getId())
+            .studentName(student.getFirstName() + " " + student.getLastName())
             .groupId(group.getId())
             .groupName(group.getGroupName())
             .courseName(group.getCourse().getCourseName())
@@ -171,7 +178,7 @@ public class GroupService {
             .orElseThrow(() -> new ResourceNotFoundException("Group", id));
     }
 
-    private GroupResponse toResponse(Group g) {
+    private GroupResponse toResponse(Group g, boolean includeMembers) {
         List<ScheduleResponse> schedules = g.getSchedules().stream()
             .map(s -> ScheduleResponse.builder()
                 .id(s.getId())
@@ -180,6 +187,31 @@ public class GroupService {
                 .endTime(s.getEndTime())
                 .build())
             .collect(Collectors.toList());
+
+        List<StudentGroupResponse> members = null;
+        if (includeMembers && g.getStudentGroups() != null) {
+            members = g.getStudentGroups().stream()
+                .filter(sg -> Boolean.TRUE.equals(sg.getIsActive()))
+                .map(sg -> {
+                    Student st = sg.getStudent();
+                    return StudentGroupResponse.builder()
+                        .id(sg.getId())
+                        .studentId(st.getId())
+                        .studentName(st.getFirstName() + " " + st.getLastName())
+                        .groupId(g.getId())
+                        .groupName(g.getGroupName())
+                        .courseName(g.getCourse().getCourseName())
+                        .teacherName(g.getTeacher() != null
+                            ? g.getTeacher().getFirstName() + " " + g.getTeacher().getLastName() : null)
+                        .joinDate(sg.getJoinDate())
+                        .nextPaymentDate(sg.getNextPaymentDate())
+                        .monthlyPrice(sg.getMonthlyPriceOverride() != null
+                            ? sg.getMonthlyPriceOverride() : g.getCourse().getMonthlyPrice())
+                        .isActive(sg.getIsActive())
+                        .build();
+                })
+                .collect(Collectors.toList());
+        }
 
         return GroupResponse.builder()
             .id(g.getId())
@@ -195,8 +227,10 @@ public class GroupService {
             .currentStudents(g.getCurrentStudents())
             .startDate(g.getStartDate())
             .endDate(g.getEndDate())
+            .notes(g.getNotes())
             .status(g.getStatus())
             .schedules(schedules)
+            .studentGroups(members)
             .createdAt(g.getCreatedAt())
             .build();
     }

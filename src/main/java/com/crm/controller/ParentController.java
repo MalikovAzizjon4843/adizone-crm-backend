@@ -57,6 +57,14 @@ public class ParentController {
         return ResponseEntity.ok(ApiResponse.success(parentService.getParentsByStudent(studentId)));
     }
 
+    @PostMapping("/{id}/link/{studentId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> linkToStudentByPath(
+            @PathVariable Long id, @PathVariable Long studentId) {
+        parentService.linkParentToStudent(id, Map.of("studentId", studentId));
+        return ResponseEntity.ok(ApiResponse.success("Parent linked to student", null));
+    }
+
     @PostMapping("/{id}/students")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> linkToStudent(

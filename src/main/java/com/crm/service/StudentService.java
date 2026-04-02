@@ -2,10 +2,12 @@ package com.crm.service;
 
 import com.crm.dto.request.StudentRequest;
 import com.crm.dto.response.*;
+import com.crm.entity.Payment;
 import com.crm.entity.Student;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.repository.StudentParentRepository;
 import com.crm.repository.StudentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -21,6 +23,7 @@ import java.util.stream.Collectors;
 public class StudentService {
 
     private final StudentRepository studentRepository;
+    private final StudentParentRepository studentParentRepository;
 
     @Transactional(readOnly = true)
     public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status) {
@@ -83,6 +86,8 @@ public class StudentService {
         if (request.getReferralStudentId() != null) {
             Student referral = findById(request.getReferralStudentId());
             student.setReferralStudent(referral);
+        } else {
+            student.setReferralStudent(null);
         }
 
         return toResponse(studentRepository.save(student));
@@ -140,14 +145,13 @@ public class StudentService {
     public byte[] exportStudentsCsv() {
         List<Student> students = studentRepository.findAll(Sort.by("createdAt").descending());
         StringBuilder csv = new StringBuilder();
-        csv.append("ID,UUID,First Name,Last Name,Phone,Email,Admission Number,Gender,Status,Marketing Source,Created At\n");
+        csv.append("ID,UUID,First Name,Last Name,Phone,Admission Number,Gender,Status,Marketing Source,Created At\n");
         for (Student s : students) {
             csv.append(s.getId()).append(",")
                .append(s.getUuid()).append(",")
                .append(esc(s.getFirstName())).append(",")
                .append(esc(s.getLastName())).append(",")
                .append(esc(s.getPhone())).append(",")
-               .append(esc(s.getEmail())).append(",")
                .append(esc(s.getAdmissionNumber())).append(",")
                .append(esc(s.getGender())).append(",")
                .append(s.getStatus()).append(",")
@@ -162,14 +166,13 @@ public class StudentService {
             .orElseThrow(() -> new ResourceNotFoundException("Student", id));
     }
 
-    // ── Private helpers ────────────────────────────────────────────
-
     private Student buildFromRequest(Student s, StudentRequest req) {
         s.setFirstName(req.getFirstName());
         s.setLastName(req.getLastName());
         s.setPhone(req.getPhone());
         s.setParentPhone(req.getParentPhone());
         s.setBirthDate(req.getBirthDate());
+        s.setGender(req.getGender());
         s.setMarketingSource(req.getMarketingSource());
         s.setStatus(req.getStatus() != null ? req.getStatus() : StudentStatus.ACTIVE);
         s.setNotes(req.getNotes());
@@ -177,37 +180,6 @@ public class StudentService {
         s.setPhotoUrl(req.getPhotoUrl());
         s.setAdmissionNumber(req.getAdmissionNumber());
         s.setAdmissionDate(req.getAdmissionDate());
-        s.setRollNumber(req.getRollNumber());
-        s.setAcademicYear(req.getAcademicYear());
-        s.setGender(req.getGender());
-        s.setBloodGroup(req.getBloodGroup());
-        s.setReligion(req.getReligion());
-        s.setCategory(req.getCategory());
-        s.setMotherTongue(req.getMotherTongue());
-        s.setEmail(req.getEmail());
-        s.setCurrentAddress(req.getCurrentAddress());
-        s.setPermanentAddress(req.getPermanentAddress());
-        s.setFatherName(req.getFatherName());
-        s.setFatherPhone(req.getFatherPhone());
-        s.setFatherEmail(req.getFatherEmail());
-        s.setFatherOccupation(req.getFatherOccupation());
-        s.setMotherName(req.getMotherName());
-        s.setMotherPhone(req.getMotherPhone());
-        s.setMotherEmail(req.getMotherEmail());
-        s.setMotherOccupation(req.getMotherOccupation());
-        s.setGuardianName(req.getGuardianName());
-        s.setGuardianRelation(req.getGuardianRelation());
-        s.setGuardianPhone(req.getGuardianPhone());
-        s.setGuardianEmail(req.getGuardianEmail());
-        s.setGuardianOccupation(req.getGuardianOccupation());
-        s.setGuardianAddress(req.getGuardianAddress());
-        s.setMedicalCondition(req.getMedicalCondition());
-        s.setAllergies(req.getAllergies());
-        s.setMedications(req.getMedications());
-        s.setPreviousSchoolName(req.getPreviousSchoolName());
-        s.setPreviousSchoolAddress(req.getPreviousSchoolAddress());
-        s.setBankName(req.getBankName());
-        s.setBankAccountNumber(req.getBankAccountNumber());
         return s;
     }
 
@@ -216,27 +188,12 @@ public class StudentService {
             .id(s.getId()).uuid(s.getUuid())
             .firstName(s.getFirstName()).lastName(s.getLastName())
             .phone(s.getPhone()).parentPhone(s.getParentPhone())
-            .birthDate(s.getBirthDate()).marketingSource(s.getMarketingSource())
+            .birthDate(s.getBirthDate()).gender(s.getGender())
+            .marketingSource(s.getMarketingSource())
             .status(s.getStatus()).notes(s.getNotes())
             .address(s.getAddress()).photoUrl(s.getPhotoUrl())
             .admissionNumber(s.getAdmissionNumber()).admissionDate(s.getAdmissionDate())
-            .rollNumber(s.getRollNumber()).academicYear(s.getAcademicYear())
-            .gender(s.getGender()).bloodGroup(s.getBloodGroup())
-            .religion(s.getReligion()).category(s.getCategory())
-            .motherTongue(s.getMotherTongue()).email(s.getEmail())
-            .currentAddress(s.getCurrentAddress()).permanentAddress(s.getPermanentAddress())
-            .fatherName(s.getFatherName()).fatherPhone(s.getFatherPhone())
-            .fatherEmail(s.getFatherEmail()).fatherOccupation(s.getFatherOccupation())
-            .motherName(s.getMotherName()).motherPhone(s.getMotherPhone())
-            .motherEmail(s.getMotherEmail()).motherOccupation(s.getMotherOccupation())
-            .guardianName(s.getGuardianName()).guardianRelation(s.getGuardianRelation())
-            .guardianPhone(s.getGuardianPhone()).guardianEmail(s.getGuardianEmail())
-            .guardianOccupation(s.getGuardianOccupation()).guardianAddress(s.getGuardianAddress())
-            .medicalCondition(s.getMedicalCondition()).allergies(s.getAllergies())
-            .medications(s.getMedications())
-            .previousSchoolName(s.getPreviousSchoolName())
-            .previousSchoolAddress(s.getPreviousSchoolAddress())
-            .bankName(s.getBankName()).bankAccountNumber(s.getBankAccountNumber())
+            .referralStudentId(s.getReferralStudent() != null ? s.getReferralStudent().getId() : null)
             .createdAt(s.getCreatedAt())
             .build();
     }
@@ -259,8 +216,21 @@ public class StudentService {
                 .build())
             .collect(Collectors.toList());
 
+        List<StudentDetailResponse.StudentParentInfo> parents = studentParentRepository
+            .findByStudentId(s.getId()).stream()
+            .map(sp -> StudentDetailResponse.StudentParentInfo.builder()
+                .parentId(sp.getParent().getId())
+                .fullName(sp.getParent().getFullName())
+                .phone(sp.getParent().getPhone())
+                .address(sp.getParent().getAddress())
+                .relation(sp.getRelation())
+                .isPrimary(sp.getIsPrimary())
+                .build())
+            .collect(Collectors.toList());
+
         List<PaymentResponse> payments = s.getPayments().stream()
-            .limit(10)
+            .sorted(Comparator.comparing(Payment::getPaymentDate, Comparator.nullsLast(Comparator.reverseOrder())))
+            .limit(5)
             .map(p -> PaymentResponse.builder()
                 .id(p.getId()).uuid(p.getUuid())
                 .studentId(s.getId())
@@ -275,28 +245,13 @@ public class StudentService {
             .id(s.getId()).uuid(s.getUuid())
             .firstName(s.getFirstName()).lastName(s.getLastName())
             .phone(s.getPhone()).parentPhone(s.getParentPhone())
-            .birthDate(s.getBirthDate()).marketingSource(s.getMarketingSource())
+            .birthDate(s.getBirthDate()).gender(s.getGender())
+            .marketingSource(s.getMarketingSource())
             .status(s.getStatus()).notes(s.getNotes())
             .address(s.getAddress()).photoUrl(s.getPhotoUrl())
             .admissionNumber(s.getAdmissionNumber()).admissionDate(s.getAdmissionDate())
-            .rollNumber(s.getRollNumber()).academicYear(s.getAcademicYear())
-            .gender(s.getGender()).bloodGroup(s.getBloodGroup())
-            .religion(s.getReligion()).category(s.getCategory())
-            .motherTongue(s.getMotherTongue()).email(s.getEmail())
-            .currentAddress(s.getCurrentAddress()).permanentAddress(s.getPermanentAddress())
-            .fatherName(s.getFatherName()).fatherPhone(s.getFatherPhone())
-            .fatherEmail(s.getFatherEmail()).fatherOccupation(s.getFatherOccupation())
-            .motherName(s.getMotherName()).motherPhone(s.getMotherPhone())
-            .motherEmail(s.getMotherEmail()).motherOccupation(s.getMotherOccupation())
-            .guardianName(s.getGuardianName()).guardianRelation(s.getGuardianRelation())
-            .guardianPhone(s.getGuardianPhone()).guardianEmail(s.getGuardianEmail())
-            .guardianOccupation(s.getGuardianOccupation()).guardianAddress(s.getGuardianAddress())
-            .medicalCondition(s.getMedicalCondition()).allergies(s.getAllergies())
-            .medications(s.getMedications())
-            .previousSchoolName(s.getPreviousSchoolName())
-            .previousSchoolAddress(s.getPreviousSchoolAddress())
-            .bankName(s.getBankName()).bankAccountNumber(s.getBankAccountNumber())
-            .activeGroups(groups).recentPayments(payments)
+            .referralStudentId(s.getReferralStudent() != null ? s.getReferralStudent().getId() : null)
+            .activeGroups(groups).recentPayments(payments).parents(parents)
             .createdAt(s.getCreatedAt())
             .build();
     }

@@ -6,14 +6,16 @@ import lombok.Data;
 @Data
 public class ParentRequest {
 
-    @NotBlank(message = "First name is required")
-    private String firstName;
+    @NotBlank
+    private String fullName;
 
-    private String lastName;
+    @NotBlank
     private String phone;
-    private String email;
-    private String occupation;
+
     private String address;
-    private String photoUrl;
+
+    /** FATHER, MOTHER, or OTHER */
     private String relation;
+
+    private Long studentId;
 }

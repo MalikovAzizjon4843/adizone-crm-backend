@@ -10,6 +10,7 @@ import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -87,6 +88,17 @@ public class PaymentService {
     public List<PaymentResponse> getStudentPayments(Long studentId) {
         return paymentRepository.findByStudentIdOrderByPaymentDateDesc(studentId)
             .stream().map(this::toResponse).collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<PaymentResponse> getAllPayments(LocalDate from, LocalDate to) {
+        List<Payment> list;
+        if (from != null && to != null) {
+            list = paymentRepository.findByDateRange(from.atStartOfDay(), to.atTime(23, 59, 59));
+        } else {
+            list = paymentRepository.findAll(Sort.by(Sort.Direction.DESC, "paymentDate"));
+        }
+        return list.stream().map(this::toResponse).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)

@@ -5,6 +5,8 @@ import java.time.LocalDate;
 @Data @Builder @NoArgsConstructor @AllArgsConstructor
 public class StudentGroupResponse {
     private Long id;
+    private Long studentId;
+    private String studentName;
     private Long groupId;
     private String groupName;
     private String courseName;

@@ -43,6 +43,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
+                .requestMatchers("/api/roles").hasAnyRole("SUPER_ADMIN", "ADMIN")
                 // Analytics — admin/super_admin only
                 .requestMatchers(HttpMethod.GET, "/api/analytics/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")

@@ -16,6 +16,7 @@ import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -43,31 +44,41 @@ public class ParentService {
     @Transactional
     public ParentResponse createParent(ParentRequest request) {
         Parent parent = Parent.builder()
-            .firstName(request.getFirstName())
-            .lastName(request.getLastName())
+            .fullName(request.getFullName())
             .phone(request.getPhone())
-            .email(request.getEmail())
-            .occupation(request.getOccupation())
             .address(request.getAddress())
-            .photoUrl(request.getPhotoUrl())
-            .relation(request.getRelation() != null ? request.getRelation() : "PARENT")
+            .relation(request.getRelation() != null ? request.getRelation() : "OTHER")
             .isActive(true)
             .build();
-        return toResponse(parentRepository.save(parent), false);
+        parent = parentRepository.save(parent);
+
+        if (request.getStudentId() != null) {
+            linkParentToStudentInternal(parent, request.getStudentId(),
+                request.getRelation() != null ? request.getRelation() : parent.getRelation(), true);
+        }
+
+        return toResponse(parent, false);
     }
 
     @Transactional
     public ParentResponse updateParent(Long id, ParentRequest request) {
         Parent parent = findById(id);
-        parent.setFirstName(request.getFirstName());
-        parent.setLastName(request.getLastName());
+        parent.setFullName(request.getFullName());
         parent.setPhone(request.getPhone());
-        parent.setEmail(request.getEmail());
-        parent.setOccupation(request.getOccupation());
         parent.setAddress(request.getAddress());
-        parent.setPhotoUrl(request.getPhotoUrl());
-        if (request.getRelation() != null) parent.setRelation(request.getRelation());
-        return toResponse(parentRepository.save(parent), false);
+        if (request.getRelation() != null) {
+            parent.setRelation(request.getRelation());
+        }
+        parent = parentRepository.save(parent);
+
+        if (request.getStudentId() != null) {
+            if (!studentParentRepository.existsByStudentIdAndParentId(request.getStudentId(), parent.getId())) {
+                linkParentToStudentInternal(parent, request.getStudentId(),
+                    request.getRelation() != null ? request.getRelation() : parent.getRelation(), false);
+            }
+        }
+
+        return toResponse(parent, false);
     }
 
     @Transactional
@@ -88,18 +99,25 @@ public class ParentService {
     public void linkParentToStudent(Long parentId, Map<String, Object> body) {
         Parent parent = findById(parentId);
         Long studentId = Long.valueOf(body.get("studentId").toString());
-        Student student = studentRepository.findById(studentId)
-            .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
+        String relation = body.containsKey("relation") ? body.get("relation").toString() : parent.getRelation();
+        boolean isPrimary = body.containsKey("isPrimary") && Boolean.parseBoolean(body.get("isPrimary").toString());
 
         if (studentParentRepository.existsByStudentIdAndParentId(studentId, parentId)) {
             throw new BadRequestException("Parent is already linked to this student");
         }
 
+        linkParentToStudentInternal(parent, studentId, relation, isPrimary);
+    }
+
+    private void linkParentToStudentInternal(Parent parent, Long studentId, String relation, boolean isPrimary) {
+        Student student = studentRepository.findById(studentId)
+            .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
+
         StudentParent sp = StudentParent.builder()
             .parent(parent)
             .student(student)
-            .relation(body.containsKey("relation") ? body.get("relation").toString() : parent.getRelation())
-            .isPrimary(body.containsKey("isPrimary") && Boolean.parseBoolean(body.get("isPrimary").toString()))
+            .relation(relation)
+            .isPrimary(isPrimary)
             .build();
         studentParentRepository.save(sp);
     }
@@ -116,8 +134,6 @@ public class ParentService {
             .orElseThrow(() -> new ResourceNotFoundException("Parent", id));
     }
 
-    // ── Private helpers ────────────────────────────────────────────
-
     private PageResponse<ParentResponse> toPageResponse(Page<Parent> p, int page, int size) {
         return PageResponse.<ParentResponse>builder()
             .content(p.getContent().stream().map(par -> toResponse(par, false)).collect(Collectors.toList()))
@@ -127,9 +143,13 @@ public class ParentService {
     }
 
     private ParentResponse toResponse(Parent p, boolean includeStudents) {
-        List<ParentResponse.LinkedStudentResponse> students = null;
+        List<ParentResponse.LinkedStudentResponse> linkedStudents = null;
+        Long studentId = null;
+        String studentName = null;
+
         if (includeStudents) {
-            students = studentParentRepository.findByParentId(p.getId()).stream()
+            linkedStudents = studentParentRepository.findByParentId(p.getId()).stream()
+                .sorted(Comparator.comparing(StudentParent::getIsPrimary, Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(sp -> ParentResponse.LinkedStudentResponse.builder()
                     .studentId(sp.getStudent().getId())
                     .firstName(sp.getStudent().getFirstName())
@@ -139,14 +159,23 @@ public class ParentService {
                     .isPrimary(sp.getIsPrimary())
                     .build())
                 .collect(Collectors.toList());
+            if (!linkedStudents.isEmpty()) {
+                ParentResponse.LinkedStudentResponse first = linkedStudents.get(0);
+                studentId = first.getStudentId();
+                studentName = first.getFirstName() + " " + first.getLastName();
+            }
         }
+
         return ParentResponse.builder()
-            .id(p.getId()).uuid(p.getUuid())
-            .firstName(p.getFirstName()).lastName(p.getLastName())
-            .phone(p.getPhone()).email(p.getEmail())
-            .occupation(p.getOccupation()).address(p.getAddress())
-            .photoUrl(p.getPhotoUrl()).relation(p.getRelation())
-            .isActive(p.getIsActive()).linkedStudents(students)
+            .id(p.getId())
+            .fullName(p.getFullName())
+            .phone(p.getPhone())
+            .address(p.getAddress())
+            .relation(p.getRelation())
+            .studentId(studentId)
+            .studentName(studentName)
+            .isActive(p.getIsActive())
+            .linkedStudents(linkedStudents)
             .createdAt(p.getCreatedAt())
             .build();
     }

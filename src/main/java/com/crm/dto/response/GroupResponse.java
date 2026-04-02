@@ -19,7 +19,10 @@ public class GroupResponse {
     private Integer currentStudents;
     private LocalDate startDate;
     private LocalDate endDate;
+    private String notes;
     private GroupStatus status;
     private List<ScheduleResponse> schedules;
+    /** Active members; populated only for single-group fetches (e.g. getById). */
+    private List<StudentGroupResponse> studentGroups;
     private LocalDateTime createdAt;
 }
