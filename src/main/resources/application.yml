@@ -2,6 +2,11 @@ spring:
   application:
     name: crm-system
 
+  servlet:
+    multipart:
+      max-file-size: 4MB
+      max-request-size: 8MB
+
   datasource:
     url: jdbc:postgresql://localhost:5432/adizone
     username: postgres
@@ -38,9 +43,14 @@ server:
   servlet:
     context-path: /
 
+app:
+  upload:
+    dir: /opt/crm/uploads
+  base-url: https://api.adizone.uz
+
 jwt:
   secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
-  expiration: 86400000  # 24 hours in ms
+  expiration: 28800000  # 24 hours in ms
   refresh-expiration: 604800000  # 7 days in ms
 
 logging:

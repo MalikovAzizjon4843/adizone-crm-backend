@@ -3,14 +3,18 @@ package com.crm.controller;
 import com.crm.dto.request.StudentRequest;
 import com.crm.dto.response.*;
 import com.crm.entity.enums.StudentStatus;
+import com.crm.exception.BadRequestException;
+import com.crm.service.FileStorageService;
 import com.crm.service.StudentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/students")
@@ -18,6 +22,7 @@ import java.util.Map;
 public class StudentController {
 
     private final StudentService studentService;
+    private final FileStorageService fileStorageService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<StudentResponse>>> getAllStudents(
@@ -74,12 +79,22 @@ public class StudentController {
         return ResponseEntity.ok().headers(headers).body(csv);
     }
 
-    @PostMapping("/{id}/photo")
+    @PostMapping("/{id:\\d+}/photo")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<ApiResponse<StudentResponse>> updatePhoto(
-            @PathVariable Long id, @RequestBody Map<String, String> body) {
-        return ResponseEntity.ok(ApiResponse.success("Photo updated",
-            studentService.updateStudentPhoto(id, body.get("photoUrl"))));
+    public ResponseEntity<ApiResponse<StudentResponse>> uploadPhoto(
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file) {
+        try {
+            String filename = UUID.randomUUID() + "_student_" + id + ".jpg";
+            String photoUrl = fileStorageService.saveImage(file, filename);
+            return ResponseEntity.ok(ApiResponse.success("Rasm saqlandi",
+                    studentService.updatePhoto(id, photoUrl)));
+        } catch (Exception e) {
+            if (e instanceof BadRequestException) {
+                throw (BadRequestException) e;
+            }
+            throw new BadRequestException("Rasm yuklashda xatolik");
+        }
     }
 
     @GetMapping("/stats")

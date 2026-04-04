@@ -2,15 +2,19 @@ package com.crm.controller;
 
 import com.crm.dto.request.TeacherRequest;
 import com.crm.dto.response.*;
+import com.crm.exception.BadRequestException;
+import com.crm.service.FileStorageService;
 import com.crm.service.TeacherService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/teachers")
@@ -18,6 +22,7 @@ import java.util.Map;
 public class TeacherController {
 
     private final TeacherService teacherService;
+    private final FileStorageService fileStorageService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<TeacherResponse>>> getAllTeachers(
@@ -63,6 +68,24 @@ public class TeacherController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getStats() {
         return ResponseEntity.ok(ApiResponse.success(teacherService.getTeacherStats()));
+    }
+
+    @PostMapping("/{id:\\d+}/photo")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<TeacherResponse>> uploadPhoto(
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file) {
+        try {
+            String filename = UUID.randomUUID() + "_teacher_" + id + ".jpg";
+            String photoUrl = fileStorageService.saveImage(file, filename);
+            return ResponseEntity.ok(ApiResponse.success("Rasm saqlandi",
+                    teacherService.updatePhoto(id, photoUrl)));
+        } catch (Exception e) {
+            if (e instanceof BadRequestException) {
+                throw (BadRequestException) e;
+            }
+            throw new BadRequestException("Rasm yuklashda xatolik");
+        }
     }
 
     @GetMapping("/export")

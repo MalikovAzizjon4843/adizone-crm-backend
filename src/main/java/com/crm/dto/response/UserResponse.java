@@ -14,4 +14,5 @@ public class UserResponse {
     private Boolean isActive;
     private LocalDateTime lastLogin;
     private LocalDateTime createdAt;
+    private String photoUrl;
 }

@@ -52,4 +52,7 @@ public class User extends BaseEntity {
 
     @Column(name = "last_login")
     private LocalDateTime lastLogin;
+
+    @Column(name = "photo_url", length = 500)
+    private String photoUrl;
 }

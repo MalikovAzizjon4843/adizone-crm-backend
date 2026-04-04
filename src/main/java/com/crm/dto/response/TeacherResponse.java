@@ -5,6 +5,7 @@ import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -27,7 +28,6 @@ public class TeacherResponse {
     private String teacherCode;
     private String gender;
     private LocalDate dateOfBirth;
-    private String maritalStatus;
     private String fatherName;
     private String motherName;
     private String address;
@@ -42,5 +42,17 @@ public class TeacherResponse {
     private Integer casualLeaves;
     private Integer maternityLeaves;
     private Integer sickLeaves;
+    private String photoUrl;
+    private List<GroupSummary> groups;
     private LocalDateTime createdAt;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class GroupSummary {
+        private Long id;
+        private String groupName;
+        private String courseName;
+    }
 }

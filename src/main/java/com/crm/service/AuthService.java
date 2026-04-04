@@ -155,6 +155,7 @@ public class AuthService {
             .role(user.getRole())
             .isActive(user.getIsActive())
             .createdAt(user.getCreatedAt())
+            .photoUrl(user.getPhotoUrl())
             .build();
     }
 
@@ -173,6 +174,7 @@ public class AuthService {
             .isActive(user.getIsActive())
             .lastLogin(user.getLastLogin())
             .createdAt(user.getCreatedAt())
+            .photoUrl(user.getPhotoUrl())
             .build();
     }
 }

@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 @Data
 public class TeacherRequest {
@@ -27,7 +28,6 @@ public class TeacherRequest {
 
     private String gender;
     private LocalDate dateOfBirth;
-    private String maritalStatus;
     private String fatherName;
     private String motherName;
     private String address;
@@ -45,4 +45,9 @@ public class TeacherRequest {
     private Integer casualLeaves;
     private Integer maternityLeaves;
     private Integer sickLeaves;
+
+    private String photoUrl;
+
+    /** Optional: assign these groups to this teacher (sets {@code Group.teacher}). */
+    private List<Long> groupIds;
 }

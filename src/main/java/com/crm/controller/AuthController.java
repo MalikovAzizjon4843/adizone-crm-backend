@@ -9,9 +9,11 @@ import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.AuthResponse;
 import com.crm.dto.response.UserResponse;
 import com.crm.entity.User;
+import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.UserRepository;
 import com.crm.service.AuthService;
+import com.crm.service.FileStorageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +22,9 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -29,6 +34,7 @@ public class AuthController {
     private final AuthService authService;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final FileStorageService fileStorageService;
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request) {
@@ -87,7 +93,29 @@ public class AuthController {
                 .isActive(user.getIsActive())
                 .lastLogin(user.getLastLogin())
                 .createdAt(user.getCreatedAt())
+                .photoUrl(user.getPhotoUrl())
                 .build()));
+    }
+
+    @PostMapping("/profile/photo")
+    public ResponseEntity<ApiResponse<UserResponse>> uploadProfilePhoto(
+            @RequestParam("file") MultipartFile file,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        try {
+            User user = userRepository.findByUsername(userDetails.getUsername())
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+            String filename = UUID.randomUUID() + "_profile_" + user.getId() + ".jpg";
+            String photoUrl = fileStorageService.saveImage(file, filename);
+            user.setPhotoUrl(photoUrl);
+            userRepository.save(user);
+            return ResponseEntity.ok(ApiResponse.success("Rasm saqlandi",
+                    authService.getCurrentUser(user.getUsername())));
+        } catch (Exception e) {
+            if (e instanceof BadRequestException) {
+                throw (BadRequestException) e;
+            }
+            throw new BadRequestException("Rasm yuklashda xatolik");
+        }
     }
 
     @PutMapping("/change-password")

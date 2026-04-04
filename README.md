@@ -280,6 +280,35 @@ src/main/java/com/crm/
 
 ---
 
+## File uploads (photos)
+
+The API stores uploaded images under **`app.upload.dir`** (default **`/opt/crm/uploads`**) and serves them at **`GET /api/files/{filename}`**.
+
+On the server, create the directory and grant the process user write access, for example:
+
+```bash
+sudo mkdir -p /opt/crm/uploads
+sudo chown <app-user>:<app-group> /opt/crm/uploads
+```
+
+Set **`app.base-url`** in `application.yml` (or via env) to your public API base URL so returned photo links are correct (e.g. `https://api.adizone.uz`).
+
+---
+
+## Server setup after deployment
+
+Run these commands on the VPS after deploying:
+
+```bash
+mkdir -p /opt/crm/uploads
+chown -R crm:crm /opt/crm/uploads
+chmod 755 /opt/crm/uploads
+```
+
+Replace `crm:crm` with the user and group your application process runs as if different.
+
+---
+
 ## Environment Variables (Production)
 
 Override in production via env vars or external config:

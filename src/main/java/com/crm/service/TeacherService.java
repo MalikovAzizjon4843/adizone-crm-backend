@@ -5,7 +5,9 @@ import com.crm.dto.response.PageResponse;
 import com.crm.dto.response.TeacherResponse;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
+import com.crm.entity.enums.GroupStatus;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.repository.GroupRepository;
 import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,7 @@ public class TeacherService {
 
     private final TeacherRepository teacherRepository;
     private final UserRepository userRepository;
+    private final GroupRepository groupRepository;
 
     @Transactional(readOnly = true)
     public List<TeacherResponse> getAllTeachers(boolean activeOnly) {
@@ -49,7 +52,9 @@ public class TeacherService {
             teacher.setUser(user);
         }
 
-        return toResponse(teacherRepository.save(teacher));
+        teacher = teacherRepository.save(teacher);
+        assignGroupsToTeacher(teacher, request.getGroupIds());
+        return toResponse(findById(teacher.getId()));
     }
 
     @Transactional
@@ -63,7 +68,9 @@ public class TeacherService {
             teacher.setUser(user);
         }
 
-        return toResponse(teacherRepository.save(teacher));
+        teacherRepository.save(teacher);
+        assignGroupsToTeacher(teacher, request.getGroupIds());
+        return toResponse(findById(id));
     }
 
     @Transactional
@@ -71,6 +78,13 @@ public class TeacherService {
         Teacher teacher = findById(id);
         teacher.setIsActive(false);
         teacherRepository.save(teacher);
+    }
+
+    @Transactional
+    public TeacherResponse updatePhoto(Long id, String photoUrl) {
+        Teacher teacher = findById(id);
+        teacher.setPhotoUrl(photoUrl);
+        return toResponse(teacherRepository.save(teacher));
     }
 
     @Transactional(readOnly = true)
@@ -122,6 +136,18 @@ public class TeacherService {
             .orElseThrow(() -> new ResourceNotFoundException("Teacher", id));
     }
 
+    private void assignGroupsToTeacher(Teacher teacher, List<Long> groupIds) {
+        if (groupIds == null) {
+            return;
+        }
+        for (Long groupId : groupIds) {
+            groupRepository.findById(groupId).ifPresent(group -> {
+                group.setTeacher(teacher);
+                groupRepository.save(group);
+            });
+        }
+    }
+
     private Teacher buildFromRequest(Teacher t, TeacherRequest req) {
         t.setFirstName(req.getFirstName());
         t.setLastName(req.getLastName());
@@ -133,7 +159,6 @@ public class TeacherService {
         t.setNotes(req.getNotes());
         t.setGender(req.getGender());
         t.setDateOfBirth(req.getDateOfBirth());
-        t.setMaritalStatus(req.getMaritalStatus());
         t.setFatherName(req.getFatherName());
         t.setMotherName(req.getMotherName());
         t.setAddress(req.getAddress());
@@ -142,18 +167,39 @@ public class TeacherService {
         t.setQualification(req.getQualification());
         t.setWorkExperience(req.getWorkExperience());
         t.setJoiningDate(req.getJoiningDate());
-        if (req.getStatus() != null) t.setStatus(req.getStatus());
+        if (req.getStatus() != null) {
+            t.setStatus(req.getStatus());
+        }
         t.setBasicSalary(req.getBasicSalary());
-        if (req.getMedicalLeaves() != null) t.setMedicalLeaves(req.getMedicalLeaves());
-        if (req.getCasualLeaves() != null) t.setCasualLeaves(req.getCasualLeaves());
-        if (req.getMaternityLeaves() != null) t.setMaternityLeaves(req.getMaternityLeaves());
-        if (req.getSickLeaves() != null) t.setSickLeaves(req.getSickLeaves());
+        if (req.getMedicalLeaves() != null) {
+            t.setMedicalLeaves(req.getMedicalLeaves());
+        }
+        if (req.getCasualLeaves() != null) {
+            t.setCasualLeaves(req.getCasualLeaves());
+        }
+        if (req.getMaternityLeaves() != null) {
+            t.setMaternityLeaves(req.getMaternityLeaves());
+        }
+        if (req.getSickLeaves() != null) {
+            t.setSickLeaves(req.getSickLeaves());
+        }
+        if (req.getPhotoUrl() != null) {
+            t.setPhotoUrl(req.getPhotoUrl());
+        }
         return t;
     }
 
     private TeacherResponse toResponse(Teacher t) {
         long activeGroups = t.getGroups().stream()
-            .filter(g -> "ACTIVE".equals(g.getStatus() != null ? g.getStatus().name() : null)).count();
+            .filter(g -> g.getStatus() == GroupStatus.ACTIVE)
+            .count();
+        List<TeacherResponse.GroupSummary> groupSummaries = t.getGroups().stream()
+            .map(g -> TeacherResponse.GroupSummary.builder()
+                .id(g.getId())
+                .groupName(g.getGroupName())
+                .courseName(g.getCourse() != null ? g.getCourse().getCourseName() : null)
+                .build())
+            .collect(Collectors.toList());
         return TeacherResponse.builder()
             .id(t.getId()).uuid(t.getUuid())
             .firstName(t.getFirstName()).lastName(t.getLastName())
@@ -163,7 +209,7 @@ public class TeacherService {
             .isActive(t.getIsActive()).notes(t.getNotes())
             .activeGroupsCount((int) activeGroups)
             .teacherCode(t.getTeacherCode()).gender(t.getGender())
-            .dateOfBirth(t.getDateOfBirth()).maritalStatus(t.getMaritalStatus())
+            .dateOfBirth(t.getDateOfBirth())
             .fatherName(t.getFatherName()).motherName(t.getMotherName())
             .address(t.getAddress()).permanentAddress(t.getPermanentAddress())
             .passportInfo(t.getPassportInfo()).qualification(t.getQualification())
@@ -171,12 +217,16 @@ public class TeacherService {
             .status(t.getStatus()).basicSalary(t.getBasicSalary())
             .medicalLeaves(t.getMedicalLeaves()).casualLeaves(t.getCasualLeaves())
             .maternityLeaves(t.getMaternityLeaves()).sickLeaves(t.getSickLeaves())
+            .photoUrl(t.getPhotoUrl())
+            .groups(groupSummaries)
             .createdAt(t.getCreatedAt())
             .build();
     }
 
     private String esc(String val) {
-        if (val == null) return "";
+        if (val == null) {
+            return "";
+        }
         return "\"" + val.replace("\"", "\"\"") + "\"";
     }
 }

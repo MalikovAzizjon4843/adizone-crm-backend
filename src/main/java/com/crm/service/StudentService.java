@@ -114,7 +114,7 @@ public class StudentService {
     }
 
     @Transactional
-    public StudentResponse updateStudentPhoto(Long id, String photoUrl) {
+    public StudentResponse updatePhoto(Long id, String photoUrl) {
         Student student = findById(id);
         student.setPhotoUrl(photoUrl);
         return toResponse(studentRepository.save(student));

@@ -41,28 +41,49 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**").permitAll()
+                // ── Public endpoints (no JWT needed) ──
+                .requestMatchers("/api/auth/login").permitAll()
+                .requestMatchers("/api/auth/refresh").permitAll()
+                .requestMatchers("/api/auth/logout").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/files/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/leads/public").permitAll()
+                .requestMatchers("/api/settings/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
-                .requestMatchers("/api/roles").hasAnyRole("SUPER_ADMIN", "ADMIN")
-                // Analytics — admin/super_admin only
-                .requestMatchers(HttpMethod.GET, "/api/analytics/**")
+                .requestMatchers(HttpMethod.GET, "/api/notices/latest").permitAll()
+
+                // ── Role-based access ──
+                .requestMatchers("/api/analytics/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
-                // Finance
                 .requestMatchers("/api/finance/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
-                // Payroll — accountant and above only
                 .requestMatchers("/api/payroll/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
-                // Promotions — admin and above only
+                .requestMatchers("/api/payments/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                .requestMatchers("/api/leads/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/promotions/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
-                // Parents — admin, super_admin, accountant
                 .requestMatchers("/api/parents/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
-                // Deletes — admin and above
+                .requestMatchers("/api/users/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                .requestMatchers("/api/roles/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
+
+                .requestMatchers("/api/exams/**").authenticated()
+                .requestMatchers("/api/homework/**").authenticated()
+
+                .requestMatchers(HttpMethod.GET, "/api/notices/**").authenticated()
+                .requestMatchers(HttpMethod.POST, "/api/notices/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
+
+                .requestMatchers("/api/search/**").authenticated()
+                .requestMatchers(HttpMethod.POST, "/api/files/**").authenticated()
+
                 .requestMatchers(HttpMethod.DELETE, "/api/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
-                // Everything else requires authentication
+
                 .anyRequest().authenticated()
             )
             .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -79,9 +100,14 @@ public class SecurityConfig {
         // Faqat BU BITTA setAllowedOriginPatterns bo'lishi kerak
         config.setAllowedOriginPatterns(List.of(
                 "https://admin.adizone.uz",
+                "https://adizone.uz",
+                "https://www.adizone.uz",
                 "https://*.vercel.app",
                 "http://localhost:3000",
-                "http://localhost:5173"
+                "http://localhost:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:3000"
         ));
 
         config.setAllowedMethods(Arrays.asList(

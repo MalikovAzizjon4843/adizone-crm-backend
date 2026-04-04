@@ -67,9 +67,6 @@ public class Teacher extends BaseEntity {
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
-    @Column(name = "marital_status", length = 20)
-    private String maritalStatus;
-
     @Column(name = "father_name", length = 100)
     private String fatherName;
 
@@ -111,6 +108,9 @@ public class Teacher extends BaseEntity {
 
     @Column(name = "sick_leaves")
     private Integer sickLeaves = 0;
+
+    @Column(name = "photo_url", length = 500)
+    private String photoUrl;
 
     @OneToMany(mappedBy = "teacher", fetch = FetchType.LAZY)
     @Builder.Default
