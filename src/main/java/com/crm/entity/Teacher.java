@@ -37,7 +37,7 @@ public class Teacher extends BaseEntity {
     @Column(name = "last_name", nullable = false, length = 100)
     private String lastName;
 
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 32)
     private String phone;
 
     @Column(length = 255)

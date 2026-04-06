@@ -1,16 +1,19 @@
 package com.crm.controller;
 
 import com.crm.dto.request.ChangePasswordRequest;
+import com.crm.dto.request.CreateUserRequest;
 import com.crm.dto.request.UpdateUserRequest;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.UserResponse;
 import com.crm.entity.User;
+import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.UserRepository;
 import com.crm.service.FileStorageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -18,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -29,6 +33,106 @@ public class UserController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final FileStorageService fileStorageService;
+
+    @PostMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<UserResponse>> createUser(
+            @Valid @RequestBody CreateUserRequest request) {
+        Optional<User> existing = userRepository.findByUsername(request.getUsername());
+        if (existing.isPresent()) {
+            UserResponse response = toResponse(existing.get());
+            return ResponseEntity.ok(
+                ApiResponse.<UserResponse>builder()
+                    .success(true)
+                    .message("ALREADY_EXISTS")
+                    .data(response)
+                    .build()
+            );
+        }
+        User user = User.builder()
+            .firstName(request.getFirstName())
+            .lastName(request.getLastName())
+            .username(request.getUsername())
+            .password(passwordEncoder.encode(request.getPassword()))
+            .role(request.getRole() != null ? request.getRole() : UserRole.TEACHER)
+            .phone(request.getPhone())
+            .email(request.getEmail())
+            .isActive(request.getIsActive())
+            .build();
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success("User yaratildi",
+                toResponse(userRepository.save(user))));
+    }
+
+    @PostMapping("/create-for-teacher/{teacherId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<UserResponse>> createForTeacher(
+            @PathVariable Long teacherId,
+            @RequestBody CreateUserRequest request) {
+
+        Optional<User> existing = userRepository.findByUsername(request.getUsername());
+        if (existing.isPresent()) {
+            UserResponse response = toResponse(existing.get());
+            return ResponseEntity.ok(
+                ApiResponse.<UserResponse>builder()
+                    .success(true)
+                    .message("ALREADY_EXISTS")
+                    .data(response)
+                    .build()
+            );
+        }
+
+        User user = User.builder()
+            .firstName(request.getFirstName())
+            .lastName(request.getLastName())
+            .username(request.getUsername())
+            .password(passwordEncoder.encode(request.getPassword()))
+            .role(UserRole.TEACHER)
+            .phone(request.getPhone())
+            .email(request.getEmail())
+            .isActive(true)
+            .build();
+
+        User saved = userRepository.save(user);
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success("User yaratildi", toResponse(saved)));
+    }
+
+    @PostMapping("/create-for-student/{studentId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<UserResponse>> createForStudent(
+            @PathVariable Long studentId,
+            @RequestBody CreateUserRequest request) {
+
+        Optional<User> existing = userRepository.findByUsername(request.getUsername());
+        if (existing.isPresent()) {
+            UserResponse response = toResponse(existing.get());
+            return ResponseEntity.ok(
+                ApiResponse.<UserResponse>builder()
+                    .success(true)
+                    .message("ALREADY_EXISTS")
+                    .data(response)
+                    .build()
+            );
+        }
+
+        User user = User.builder()
+            .firstName(request.getFirstName())
+            .lastName(request.getLastName())
+            .username(request.getUsername())
+            .password(passwordEncoder.encode(request.getPassword()))
+            .role(UserRole.STUDENT)
+            .phone(request.getPhone())
+            .email(request.getEmail())
+            .isActive(true)
+            .build();
+
+        User saved = userRepository.save(user);
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success("User yaratildi", toResponse(saved)));
+    }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")

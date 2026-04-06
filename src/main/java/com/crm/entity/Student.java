@@ -34,16 +34,16 @@ public class Student extends BaseEntity {
     @Column(name = "last_name", nullable = false, length = 100)
     private String lastName;
 
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 32)
     private String phone;
 
-    @Column(name = "parent_phone", length = 20)
+    @Column(name = "parent_phone", length = 32)
     private String parentPhone;
 
     @Column(name = "birth_date")
     private LocalDate birthDate;
 
-    @Column(length = 10)
+    @Column(length = 50)
     private String gender;
 
     @Enumerated(EnumType.STRING)

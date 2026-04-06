@@ -46,6 +46,7 @@ public class ParentService {
         Parent parent = Parent.builder()
             .fullName(request.getFullName())
             .phone(request.getPhone())
+            .telegramChatId(request.getTelegramChatId())
             .address(request.getAddress())
             .relation(request.getRelation() != null ? request.getRelation() : "OTHER")
             .isActive(true)
@@ -65,6 +66,7 @@ public class ParentService {
         Parent parent = findById(id);
         parent.setFullName(request.getFullName());
         parent.setPhone(request.getPhone());
+        parent.setTelegramChatId(request.getTelegramChatId());
         parent.setAddress(request.getAddress());
         if (request.getRelation() != null) {
             parent.setRelation(request.getRelation());

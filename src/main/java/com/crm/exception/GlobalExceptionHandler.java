@@ -9,6 +9,8 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -46,6 +48,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ErrorResponse> handleBadCredentials(BadCredentialsException ex) {
         return buildResponse(HttpStatus.UNAUTHORIZED, "Invalid username or password");
+    }
+
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ErrorResponse> handleMultipart(MultipartException ex) {
+        log.warn("Multipart upload error: {}", ex.getMessage());
+        return buildResponse(HttpStatus.BAD_REQUEST,
+            "Fayl yuklashda xatolik. Excel (.xlsx) yuboring, maydon nomi: file. " + ex.getMessage());
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ErrorResponse> handleMissingPart(MissingServletRequestPartException ex) {
+        return buildResponse(HttpStatus.BAD_REQUEST,
+            "So'rov qismi topilmadi: " + ex.getRequestPartName() + " (student import uchun 'file' kerak)");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

@@ -14,6 +14,8 @@ public class ParentRequest {
 
     private String address;
 
+    private String telegramChatId;
+
     /** FATHER, MOTHER, or OTHER */
     private String relation;
 

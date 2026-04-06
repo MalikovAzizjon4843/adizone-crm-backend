@@ -5,6 +5,7 @@ import com.crm.dto.response.*;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.BadRequestException;
 import com.crm.service.FileStorageService;
+import com.crm.service.ImportService;
 import com.crm.service.StudentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class StudentController {
 
     private final StudentService studentService;
     private final FileStorageService fileStorageService;
+    private final ImportService importService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<StudentResponse>>> getAllStudents(
@@ -67,6 +69,18 @@ public class StudentController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(ApiResponse.success(studentService.searchStudents(q, page, size)));
+    }
+
+    @PostMapping("/import")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<ImportResult>> importStudentsFromFile(
+            @RequestParam(value = "file", required = false) MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BadRequestException("Fayl yuklanmadi yoki bo'sh (multipart maydon nomi: file)");
+        }
+        return ResponseEntity.ok(ApiResponse.success(
+            "Import tugadi",
+            importService.importStudents(file)));
     }
 
     @GetMapping("/export")

@@ -4,6 +4,7 @@ import com.crm.dto.request.TeacherRequest;
 import com.crm.dto.response.*;
 import com.crm.exception.BadRequestException;
 import com.crm.service.FileStorageService;
+import com.crm.service.ImportService;
 import com.crm.service.TeacherService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class TeacherController {
 
     private final TeacherService teacherService;
     private final FileStorageService fileStorageService;
+    private final ImportService importService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<TeacherResponse>>> getAllTeachers(
@@ -86,6 +88,18 @@ public class TeacherController {
             }
             throw new BadRequestException("Rasm yuklashda xatolik");
         }
+    }
+
+    @PostMapping("/import")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<ImportResult>> importTeachersFromFile(
+            @RequestParam(value = "file", required = false) MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BadRequestException("Fayl yuklanmadi yoki bo'sh (multipart maydon nomi: file)");
+        }
+        return ResponseEntity.ok(ApiResponse.success(
+            "Import tugadi",
+            importService.importTeachers(file)));
     }
 
     @GetMapping("/export")

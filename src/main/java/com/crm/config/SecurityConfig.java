@@ -68,6 +68,8 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
                 .requestMatchers("/api/users/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                .requestMatchers("/api/import/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/roles/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
 

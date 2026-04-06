@@ -7,6 +7,7 @@ import com.crm.entity.enums.AttendanceStatus;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,12 +19,15 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AttendanceService {
 
     private final AttendanceRepository attendanceRepository;
     private final StudentRepository studentRepository;
     private final GroupRepository groupRepository;
     private final UserRepository userRepository;
+    private final TelegramService telegramService;
+    private final ParentRepository parentRepository;
 
     @Transactional
     public List<AttendanceResponse> markAttendance(AttendanceRequest request) {
@@ -54,6 +58,33 @@ public class AttendanceService {
 
             Attendance saved = attendanceRepository.save(attendance);
             results.add(toResponse(saved));
+
+            if (saved.getStatus() == AttendanceStatus.ABSENT) {
+                try {
+                    List<Parent> parents = parentRepository
+                        .findByStudentId(student.getId());
+
+                    String message = telegramService.buildAttendanceMessage(
+                        student.getFirstName() + " "
+                            + student.getLastName(),
+                        group.getGroupName(),
+                        request.getDate().toString()
+                    );
+
+                    for (Parent parent : parents) {
+                        if (parent.getTelegramChatId() != null
+                            && !parent.getTelegramChatId().isBlank()) {
+                            telegramService.sendMessage(
+                                parent.getTelegramChatId(), message);
+                        } else if (parent.getPhone() != null) {
+                            log.info("Davomat xabari: {} → {}",
+                                parent.getFullName(), message);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("Davomat xabari yuborishda xatolik", e);
+                }
+            }
         }
 
         return results;
