@@ -10,6 +10,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/payroll")
@@ -21,8 +22,9 @@ public class PayrollController {
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<PayrollResponse>>> getAllPayroll(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.success(payrollService.getAllPayroll(page, size)));
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String status) {
+        return ResponseEntity.ok(ApiResponse.success(payrollService.getAllPayroll(page, size, status)));
     }
 
     @GetMapping("/{id}")
@@ -40,6 +42,14 @@ public class PayrollController {
     public ResponseEntity<ApiResponse<PayrollResponse>> createPayroll(@Valid @RequestBody PayrollRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
             .body(ApiResponse.success("Payroll created", payrollService.createPayroll(request)));
+    }
+
+    @PostMapping("/{id}/pay")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<PayrollResponse>> markPayrollPaid(
+            @PathVariable Long id, @RequestBody(required = false) Map<String, String> body) {
+        String method = body != null && body.get("paymentMethod") != null ? body.get("paymentMethod") : "CASH";
+        return ResponseEntity.ok(ApiResponse.success("Payroll marked paid", payrollService.markAsPaid(id, method)));
     }
 
     @PutMapping("/{id}")

@@ -8,6 +8,8 @@ import java.time.LocalTime;
 
 @Data
 public class TimetableRequest {
+    /** CRM guruhi (ixtiyoriy) */
+    private Long groupId;
     private Long classId;
     private Long sectionId;
     private Long subjectId;
@@ -24,4 +26,7 @@ public class TimetableRequest {
     private LocalTime endTime;
 
     private String academicYear;
+
+    /** Xona raqami bo'yicha classroom tanlanadi (ixtiyoriy) */
+    private String roomNumber;
 }

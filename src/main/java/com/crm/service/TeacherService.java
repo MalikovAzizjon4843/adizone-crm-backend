@@ -201,7 +201,9 @@ public class TeacherService {
                 .build())
             .collect(Collectors.toList());
         return TeacherResponse.builder()
-            .id(t.getId()).uuid(t.getUuid())
+            .id(t.getId())
+            .userId(t.getUser() != null ? t.getUser().getId() : null)
+            .uuid(t.getUuid())
             .firstName(t.getFirstName()).lastName(t.getLastName())
             .phone(t.getPhone()).email(t.getEmail())
             .subjectSpecialization(t.getSubjectSpecialization())

@@ -12,5 +12,6 @@ import java.util.List;
 public interface TimetableRepository extends JpaRepository<Timetable, Long> {
     Page<Timetable> findAll(Pageable pageable);
     List<Timetable> findByClassEntityId(Long classId);
+    List<Timetable> findByGroupId(Long groupId);
     List<Timetable> findByTeacherId(Long teacherId);
 }

@@ -23,6 +23,7 @@ public class AcademicService {
     private final ClassroomRepository classroomRepository;
     private final TimetableRepository timetableRepository;
     private final TeacherRepository teacherRepository;
+    private final GroupRepository groupRepository;
 
     // ── Classes ────────────────────────────────────────────────────
 
@@ -235,6 +236,12 @@ public class AcademicService {
     }
 
     @Transactional(readOnly = true)
+    public List<TimetableResponse> getTimetableByGroup(Long groupId) {
+        return timetableRepository.findByGroupId(groupId).stream()
+            .map(this::toTimetableResponse).collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
     public List<TimetableResponse> getTimetableByTeacher(Long teacherId) {
         return timetableRepository.findByTeacherId(teacherId).stream()
             .map(this::toTimetableResponse).collect(Collectors.toList());
@@ -285,6 +292,11 @@ public class AcademicService {
             .orElseThrow(() -> new ResourceNotFoundException("Timetable", id));
     }
 
+    private Group findGroupById(Long id) {
+        return groupRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("Group", id));
+    }
+
     private Teacher findTeacherById(Long id) {
         return teacherRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Teacher", id));
@@ -332,6 +344,8 @@ public class AcademicService {
     private TimetableResponse toTimetableResponse(Timetable t) {
         return TimetableResponse.builder()
             .id(t.getId())
+            .groupId(t.getGroup() != null ? t.getGroup().getId() : null)
+            .groupName(t.getGroup() != null ? t.getGroup().getGroupName() : null)
             .classId(t.getClassEntity() != null ? t.getClassEntity().getId() : null)
             .className(t.getClassEntity() != null ? t.getClassEntity().getClassName() : null)
             .sectionId(t.getSection() != null ? t.getSection().getId() : null)
@@ -343,6 +357,7 @@ public class AcademicService {
                 ? t.getTeacher().getFirstName() + " " + t.getTeacher().getLastName() : null)
             .classroomId(t.getClassroom() != null ? t.getClassroom().getId() : null)
             .roomName(t.getClassroom() != null ? t.getClassroom().getRoomName() : null)
+            .roomNumber(t.getClassroom() != null ? t.getClassroom().getRoomNumber() : null)
             .dayOfWeek(t.getDayOfWeek()).startTime(t.getStartTime()).endTime(t.getEndTime())
             .academicYear(t.getAcademicYear()).createdAt(t.getCreatedAt()).build();
     }
@@ -352,11 +367,16 @@ public class AcademicService {
         t.setStartTime(req.getStartTime());
         t.setEndTime(req.getEndTime());
         t.setAcademicYear(req.getAcademicYear());
+        if (req.getGroupId() != null) t.setGroup(findGroupById(req.getGroupId()));
         if (req.getClassId() != null) t.setClassEntity(findClassById(req.getClassId()));
         if (req.getSectionId() != null) t.setSection(findSectionById(req.getSectionId()));
         if (req.getSubjectId() != null) t.setSubject(findSubjectById(req.getSubjectId()));
         if (req.getTeacherId() != null) t.setTeacher(findTeacherById(req.getTeacherId()));
         if (req.getClassroomId() != null) t.setClassroom(findClassroomById(req.getClassroomId()));
+        else if (req.getRoomNumber() != null && !req.getRoomNumber().isBlank()) {
+            classroomRepository.findFirstByRoomNumberIgnoreCase(req.getRoomNumber().trim())
+                .ifPresent(t::setClassroom);
+        }
         return t;
     }
 }

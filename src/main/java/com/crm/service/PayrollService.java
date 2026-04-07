@@ -15,6 +15,7 @@ import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -27,9 +28,11 @@ public class PayrollService {
     private final UserRepository userRepository;
 
     @Transactional(readOnly = true)
-    public PageResponse<PayrollResponse> getAllPayroll(int page, int size) {
+    public PageResponse<PayrollResponse> getAllPayroll(int page, int size, String status) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        Page<Payroll> p = payrollRepository.findAll(pageable);
+        Page<Payroll> p = (status == null || status.isBlank())
+            ? payrollRepository.findAll(pageable)
+            : payrollRepository.findByStatus(status, pageable);
         return PageResponse.<PayrollResponse>builder()
             .content(p.getContent().stream().map(this::toResponse).collect(Collectors.toList()))
             .pageNumber(page).pageSize(size)
@@ -77,6 +80,17 @@ public class PayrollService {
         payrollRepository.delete(findById(id));
     }
 
+    @Transactional
+    public PayrollResponse markAsPaid(Long id, String paymentMethod) {
+        Payroll p = findById(id);
+        p.setStatus("PAID");
+        if (paymentMethod != null && !paymentMethod.isBlank()) {
+            p.setPaymentMethod(paymentMethod);
+        }
+        p.setPaymentDate(LocalDate.now());
+        return toResponse(payrollRepository.save(p));
+    }
+
     public Payroll findById(Long id) {
         return payrollRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Payroll", id));
@@ -89,7 +103,13 @@ public class PayrollService {
         p.setBasicSalary(req.getBasicSalary());
         p.setAllowances(req.getAllowances() != null ? req.getAllowances() : java.math.BigDecimal.ZERO);
         p.setDeductions(req.getDeductions() != null ? req.getDeductions() : java.math.BigDecimal.ZERO);
-        p.setNetSalary(req.getNetSalary());
+        java.math.BigDecimal net = req.getNetSalary();
+        if (net == null && req.getBasicSalary() != null) {
+            net = req.getBasicSalary()
+                .add(p.getAllowances() != null ? p.getAllowances() : java.math.BigDecimal.ZERO)
+                .subtract(p.getDeductions() != null ? p.getDeductions() : java.math.BigDecimal.ZERO);
+        }
+        p.setNetSalary(net);
         p.setPaymentDate(req.getPaymentDate());
         p.setPaymentMethod(req.getPaymentMethod() != null ? req.getPaymentMethod() : "BANK_TRANSFER");
         p.setStatus(req.getStatus() != null ? req.getStatus() : "PENDING");

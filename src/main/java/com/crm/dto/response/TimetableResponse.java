@@ -7,6 +7,8 @@ import java.time.LocalTime;
 @Data @Builder @NoArgsConstructor @AllArgsConstructor
 public class TimetableResponse {
     private Long id;
+    private Long groupId;
+    private String groupName;
     private Long classId;
     private String className;
     private Long sectionId;
@@ -17,6 +19,7 @@ public class TimetableResponse {
     private String teacherName;
     private Long classroomId;
     private String roomName;
+    private String roomNumber;
     private String dayOfWeek;
     private LocalTime startTime;
     private LocalTime endTime;

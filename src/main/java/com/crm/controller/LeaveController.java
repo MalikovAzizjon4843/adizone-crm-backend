@@ -23,8 +23,18 @@ public class LeaveController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<PageResponse<LeaveResponse>>> getAllLeaves(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.success(leaveService.getAllLeaves(page, size)));
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String status) {
+        return ResponseEntity.ok(ApiResponse.success(leaveService.getAllLeaves(page, size, status)));
+    }
+
+    @GetMapping("/teacher/{teacherId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<PageResponse<LeaveResponse>>> getLeavesByTeacher(
+            @PathVariable Long teacherId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return ResponseEntity.ok(ApiResponse.success(leaveService.getLeavesByTeacher(teacherId, page, size)));
     }
 
     @GetMapping("/pending")

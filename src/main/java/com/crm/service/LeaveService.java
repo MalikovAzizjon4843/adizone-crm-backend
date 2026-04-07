@@ -7,6 +7,7 @@ import com.crm.entity.Leave;
 import com.crm.entity.User;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.LeaveRepository;
+import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -24,12 +25,29 @@ public class LeaveService {
 
     private final LeaveRepository leaveRepository;
     private final UserRepository userRepository;
+    private final TeacherRepository teacherRepository;
 
     @Transactional(readOnly = true)
-    public PageResponse<LeaveResponse> getAllLeaves(int page, int size) {
+    public PageResponse<LeaveResponse> getAllLeaves(int page, int size, String status) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        Page<Leave> p = leaveRepository.findAll(pageable);
+        Page<Leave> p = (status == null || status.isBlank())
+            ? leaveRepository.findAll(pageable)
+            : leaveRepository.findByStatus(status, pageable);
         return buildPage(p, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<LeaveResponse> getLeavesByTeacher(Long teacherId, int page, int size) {
+        var teacher = teacherRepository.findById(teacherId)
+            .orElseThrow(() -> new ResourceNotFoundException("Teacher", teacherId));
+        if (teacher.getUser() == null) {
+            return PageResponse.<LeaveResponse>builder()
+                .content(List.of())
+                .pageNumber(page).pageSize(size)
+                .totalElements(0).totalPages(0).last(true)
+                .build();
+        }
+        return getLeavesByRequester(teacher.getUser().getId(), page, size);
     }
 
     @Transactional(readOnly = true)
@@ -66,6 +84,12 @@ public class LeaveService {
         Leave leave = findById(id);
         String status = body.get("status").toString();
         leave.setStatus(status);
+
+        if ("REJECTED".equals(status) && body.get("reason") != null) {
+            String note = "[Rad etish] " + body.get("reason").toString();
+            leave.setReason(leave.getReason() != null && !leave.getReason().isBlank()
+                ? leave.getReason() + "\n" + note : note);
+        }
 
         if (body.containsKey("approvedById")) {
             Long approverId = Long.valueOf(body.get("approvedById").toString());

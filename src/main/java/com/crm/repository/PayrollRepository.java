@@ -14,6 +14,7 @@ import java.util.Optional;
 @Repository
 public interface PayrollRepository extends JpaRepository<Payroll, Long> {
     Page<Payroll> findAll(Pageable pageable);
+    Page<Payroll> findByStatus(String status, Pageable pageable);
     List<Payroll> findByTeacherId(Long teacherId);
     Optional<Payroll> findByTeacherIdAndMonthAndYear(Long teacherId, Integer month, Integer year);
 

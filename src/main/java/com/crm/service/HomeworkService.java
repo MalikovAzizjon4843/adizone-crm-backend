@@ -36,6 +36,13 @@ public class HomeworkService {
     }
 
     @Transactional(readOnly = true)
+    public PageResponse<HomeworkResponse> getHomeworksByGroup(Long groupId, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Page<Homework> p = homeworkRepository.findByGroupIdAndIsActiveTrue(groupId, pageable);
+        return buildPage(p, page, size);
+    }
+
+    @Transactional(readOnly = true)
     public HomeworkResponse getHomeworkById(Long id) {
         return toResponse(findById(id));
     }

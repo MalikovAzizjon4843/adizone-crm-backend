@@ -14,6 +14,8 @@ import java.util.UUID;
 @AllArgsConstructor
 public class TeacherResponse {
     private Long id;
+    /** Leave so'rovi uchun: foydalanuvchi ID */
+    private Long userId;
     private UUID uuid;
     private String firstName;
     private String lastName;

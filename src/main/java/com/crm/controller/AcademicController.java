@@ -166,6 +166,11 @@ public class AcademicController {
         return ResponseEntity.ok(ApiResponse.success(academicService.getAllTimetable(page, size)));
     }
 
+    @GetMapping("/api/timetable/group/{groupId}")
+    public ResponseEntity<ApiResponse<List<TimetableResponse>>> getTimetableByGroup(@PathVariable Long groupId) {
+        return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableByGroup(groupId)));
+    }
+
     @GetMapping("/api/timetable/{id}")
     public ResponseEntity<ApiResponse<TimetableResponse>> getTimetableById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableById(id)));

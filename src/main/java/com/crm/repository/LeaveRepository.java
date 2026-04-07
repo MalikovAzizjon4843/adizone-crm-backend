@@ -12,6 +12,7 @@ import java.util.List;
 @Repository
 public interface LeaveRepository extends JpaRepository<Leave, Long> {
     Page<Leave> findAll(Pageable pageable);
+    Page<Leave> findByStatus(String status, Pageable pageable);
     Page<Leave> findByRequesterId(Long requesterId, Pageable pageable);
     List<Leave> findByStatus(String status);
 

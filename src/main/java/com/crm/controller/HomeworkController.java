@@ -26,6 +26,14 @@ public class HomeworkController {
         return ResponseEntity.ok(ApiResponse.success(homeworkService.getAllHomeworks(page, size)));
     }
 
+    @GetMapping("/group/{groupId}")
+    public ResponseEntity<ApiResponse<PageResponse<HomeworkResponse>>> getHomeworkByGroup(
+            @PathVariable Long groupId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return ResponseEntity.ok(ApiResponse.success(homeworkService.getHomeworksByGroup(groupId, page, size)));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<HomeworkResponse>> getHomeworkById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(homeworkService.getHomeworkById(id)));
