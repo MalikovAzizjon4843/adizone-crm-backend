@@ -10,6 +10,12 @@ import java.util.List;
 
 @Repository
 public interface NoticeRepository extends JpaRepository<Notice, Long> {
+
     Page<Notice> findByIsPublishedTrue(Pageable pageable);
+
     List<Notice> findTop5ByIsPublishedTrueOrderByPublishedAtDesc();
+
+    Page<Notice> findByIsActiveTrueOrderByPublishedAtDesc(Pageable pageable);
+
+    List<Notice> findByIsActiveTrueAndIsPublishedTrueOrderByPublishedAtDesc(Pageable pageable);
 }

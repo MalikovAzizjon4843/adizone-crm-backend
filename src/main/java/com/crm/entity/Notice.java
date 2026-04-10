@@ -4,12 +4,17 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
 @Table(name = "notices")
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Notice extends BaseEntity {
 
     @Id
@@ -26,11 +31,21 @@ public class Notice extends BaseEntity {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
+    @Column(name = "notice_date")
+    private LocalDate noticeDate;
+
+    /** ALL, TEACHERS, STUDENTS, PARENTS */
+    @Column(name = "published_to", length = 30)
+    private String publishedTo = "ALL";
+
     @Column(name = "notice_type", length = 30)
     private String noticeType = "GENERAL";
 
     @Column(name = "target_role", length = 30)
     private String targetRole;
+
+    @Column(name = "is_active")
+    private Boolean isActive = true;
 
     @Column(name = "is_published")
     private Boolean isPublished = true;

@@ -1,28 +1,52 @@
 package com.crm.controller;
+
 import com.crm.dto.request.PaymentRequest;
 import com.crm.dto.response.*;
 import com.crm.service.PaymentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.*;
-import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/payments")
 @RequiredArgsConstructor
 public class PaymentController {
+
     private final PaymentService paymentService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
-    public ResponseEntity<ApiResponse<List<PaymentResponse>>> getAllPayments(
+    public ResponseEntity<ApiResponse<Page<PaymentResponse>>> getAll(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) Long studentId,
+            @RequestParam(required = false) Long groupId,
+            @RequestParam(required = false) String status,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        return ResponseEntity.ok(ApiResponse.success(paymentService.getAllPayments(from, to)));
+        return ResponseEntity.ok(ApiResponse.success(
+            paymentService.getAllPayments(page, size, studentId, groupId, status, from, to)));
+    }
+
+    @GetMapping("/stats")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getStats() {
+        return ResponseEntity.ok(ApiResponse.success(paymentService.getPaymentStats()));
+    }
+
+    @GetMapping("/history")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<List<PaymentHistoryResponse>>> getHistory() {
+        return ResponseEntity.ok(ApiResponse.success(paymentService.getPaymentHistory()));
     }
 
     @PostMapping

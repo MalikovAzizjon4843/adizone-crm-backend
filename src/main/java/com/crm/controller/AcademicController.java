@@ -122,41 +122,6 @@ public class AcademicController {
         return ResponseEntity.ok(ApiResponse.success("Subject deleted", null));
     }
 
-    // ── Classrooms ─────────────────────────────────────────────────
-
-    @GetMapping("/api/classrooms")
-    public ResponseEntity<ApiResponse<PageResponse<ClassroomResponse>>> getAllClassrooms(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.success(academicService.getAllClassrooms(page, size)));
-    }
-
-    @GetMapping("/api/classrooms/{id}")
-    public ResponseEntity<ApiResponse<ClassroomResponse>> getClassroomById(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.success(academicService.getClassroomById(id)));
-    }
-
-    @PostMapping("/api/classrooms")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<ApiResponse<ClassroomResponse>> createClassroom(@Valid @RequestBody ClassroomRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success("Classroom created", academicService.createClassroom(request)));
-    }
-
-    @PutMapping("/api/classrooms/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<ApiResponse<ClassroomResponse>> updateClassroom(
-            @PathVariable Long id, @Valid @RequestBody ClassroomRequest request) {
-        return ResponseEntity.ok(ApiResponse.success("Classroom updated", academicService.updateClassroom(id, request)));
-    }
-
-    @DeleteMapping("/api/classrooms/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<ApiResponse<Void>> deleteClassroom(@PathVariable Long id) {
-        academicService.deleteClassroom(id);
-        return ResponseEntity.ok(ApiResponse.success("Classroom deleted", null));
-    }
-
     // ── Timetable ──────────────────────────────────────────────────
 
     @GetMapping("/api/timetable")

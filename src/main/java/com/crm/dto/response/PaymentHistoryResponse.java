@@ -6,30 +6,20 @@ import lombok.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.UUID;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PaymentResponse {
-    private Long id;
-    private UUID uuid;
-    private Long studentId;
+public class PaymentHistoryResponse {
+    private String receiptNumber;
     private String studentName;
-    private Long groupId;
     private String groupName;
     private BigDecimal amount;
-    private BigDecimal discountAmount;
-    private String receiptNumber;
-    /** Amount formatted for display, e.g. "800 000 so'm" */
-    private String formattedAmount;
     private LocalDate paymentDate;
     private PaymentMethod paymentMethod;
-    private PaymentStatus status;
     private LocalDate periodFrom;
     private LocalDate periodTo;
+    private PaymentStatus status;
     private String description;
-    private LocalDateTime createdAt;
 }

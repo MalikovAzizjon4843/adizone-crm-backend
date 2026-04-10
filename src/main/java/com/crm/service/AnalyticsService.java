@@ -10,7 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -26,67 +26,57 @@ public class AnalyticsService {
     private final AttendanceRepository attendanceRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final ParentRepository parentRepository;
-    private final ClassRepository classRepository;
-    private final SubjectRepository subjectRepository;
-    private final HomeworkRepository homeworkRepository;
     private final LeaveRepository leaveRepository;
     private final PayrollRepository payrollRepository;
     private final NoticeRepository noticeRepository;
+    private final CourseRepository courseRepository;
 
     @Transactional(readOnly = true)
     public DashboardResponse getDashboard() {
         LocalDate now = LocalDate.now();
         LocalDate monthStart = now.withDayOfMonth(1);
-        LocalDateTime monthStartDT = monthStart.atStartOfDay();
-        LocalDateTime monthEndDT = now.atTime(23, 59, 59);
+        LocalDate monthEnd = now;
 
-        // Student stats
         long totalStudents = studentRepository.count();
         long activeStudents = studentRepository.countByStatus(StudentStatus.ACTIVE);
-        long frozenStudents = studentRepository.countByStatus(StudentStatus.FROZEN);
 
-        // Group stats
         long totalGroups = groupRepository.count();
         long activeGroups = groupRepository.countByStatus(GroupStatus.ACTIVE);
 
-        // Teacher stats
-        long totalTeachers = teacherRepository.findByIsActiveTrue().size();
+        long totalTeachers = teacherRepository.count();
+        long activeTeachers = teacherRepository.countByIsActiveTrue();
 
-        // Debtor count
+        long totalCourses = courseRepository.count();
+
         long debtorCount = studentGroupRepository.findDebtors(now).size();
 
-        // Finance
         BigDecimal monthlyRevenue = Optional.ofNullable(
-            paymentRepository.sumAmountByDateRange(monthStartDT, monthEndDT)
+            paymentRepository.sumAmountByDateRange(monthStart, monthEnd)
         ).orElse(BigDecimal.ZERO);
 
         BigDecimal monthlyExpenses = Optional.ofNullable(
             expenseRepository.sumByDateRange(monthStart, now)
         ).orElse(BigDecimal.ZERO);
 
-        // Attendance rate this month
         long totalAttendance = attendanceRepository.countTotalByDateRange(monthStart, now);
         long presentAttendance = attendanceRepository.countPresentByDateRange(monthStart, now);
         double attendanceRate = totalAttendance > 0
             ? Math.round((double) presentAttendance / totalAttendance * 1000.0) / 10.0 : 0.0;
 
-        // Students by marketing source
         Map<String, Long> studentsBySource = new LinkedHashMap<>();
         studentRepository.countByMarketingSourceGrouped()
             .forEach(row -> studentsBySource.put(row[0].toString(), (Long) row[1]));
 
-        // Revenue chart (last 6 months)
+        LocalDate chartFrom = now.minusMonths(6).withDayOfMonth(1);
         List<Map<String, Object>> revenueChart = new ArrayList<>();
-        paymentRepository.getMonthlyRevenue(now.minusMonths(6).atStartOfDay())
-            .forEach(row -> {
-                Map<String, Object> point = new LinkedHashMap<>();
-                point.put("month", row[0]);
-                point.put("year", row[1]);
-                point.put("revenue", row[2]);
-                revenueChart.add(point);
-            });
+        paymentRepository.getMonthlyRevenue(chartFrom).forEach(row -> {
+            Map<String, Object> point = new LinkedHashMap<>();
+            point.put("month", ((Number) row[0]).intValue());
+            point.put("year", ((Number) row[1]).intValue());
+            point.put("revenue", row[2]);
+            revenueChart.add(point);
+        });
 
-        // Student growth chart (last 6 months)
         List<Map<String, Object>> growthChart = new ArrayList<>();
         studentRepository.getStudentGrowthByMonth(now.minusMonths(6).atStartOfDay())
             .forEach(row -> {
@@ -97,11 +87,7 @@ public class AnalyticsService {
                 growthChart.add(point);
             });
 
-        // New metrics
         long totalParents = parentRepository.count();
-        long totalClasses = classRepository.countByIsActiveTrue();
-        long totalSubjects = subjectRepository.countByIsActiveTrue();
-        long totalHomeworks = homeworkRepository.countByIsActiveTrue();
         long pendingLeaves = leaveRepository.countPending();
         long unpaidPayroll = payrollRepository.countPending();
 
@@ -110,6 +96,8 @@ public class AnalyticsService {
             .map(n -> NoticeResponse.builder()
                 .id(n.getId()).uuid(n.getUuid())
                 .title(n.getTitle()).content(n.getContent())
+                .noticeDate(n.getNoticeDate())
+                .publishedTo(n.getPublishedTo())
                 .noticeType(n.getNoticeType()).isPublished(n.getIsPublished())
                 .publishedAt(n.getPublishedAt()).createdAt(n.getCreatedAt()).build())
             .collect(Collectors.toList());
@@ -118,6 +106,8 @@ public class AnalyticsService {
             .findTop10ByOrderByPaymentDateDesc().stream()
             .map(p -> PaymentResponse.builder()
                 .id(p.getId()).uuid(p.getUuid())
+                .receiptNumber(p.getReceiptNumber())
+                .formattedAmount(formatUzs(p.getAmount()))
                 .amount(p.getAmount()).paymentDate(p.getPaymentDate())
                 .paymentMethod(p.getPaymentMethod()).status(p.getStatus()).build())
             .collect(Collectors.toList());
@@ -125,45 +115,86 @@ public class AnalyticsService {
         return DashboardResponse.builder()
             .totalStudents(totalStudents)
             .activeStudents(activeStudents)
-            .frozenStudents(frozenStudents)
+            .totalTeachers(totalTeachers)
+            .activeTeachers(activeTeachers)
             .totalGroups(totalGroups)
             .activeGroups(activeGroups)
-            .totalTeachers(totalTeachers)
+            .totalCourses(totalCourses)
             .debtorCount(debtorCount)
             .monthlyRevenue(monthlyRevenue)
             .monthlyExpenses(monthlyExpenses)
             .netProfit(monthlyRevenue.subtract(monthlyExpenses))
             .attendanceRate(attendanceRate)
+            .totalParents(totalParents)
+            .pendingLeaves(pendingLeaves)
+            .unpaidPayroll(unpaidPayroll)
             .studentsBySource(studentsBySource)
             .revenueChart(revenueChart)
             .studentGrowthChart(growthChart)
-            .totalParents(totalParents)
-            .totalClasses(totalClasses)
-            .totalSubjects(totalSubjects)
-            .totalHomeworks(totalHomeworks)
-            .pendingLeaves(pendingLeaves)
-            .unpaidPayroll(unpaidPayroll)
             .latestNotices(latestNotices)
             .recentPayments(recentPayments)
             .build();
     }
 
+    private static String formatUzs(BigDecimal amount) {
+        if (amount == null) {
+            return "0 so'm";
+        }
+        long v = amount.setScale(0, java.math.RoundingMode.HALF_UP).longValue();
+        return String.format(Locale.US, "%,d", v).replace(',', ' ') + " so'm";
+    }
+
     @Transactional(readOnly = true)
     public Map<String, Object> getRevenueAnalytics(int months) {
-        LocalDateTime from = LocalDate.now().minusMonths(months).atStartOfDay();
-        List<Map<String, Object>> monthly = new ArrayList<>();
+        months = Math.min(Math.max(months, 1), 36);
+        LocalDate now = LocalDate.now();
+        LocalDate from = now.minusMonths(months - 1L).withDayOfMonth(1);
+
+        Map<String, BigDecimal> revenueByKey = new HashMap<>();
         paymentRepository.getMonthlyRevenue(from).forEach(row -> {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("month", row[0]);
-            m.put("year", row[1]);
-            m.put("revenue", row[2]);
-            monthly.add(m);
+            int m = ((Number) row[0]).intValue();
+            int y = ((Number) row[1]).intValue();
+            BigDecimal sum = (BigDecimal) row[2];
+            revenueByKey.merge(key(y, m), sum, BigDecimal::add);
         });
+
+        Map<String, BigDecimal> expenseByKey = new HashMap<>();
+        expenseRepository.getMonthlyExpenses(from).forEach(row -> {
+            int m = ((Number) row[0]).intValue();
+            int y = ((Number) row[1]).intValue();
+            BigDecimal sum = (BigDecimal) row[2];
+            expenseByKey.merge(key(y, m), sum, BigDecimal::add);
+        });
+
+        List<Map<String, Object>> series = new ArrayList<>();
+        YearMonth cursor = YearMonth.from(from);
+        YearMonth end = YearMonth.from(now);
+        while (!cursor.isAfter(end)) {
+            int y = cursor.getYear();
+            int m = cursor.getMonthValue();
+            String k = key(y, m);
+            BigDecimal rev = revenueByKey.getOrDefault(k, BigDecimal.ZERO);
+            BigDecimal exp = expenseByKey.getOrDefault(k, BigDecimal.ZERO);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("month", m);
+            row.put("year", y);
+            row.put("revenue", rev);
+            row.put("expenses", exp);
+            row.put("profit", rev.subtract(exp));
+            series.add(row);
+            cursor = cursor.plusMonths(1);
+        }
+
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("monthly", monthly);
-        result.put("totalRevenue", monthly.stream()
-            .mapToDouble(m -> ((Number) m.get("revenue")).doubleValue()).sum());
+        result.put("monthly", series);
+        result.put("totalRevenue", series.stream()
+            .map(r -> (BigDecimal) r.get("revenue"))
+            .reduce(BigDecimal.ZERO, BigDecimal::add));
         return result;
+    }
+
+    private static String key(int year, int month) {
+        return year + "-" + month;
     }
 
     @Transactional(readOnly = true)

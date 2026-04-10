@@ -54,6 +54,10 @@ public class SecurityConfig {
                 // ── Role-based access ──
                 .requestMatchers("/api/analytics/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                .requestMatchers(HttpMethod.GET, "/api/classrooms", "/api/classrooms/**")
+                    .authenticated()
+                .requestMatchers("/api/classrooms/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/finance/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
                 .requestMatchers("/api/payroll/**")
@@ -78,6 +82,8 @@ public class SecurityConfig {
 
                 .requestMatchers(HttpMethod.GET, "/api/notices/**").authenticated()
                 .requestMatchers(HttpMethod.POST, "/api/notices/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                .requestMatchers(HttpMethod.PUT, "/api/notices/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
                 .requestMatchers("/api/search/**").authenticated()

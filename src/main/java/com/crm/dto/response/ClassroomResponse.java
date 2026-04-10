@@ -1,15 +1,19 @@
 package com.crm.dto.response;
 
 import lombok.*;
+
 import java.time.LocalDateTime;
 
-@Data @Builder @NoArgsConstructor @AllArgsConstructor
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ClassroomResponse {
     private Long id;
-    private String roomName;
     private String roomNumber;
     private Integer capacity;
-    private String floor;
+    private String roomType;
+    private String description;
     private Boolean isActive;
     private LocalDateTime createdAt;
 }

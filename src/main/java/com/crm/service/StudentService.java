@@ -4,9 +4,14 @@ import com.crm.dto.request.StudentRequest;
 import com.crm.dto.response.*;
 import com.crm.entity.Payment;
 import com.crm.entity.Student;
+import com.crm.entity.StudentGroup;
+import com.crm.entity.enums.AttendanceStatus;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.repository.AttendanceRepository;
+import com.crm.repository.PaymentRepository;
+import com.crm.repository.StudentGroupRepository;
 import com.crm.repository.StudentParentRepository;
 import com.crm.repository.StudentRepository;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +19,8 @@ import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -24,6 +31,9 @@ public class StudentService {
 
     private final StudentRepository studentRepository;
     private final StudentParentRepository studentParentRepository;
+    private final StudentGroupRepository studentGroupRepository;
+    private final PaymentRepository paymentRepository;
+    private final AttendanceRepository attendanceRepository;
 
     @Transactional(readOnly = true)
     public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status) {
@@ -55,6 +65,14 @@ public class StudentService {
     public StudentDetailResponse getStudentById(Long id) {
         Student student = findById(id);
         return toDetailResponse(student);
+    }
+
+    @Transactional(readOnly = true)
+    public List<StudentDetailResponse.GroupSummary> getStudentGroupHistory(Long studentId) {
+        findById(studentId);
+        return studentGroupRepository.findByStudentIdOrderByJoinDateDesc(studentId).stream()
+            .map(this::toGroupSummary)
+            .collect(Collectors.toList());
     }
 
     @Transactional
@@ -199,21 +217,9 @@ public class StudentService {
     }
 
     private StudentDetailResponse toDetailResponse(Student s) {
-        List<StudentGroupResponse> groups = s.getStudentGroups().stream()
-            .filter(sg -> sg.getIsActive())
-            .map(sg -> StudentGroupResponse.builder()
-                .id(sg.getId())
-                .groupId(sg.getGroup().getId())
-                .groupName(sg.getGroup().getGroupName())
-                .courseName(sg.getGroup().getCourse().getCourseName())
-                .teacherName(sg.getGroup().getTeacher() != null
-                    ? sg.getGroup().getTeacher().getFirstName() + " " + sg.getGroup().getTeacher().getLastName() : null)
-                .joinDate(sg.getJoinDate())
-                .nextPaymentDate(sg.getNextPaymentDate())
-                .monthlyPrice(sg.getMonthlyPriceOverride() != null
-                    ? sg.getMonthlyPriceOverride() : sg.getGroup().getCourse().getMonthlyPrice())
-                .isActive(sg.getIsActive())
-                .build())
+        List<StudentDetailResponse.GroupSummary> activeGroups = s.getStudentGroups().stream()
+            .filter(sg -> Boolean.TRUE.equals(sg.getIsActive()))
+            .map(this::toGroupSummary)
             .collect(Collectors.toList());
 
         List<StudentDetailResponse.StudentParentInfo> parents = studentParentRepository
@@ -228,18 +234,23 @@ public class StudentService {
                 .build())
             .collect(Collectors.toList());
 
-        List<PaymentResponse> payments = s.getPayments().stream()
-            .sorted(Comparator.comparing(Payment::getPaymentDate, Comparator.nullsLast(Comparator.reverseOrder())))
-            .limit(5)
-            .map(p -> PaymentResponse.builder()
-                .id(p.getId()).uuid(p.getUuid())
-                .studentId(s.getId())
-                .studentName(s.getFirstName() + " " + s.getLastName())
-                .amount(p.getAmount()).paymentDate(p.getPaymentDate())
-                .paymentMethod(p.getPaymentMethod()).status(p.getStatus())
-                .periodFrom(p.getPeriodFrom()).periodTo(p.getPeriodTo())
-                .build())
+        List<StudentDetailResponse.PaymentSummary> paymentHistory = paymentRepository
+            .findByStudentIdOrderByPaymentDateDesc(s.getId()).stream()
+            .limit(100)
+            .map(this::toPaymentSummary)
             .collect(Collectors.toList());
+
+        Map<String, Integer> attendanceSummary = new LinkedHashMap<>();
+        attendanceSummary.put("present", 0);
+        attendanceSummary.put("absent", 0);
+        attendanceSummary.put("late", 0);
+        for (Object[] row : attendanceRepository.countByStudentGrouped(s.getId())) {
+            AttendanceStatus st = (AttendanceStatus) row[0];
+            int c = ((Number) row[1]).intValue();
+            if (st != null) {
+                attendanceSummary.put(st.name().toLowerCase(Locale.ROOT), c);
+            }
+        }
 
         return StudentDetailResponse.builder()
             .id(s.getId()).uuid(s.getUuid())
@@ -251,9 +262,48 @@ public class StudentService {
             .address(s.getAddress()).photoUrl(s.getPhotoUrl())
             .admissionNumber(s.getAdmissionNumber()).admissionDate(s.getAdmissionDate())
             .referralStudentId(s.getReferralStudent() != null ? s.getReferralStudent().getId() : null)
-            .activeGroups(groups).recentPayments(payments).parents(parents)
+            .activeGroups(activeGroups)
+            .paymentHistory(paymentHistory)
+            .attendanceSummary(attendanceSummary)
+            .parents(parents)
             .createdAt(s.getCreatedAt())
             .build();
+    }
+
+    private StudentDetailResponse.GroupSummary toGroupSummary(StudentGroup sg) {
+        BigDecimal monthlyPrice = sg.getMonthlyPriceOverride() != null
+            ? sg.getMonthlyPriceOverride()
+            : sg.getGroup().getCourse().getMonthlyPrice();
+        return StudentDetailResponse.GroupSummary.builder()
+            .groupId(sg.getGroup().getId())
+            .groupName(sg.getGroup().getGroupName())
+            .courseName(sg.getGroup().getCourse().getCourseName())
+            .teacherName(sg.getGroup().getTeacher() != null
+                ? sg.getGroup().getTeacher().getFirstName() + " " + sg.getGroup().getTeacher().getLastName() : null)
+            .joinDate(sg.getJoinDate())
+            .leaveDate(sg.getLeaveDate())
+            .isActive(sg.getIsActive())
+            .monthlyPrice(monthlyPrice)
+            .build();
+    }
+
+    private StudentDetailResponse.PaymentSummary toPaymentSummary(Payment p) {
+        return StudentDetailResponse.PaymentSummary.builder()
+            .receiptNumber(p.getReceiptNumber())
+            .amount(p.getAmount())
+            .formattedAmount(formatUzs(p.getAmount()))
+            .paymentDate(p.getPaymentDate())
+            .groupName(p.getGroup() != null ? p.getGroup().getGroupName() : null)
+            .status(p.getStatus())
+            .build();
+    }
+
+    private static String formatUzs(BigDecimal amount) {
+        if (amount == null) {
+            return "0 so'm";
+        }
+        long v = amount.setScale(0, RoundingMode.HALF_UP).longValue();
+        return String.format(Locale.US, "%,d", v).replace(',', ' ') + " so'm";
     }
 
     private String esc(String val) {

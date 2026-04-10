@@ -14,6 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -34,6 +35,12 @@ public class StudentController {
             @RequestParam(required = false) StudentStatus status) {
         return ResponseEntity.ok(ApiResponse.success(
             studentService.getAllStudents(page, size, search, status)));
+    }
+
+    @GetMapping("/{id}/groups")
+    public ResponseEntity<ApiResponse<List<StudentDetailResponse.GroupSummary>>> getStudentGroupHistory(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(studentService.getStudentGroupHistory(id)));
     }
 
     @GetMapping("/{id}")

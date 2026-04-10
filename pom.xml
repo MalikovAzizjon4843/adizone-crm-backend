@@ -54,12 +54,6 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Flyway for DB migrations (PostgreSQL support is built into flyway-core in 9.x) -->
-        <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
-        </dependency>
-
         <!-- JWT -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
@@ -132,17 +126,6 @@
     <build>
         <finalName>crm-system</finalName>
         <plugins>
-            <plugin>
-                <groupId>org.flywaydb</groupId>
-                <artifactId>flyway-maven-plugin</artifactId>
-                <version>9.22.3</version>
-                <configuration>
-                    <url>jdbc:postgresql://localhost:5432/adizone</url>
-                    <user>postgres</user>
-                    <password>root123</password>
-                    <locations>classpath:db/migration</locations>
-                </configuration>
-            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

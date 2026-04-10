@@ -25,8 +25,8 @@ public class NoticeService {
 
     @Transactional(readOnly = true)
     public PageResponse<NoticeResponse> getAllNotices(int page, int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("publishedAt").descending());
-        Page<Notice> p = noticeRepository.findByIsPublishedTrue(pageable);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Notice> p = noticeRepository.findAll(pageable);
         return PageResponse.<NoticeResponse>builder()
             .content(p.getContent().stream().map(this::toResponse).collect(Collectors.toList()))
             .pageNumber(page).pageSize(size)
@@ -40,20 +40,33 @@ public class NoticeService {
     }
 
     @Transactional(readOnly = true)
-    public List<NoticeResponse> getLatestNotices() {
-        return noticeRepository.findTop5ByIsPublishedTrueOrderByPublishedAtDesc()
-            .stream().map(this::toResponse).collect(Collectors.toList());
+    public List<NoticeResponse> getLatestNotices(int limit) {
+        int n = Math.min(Math.max(limit, 1), 50);
+        Pageable pageable = PageRequest.of(0, n);
+        return noticeRepository.findByIsActiveTrueAndIsPublishedTrueOrderByPublishedAtDesc(pageable)
+            .stream()
+            .map(this::toResponse)
+            .collect(Collectors.toList());
     }
 
     @Transactional
     public NoticeResponse createNotice(NoticeRequest request) {
+        boolean active = request.getIsActive() != null ? request.getIsActive() : true;
+        boolean published = request.getIsPublished() != null ? request.getIsPublished() : true;
+        LocalDateTime publishedAt = request.getPublishedAt() != null
+            ? request.getPublishedAt()
+            : LocalDateTime.now();
+
         Notice notice = Notice.builder()
             .title(request.getTitle())
             .content(request.getContent())
+            .noticeDate(request.getNoticeDate() != null ? request.getNoticeDate() : java.time.LocalDate.now())
+            .publishedTo(request.getPublishedTo() != null ? request.getPublishedTo() : "ALL")
             .noticeType(request.getNoticeType() != null ? request.getNoticeType() : "GENERAL")
             .targetRole(request.getTargetRole())
-            .isPublished(request.getIsPublished() != null ? request.getIsPublished() : true)
-            .publishedAt(request.getPublishedAt() != null ? request.getPublishedAt() : LocalDateTime.now())
+            .isActive(active)
+            .isPublished(published && active)
+            .publishedAt(publishedAt)
             .expiresAt(request.getExpiresAt())
             .build();
 
@@ -70,10 +83,25 @@ public class NoticeService {
         Notice notice = findById(id);
         notice.setTitle(request.getTitle());
         notice.setContent(request.getContent());
-        if (request.getNoticeType() != null) notice.setNoticeType(request.getNoticeType());
+        if (request.getNoticeDate() != null) {
+            notice.setNoticeDate(request.getNoticeDate());
+        }
+        if (request.getPublishedTo() != null) {
+            notice.setPublishedTo(request.getPublishedTo());
+        }
+        if (request.getNoticeType() != null) {
+            notice.setNoticeType(request.getNoticeType());
+        }
         notice.setTargetRole(request.getTargetRole());
-        if (request.getIsPublished() != null) notice.setIsPublished(request.getIsPublished());
-        if (request.getPublishedAt() != null) notice.setPublishedAt(request.getPublishedAt());
+        if (request.getIsActive() != null) {
+            notice.setIsActive(request.getIsActive());
+        }
+        if (request.getIsPublished() != null) {
+            notice.setIsPublished(request.getIsPublished());
+        }
+        if (request.getPublishedAt() != null) {
+            notice.setPublishedAt(request.getPublishedAt());
+        }
         notice.setExpiresAt(request.getExpiresAt());
         return toResponse(noticeRepository.save(notice));
     }
@@ -81,6 +109,7 @@ public class NoticeService {
     @Transactional
     public void deleteNotice(Long id) {
         Notice notice = findById(id);
+        notice.setIsActive(false);
         notice.setIsPublished(false);
         noticeRepository.save(notice);
     }
@@ -94,9 +123,11 @@ public class NoticeService {
         return NoticeResponse.builder()
             .id(n.getId()).uuid(n.getUuid())
             .title(n.getTitle()).content(n.getContent())
+            .noticeDate(n.getNoticeDate())
+            .publishedTo(n.getPublishedTo())
             .noticeType(n.getNoticeType()).targetRole(n.getTargetRole())
-            .isPublished(n.getIsPublished()).publishedAt(n.getPublishedAt())
-            .expiresAt(n.getExpiresAt())
+            .isActive(n.getIsActive()).isPublished(n.getIsPublished())
+            .publishedAt(n.getPublishedAt()).expiresAt(n.getExpiresAt())
             .createdByName(n.getCreatedBy() != null ? n.getCreatedBy().getUsername() : null)
             .createdAt(n.getCreatedAt()).build();
     }

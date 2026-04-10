@@ -41,4 +41,7 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
 
     @Query("SELECT COUNT(a) FROM Attendance a WHERE a.attendanceDate BETWEEN :from AND :to")
     long countTotalByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    @Query("SELECT a.status, COUNT(a) FROM Attendance a WHERE a.student.id = :studentId GROUP BY a.status")
+    List<Object[]> countByStudentGrouped(@Param("studentId") Long studentId);
 }

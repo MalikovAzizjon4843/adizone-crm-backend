@@ -44,7 +44,7 @@ public class Payment {
     private BigDecimal amount;
 
     @Column(name = "payment_date", nullable = false)
-    private LocalDateTime paymentDate;
+    private LocalDate paymentDate;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_method")
@@ -61,6 +61,12 @@ public class Payment {
 
     @Column(length = 500)
     private String description;
+
+    @Column(name = "discount_amount", precision = 12, scale = 2)
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
+    @Column(name = "receipt_number", length = 32, unique = true)
+    private String receiptNumber;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "received_by")
@@ -79,7 +85,12 @@ public class Payment {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
-        if (paymentDate == null) paymentDate = LocalDateTime.now();
+        if (paymentDate == null) {
+            paymentDate = LocalDate.now();
+        }
+        if (discountAmount == null) {
+            discountAmount = BigDecimal.ZERO;
+        }
     }
 
     @PreUpdate

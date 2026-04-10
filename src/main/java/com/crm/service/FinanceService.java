@@ -13,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -60,7 +59,7 @@ public class FinanceService {
         LocalDate end = to != null ? to : LocalDate.now();
 
         BigDecimal totalIncome = Optional.ofNullable(
-            paymentRepository.sumAmountByDateRange(start.atStartOfDay(), end.atTime(23, 59, 59))
+            paymentRepository.sumAmountByDateRange(start, end)
         ).orElse(BigDecimal.ZERO);
 
         BigDecimal totalExpenses = Optional.ofNullable(

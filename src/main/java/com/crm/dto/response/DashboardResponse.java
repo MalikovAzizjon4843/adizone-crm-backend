@@ -1,32 +1,35 @@
 package com.crm.dto.response;
+
 import lombok.*;
+
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
-@Data @Builder @NoArgsConstructor @AllArgsConstructor
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class DashboardResponse {
     private long totalStudents;
     private long activeStudents;
-    private long frozenStudents;
+    private long totalTeachers;
+    private long activeTeachers;
     private long totalGroups;
     private long activeGroups;
-    private long totalTeachers;
+    private long totalCourses;
     private long debtorCount;
     private BigDecimal monthlyRevenue;
     private BigDecimal monthlyExpenses;
     private BigDecimal netProfit;
     private double attendanceRate;
+    private long totalParents;
+    private long pendingLeaves;
+    private long unpaidPayroll;
+
     private Map<String, Long> studentsBySource;
     private List<Map<String, Object>> revenueChart;
     private List<Map<String, Object>> studentGrowthChart;
-
-    // New fields (V4+)
-    private long totalParents;
-    private long totalClasses;
-    private long totalSubjects;
-    private long totalHomeworks;
-    private long pendingLeaves;
-    private long unpaidPayroll;
     private List<NoticeResponse> latestNotices;
     private List<PaymentResponse> recentPayments;
 }

@@ -5,14 +5,19 @@ import lombok.*;
 
 @Entity
 @Table(name = "classrooms")
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Classroom extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "room_name", nullable = false, length = 100)
+    /** Legacy display name; prefer {@link #roomNumber} for new data. */
+    @Column(name = "room_name", length = 100)
     private String roomName;
 
     @Column(name = "room_number", length = 20)
@@ -22,6 +27,12 @@ public class Classroom extends BaseEntity {
 
     @Column(length = 20)
     private String floor;
+
+    @Column(name = "room_type", length = 20)
+    private String roomType;
+
+    @Column(length = 500)
+    private String description;
 
     @Column(name = "is_active")
     private Boolean isActive = true;

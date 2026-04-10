@@ -164,53 +164,6 @@ public class AcademicService {
         subjectRepository.save(s);
     }
 
-    // ── Classrooms ─────────────────────────────────────────────────
-
-    @Transactional(readOnly = true)
-    public PageResponse<ClassroomResponse> getAllClassrooms(int page, int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        Page<Classroom> p = classroomRepository.findByIsActiveTrue(pageable);
-        return PageResponse.<ClassroomResponse>builder()
-            .content(p.getContent().stream().map(this::toClassroomResponse).collect(Collectors.toList()))
-            .pageNumber(page).pageSize(size)
-            .totalElements(p.getTotalElements()).totalPages(p.getTotalPages()).last(p.isLast())
-            .build();
-    }
-
-    @Transactional(readOnly = true)
-    public ClassroomResponse getClassroomById(Long id) {
-        return toClassroomResponse(findClassroomById(id));
-    }
-
-    @Transactional
-    public ClassroomResponse createClassroom(ClassroomRequest request) {
-        Classroom c = Classroom.builder()
-            .roomName(request.getRoomName())
-            .roomNumber(request.getRoomNumber())
-            .capacity(request.getCapacity())
-            .floor(request.getFloor())
-            .isActive(true)
-            .build();
-        return toClassroomResponse(classroomRepository.save(c));
-    }
-
-    @Transactional
-    public ClassroomResponse updateClassroom(Long id, ClassroomRequest request) {
-        Classroom c = findClassroomById(id);
-        c.setRoomName(request.getRoomName());
-        c.setRoomNumber(request.getRoomNumber());
-        c.setCapacity(request.getCapacity());
-        c.setFloor(request.getFloor());
-        return toClassroomResponse(classroomRepository.save(c));
-    }
-
-    @Transactional
-    public void deleteClassroom(Long id) {
-        Classroom c = findClassroomById(id);
-        c.setIsActive(false);
-        classroomRepository.save(c);
-    }
-
     // ── Timetable ──────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
@@ -287,6 +240,13 @@ public class AcademicService {
             .orElseThrow(() -> new ResourceNotFoundException("Classroom", id));
     }
 
+    private static String classroomDisplayName(Classroom c) {
+        if (c.getRoomNumber() != null && !c.getRoomNumber().isBlank()) {
+            return c.getRoomNumber();
+        }
+        return c.getRoomName();
+    }
+
     private Timetable findTimetableById(Long id) {
         return timetableRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Timetable", id));
@@ -334,13 +294,6 @@ public class AcademicService {
             .isActive(s.getIsActive()).createdAt(s.getCreatedAt()).build();
     }
 
-    private ClassroomResponse toClassroomResponse(Classroom c) {
-        return ClassroomResponse.builder()
-            .id(c.getId()).roomName(c.getRoomName()).roomNumber(c.getRoomNumber())
-            .capacity(c.getCapacity()).floor(c.getFloor())
-            .isActive(c.getIsActive()).createdAt(c.getCreatedAt()).build();
-    }
-
     private TimetableResponse toTimetableResponse(Timetable t) {
         return TimetableResponse.builder()
             .id(t.getId())
@@ -356,7 +309,7 @@ public class AcademicService {
             .teacherName(t.getTeacher() != null
                 ? t.getTeacher().getFirstName() + " " + t.getTeacher().getLastName() : null)
             .classroomId(t.getClassroom() != null ? t.getClassroom().getId() : null)
-            .roomName(t.getClassroom() != null ? t.getClassroom().getRoomName() : null)
+            .roomName(t.getClassroom() != null ? classroomDisplayName(t.getClassroom()) : null)
             .roomNumber(t.getClassroom() != null ? t.getClassroom().getRoomNumber() : null)
             .dayOfWeek(t.getDayOfWeek()).startTime(t.getStartTime()).endTime(t.getEndTime())
             .academicYear(t.getAcademicYear()).createdAt(t.getCreatedAt()).build();

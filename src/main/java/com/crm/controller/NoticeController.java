@@ -5,7 +5,8 @@ import com.crm.dto.response.*;
 import com.crm.service.NoticeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,6 +20,7 @@ public class NoticeController {
     private final NoticeService noticeService;
 
     @GetMapping
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<PageResponse<NoticeResponse>>> getAllNotices(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -26,11 +28,13 @@ public class NoticeController {
     }
 
     @GetMapping("/latest")
-    public ResponseEntity<ApiResponse<List<NoticeResponse>>> getLatest() {
-        return ResponseEntity.ok(ApiResponse.success(noticeService.getLatestNotices()));
+    public ResponseEntity<ApiResponse<List<NoticeResponse>>> getLatest(
+            @RequestParam(defaultValue = "5") int limit) {
+        return ResponseEntity.ok(ApiResponse.success(noticeService.getLatestNotices(limit)));
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<NoticeResponse>> getNoticeById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(noticeService.getNoticeById(id)));
     }

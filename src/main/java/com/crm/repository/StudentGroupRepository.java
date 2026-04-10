@@ -15,6 +15,8 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
 
     List<StudentGroup> findByStudentId(Long studentId);
 
+    List<StudentGroup> findByStudentIdOrderByJoinDateDesc(Long studentId);
+
     List<StudentGroup> findByGroupId(Long groupId);
 
     List<StudentGroup> findByStudentIdAndIsActiveTrue(Long studentId);
@@ -22,6 +24,9 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
     Optional<StudentGroup> findByStudentIdAndGroupIdAndIsActiveTrue(Long studentId, Long groupId);
 
     boolean existsByStudentIdAndGroupIdAndIsActiveTrue(Long studentId, Long groupId);
+
+    @Query("SELECT sg FROM StudentGroup sg WHERE sg.isActive = true AND sg.student.status = 'ACTIVE'")
+    List<StudentGroup> findAllActiveEnrollments();
 
     // Find all debtors: next_payment_date < today
     @Query("SELECT sg FROM StudentGroup sg WHERE sg.isActive = true " +
