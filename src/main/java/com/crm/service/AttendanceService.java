@@ -28,6 +28,7 @@ public class AttendanceService {
     private final UserRepository userRepository;
     private final TelegramService telegramService;
     private final ParentRepository parentRepository;
+    private final StudentPaymentLifecycleService studentPaymentLifecycleService;
 
     @Transactional
     public List<AttendanceResponse> markAttendance(AttendanceRequest request) {
@@ -58,6 +59,11 @@ public class AttendanceService {
 
             Attendance saved = attendanceRepository.save(attendance);
             results.add(toResponse(saved));
+
+            if (saved.getStatus() == AttendanceStatus.PRESENT || saved.getStatus() == AttendanceStatus.LATE) {
+                studentPaymentLifecycleService.onLessonAttended(
+                    item.getStudentId(), request.getGroupId(), request.getDate());
+            }
 
             if (saved.getStatus() == AttendanceStatus.ABSENT) {
                 try {

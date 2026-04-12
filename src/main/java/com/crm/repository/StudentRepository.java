@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -55,4 +56,11 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
 
     @Query("SELECT s.status, COUNT(s) FROM Student s GROUP BY s.status")
     List<Object[]> countByStatusGrouped();
+
+    @Query("SELECT DISTINCT s FROM Student s JOIN s.studentGroups sg "
+           + "WHERE s.status IN (com.crm.entity.enums.StudentStatus.FROZEN, com.crm.entity.enums.StudentStatus.LEFT) "
+           + "AND sg.isActive = false "
+           + "AND (sg.paymentStatus IN ('OVERDUE', 'SUSPENDED', 'ARCHIVED') "
+           + "OR (sg.nextPaymentDate IS NOT NULL AND sg.nextPaymentDate < :today))")
+    List<Student> findArchivedOrFrozenWithBalanceSignals(@Param("today") LocalDate today);
 }

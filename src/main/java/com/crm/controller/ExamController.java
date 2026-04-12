@@ -11,6 +11,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/exams")
@@ -24,6 +25,30 @@ public class ExamController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(ApiResponse.success(examService.getAllExams(page, size)));
+    }
+
+    @PostMapping("/{id}/register-student")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
+    public ResponseEntity<ApiResponse<ExamRegistrationResponse>> registerStudent(
+            @PathVariable Long id,
+            @RequestParam Long studentId) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success("Ro'yxatdan o'tdi",
+                examService.registerStudentForExam(id, studentId)));
+    }
+
+    @GetMapping("/{id}/eligible-students")
+    public ResponseEntity<ApiResponse<List<StudentResponse>>> getEligibleStudents(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(examService.getEligibleStudents(id)));
+    }
+
+    @PostMapping("/{id}/calculate-payment")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> calculatePayment(
+            @PathVariable Long id,
+            @RequestParam Long studentId) {
+        return ResponseEntity.ok(ApiResponse.success(
+            examService.calculateExamPaymentPreview(id, studentId)));
     }
 
     @GetMapping("/{id}")

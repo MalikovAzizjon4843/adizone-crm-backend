@@ -30,6 +30,10 @@ public class Timetable extends BaseEntity {
     @JoinColumn(name = "subject_id")
     private Subject subject;
 
+    /** Denormalized label (e.g. course name) when no {@link Subject} is linked. */
+    @Column(name = "subject_name", length = 255)
+    private String subjectName;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "teacher_id")
     private Teacher teacher;

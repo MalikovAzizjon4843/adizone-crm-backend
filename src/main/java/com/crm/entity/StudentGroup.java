@@ -52,6 +52,28 @@ public class StudentGroup {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    @Column(name = "lessons_attended")
+    private Integer lessonsAttended = 0;
+
+    @Column(name = "first_lesson_date")
+    private LocalDate firstLessonDate;
+
+    @Column(name = "last_payment_date")
+    private LocalDate lastPaymentDate;
+
+    @Column(name = "next_payment_due")
+    private LocalDate nextPaymentDue;
+
+    /** TRIAL, PENDING, PAID, OVERDUE, SUSPENDED, ARCHIVED */
+    @Column(name = "payment_status", length = 20)
+    private String paymentStatus = "TRIAL";
+
+    @Column(name = "suspended_at")
+    private LocalDateTime suspendedAt;
+
+    @Column(name = "suspension_reason", columnDefinition = "TEXT")
+    private String suspensionReason;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -65,6 +87,8 @@ public class StudentGroup {
         if (joinDate == null) joinDate = LocalDate.now();
         if (paymentStartDate == null) paymentStartDate = joinDate;
         if (nextPaymentDate == null) nextPaymentDate = joinDate.plusDays(30);
+        if (paymentStatus == null) paymentStatus = "TRIAL";
+        if (lessonsAttended == null) lessonsAttended = 0;
     }
 
     @PreUpdate

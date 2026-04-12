@@ -2,7 +2,10 @@ package com.crm.controller;
 
 import com.crm.dto.request.GroupRequest;
 import com.crm.dto.request.StudentGroupRequest;
-import com.crm.dto.response.*;
+import com.crm.dto.response.ApiResponse;
+import com.crm.dto.response.GroupResponse;
+import com.crm.dto.response.StudentGroupResponse;
+import com.crm.dto.response.SuspendedStudentResponse;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.service.GroupService;
 import jakarta.validation.Valid;
@@ -24,6 +27,19 @@ public class GroupController {
     public ResponseEntity<ApiResponse<List<GroupResponse>>> getAllGroups(
             @RequestParam(required = false) GroupStatus status) {
         return ResponseEntity.ok(ApiResponse.success(groupService.getAllGroups(status)));
+    }
+
+    @GetMapping("/{id}/schedule")
+    public ResponseEntity<ApiResponse<List<GroupResponse.ScheduleDayResponse>>> getSchedule(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(groupService.getSchedule(id)));
+    }
+
+    @GetMapping("/{id}/suspended-students")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<List<SuspendedStudentResponse>>> getSuspendedStudents(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(groupService.getSuspendedStudents(id)));
     }
 
     @GetMapping("/{id}")

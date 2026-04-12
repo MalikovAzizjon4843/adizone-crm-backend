@@ -43,6 +43,12 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getPaymentStats()));
     }
 
+    @GetMapping("/archived")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<List<SuspendedStudentResponse>>> getArchivedSuspended() {
+        return ResponseEntity.ok(ApiResponse.success(paymentService.getArchivedSuspendedStudents()));
+    }
+
     @GetMapping("/history")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<List<PaymentHistoryResponse>>> getHistory() {

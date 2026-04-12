@@ -304,7 +304,7 @@ public class AcademicService {
             .sectionId(t.getSection() != null ? t.getSection().getId() : null)
             .sectionName(t.getSection() != null ? t.getSection().getSectionName() : null)
             .subjectId(t.getSubject() != null ? t.getSubject().getId() : null)
-            .subjectName(t.getSubject() != null ? t.getSubject().getSubjectName() : null)
+            .subjectName(t.getSubject() != null ? t.getSubject().getSubjectName() : t.getSubjectName())
             .teacherId(t.getTeacher() != null ? t.getTeacher().getId() : null)
             .teacherName(t.getTeacher() != null
                 ? t.getTeacher().getFirstName() + " " + t.getTeacher().getLastName() : null)

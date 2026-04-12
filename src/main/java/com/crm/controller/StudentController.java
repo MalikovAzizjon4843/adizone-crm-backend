@@ -43,6 +43,12 @@ public class StudentController {
         return ResponseEntity.ok(ApiResponse.success(studentService.getStudentGroupHistory(id)));
     }
 
+    @GetMapping("/archived")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<List<StudentResponse>>> getArchivedStudents() {
+        return ResponseEntity.ok(ApiResponse.success(studentService.getArchivedStudents()));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<StudentDetailResponse>> getStudentById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(studentService.getStudentById(id)));

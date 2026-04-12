@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -65,6 +66,13 @@ public class StudentService {
     public StudentDetailResponse getStudentById(Long id) {
         Student student = findById(id);
         return toDetailResponse(student);
+    }
+
+    @Transactional(readOnly = true)
+    public List<StudentResponse> getArchivedStudents() {
+        return studentRepository.findArchivedOrFrozenWithBalanceSignals(LocalDate.now()).stream()
+            .map(this::toResponse)
+            .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)

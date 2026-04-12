@@ -4,6 +4,7 @@ import com.crm.dto.request.PaymentRequest;
 import com.crm.dto.response.DebtorResponse;
 import com.crm.dto.response.PaymentHistoryResponse;
 import com.crm.dto.response.PaymentResponse;
+import com.crm.dto.response.SuspendedStudentResponse;
 import com.crm.entity.*;
 import com.crm.entity.enums.IncomeCategory;
 import com.crm.entity.enums.PaymentStatus;
@@ -40,6 +41,7 @@ public class PaymentService {
     private final StudentGroupRepository studentGroupRepository;
     private final IncomeRepository incomeRepository;
     private final UserRepository userRepository;
+    private final StudentPaymentLifecycleService studentPaymentLifecycleService;
 
     @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
@@ -103,7 +105,29 @@ public class PaymentService {
             .build();
         incomeRepository.save(income);
 
+        if (request.getGroupId() != null) {
+            studentPaymentLifecycleService.onPaymentReceived(
+                request.getStudentId(), request.getGroupId(), payDate);
+        }
+
         return toResponse(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SuspendedStudentResponse> getArchivedSuspendedStudents() {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(3);
+        return studentGroupRepository.findSuspendedOnOrBefore(cutoff).stream()
+            .map(sg -> SuspendedStudentResponse.builder()
+                .studentId(sg.getStudent().getId())
+                .studentName(sg.getStudent().getFirstName() + " " + sg.getStudent().getLastName())
+                .groupId(sg.getGroup().getId())
+                .groupName(sg.getGroup().getGroupName())
+                .suspendedAt(sg.getSuspendedAt())
+                .suspensionReason(sg.getSuspensionReason())
+                .daysSinceSuspended(sg.getSuspendedAt() != null
+                    ? ChronoUnit.DAYS.between(sg.getSuspendedAt().toLocalDate(), LocalDate.now()) : null)
+                .build())
+            .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)

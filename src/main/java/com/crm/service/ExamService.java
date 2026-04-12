@@ -4,6 +4,7 @@ import com.crm.dto.request.ExamRequest;
 import com.crm.dto.request.ExamResultRequest;
 import com.crm.dto.response.*;
 import com.crm.entity.*;
+import com.crm.exception.BadRequestException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
@@ -12,18 +13,28 @@ import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class ExamService {
 
+    private static final int MIN_PRESENT_DAYS_FOR_EXAM = 8;
+
     private final ExamRepository examRepository;
     private final ExamResultRepository examResultRepository;
+    private final ExamRegistrationRepository examRegistrationRepository;
     private final StudentRepository studentRepository;
     private final ClassRepository classRepository;
     private final SubjectRepository subjectRepository;
+    private final PaymentRepository paymentRepository;
+    private final StudentGroupRepository studentGroupRepository;
+    private final AttendanceRepository attendanceRepository;
+    private final ExamPaymentCalculatorService examPaymentCalculatorService;
 
     @Transactional(readOnly = true)
     public PageResponse<ExamResponse> getAllExams(int page, int size) {
@@ -105,6 +116,149 @@ public class ExamService {
         result.setRemarks(request.getRemarks());
         result.setIsPassed(request.getIsPassed());
         return toResultResponse(examResultRepository.save(result));
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> calculateExamPaymentPreview(Long examId, Long studentId) {
+        Exam exam = findExamById(examId);
+        studentRepository.findById(studentId)
+            .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("examDate", exam.getExamDate());
+        result.put("examName", exam.getExamName());
+
+        Optional<Payment> lastPayment = paymentRepository
+            .findFirstByStudent_IdAndPeriodToIsNotNullOrderByPeriodToDesc(studentId);
+
+        if (lastPayment.isPresent() && lastPayment.get().getPeriodTo() != null
+            && exam.getExamDate() != null) {
+            LocalDate periodEnd = lastPayment.get().getPeriodTo();
+            result.put("lastPaidUntil", periodEnd);
+
+            if (periodEnd.isBefore(exam.getExamDate())) {
+                long days = ChronoUnit.DAYS.between(periodEnd, exam.getExamDate());
+                result.put("unpaidDays", days);
+
+                BigDecimal monthlyPrice = studentGroupRepository.findByStudentIdAndIsActiveTrue(studentId).stream()
+                    .findFirst()
+                    .map(sg -> sg.getMonthlyPriceOverride() != null
+                        ? sg.getMonthlyPriceOverride()
+                        : (sg.getGroup().getCourse() != null
+                            ? sg.getGroup().getCourse().getMonthlyPrice() : BigDecimal.ZERO))
+                    .orElse(BigDecimal.ZERO);
+
+                BigDecimal amountDue = examPaymentCalculatorService.calculateExamPayment(
+                    periodEnd, exam.getExamDate(), monthlyPrice);
+                double dailyRate = monthlyPrice.compareTo(BigDecimal.ZERO) > 0
+                    ? monthlyPrice.doubleValue() / 30.0 : 0.0;
+
+                result.put("monthlyPrice", monthlyPrice);
+                result.put("dailyRate", dailyRate);
+                result.put("amountDue", amountDue);
+                result.put("message", days + " kunlik to'lov: "
+                    + String.format(Locale.US, "%.0f", amountDue.doubleValue()) + " UZS");
+            } else {
+                result.put("amountDue", BigDecimal.ZERO);
+                result.put("message", "To'lov kerak emas");
+            }
+        } else {
+            result.put("message", "To'lov tarixi topilmadi");
+        }
+
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public List<StudentResponse> getEligibleStudents(Long examId) {
+        findExamById(examId);
+        return studentRepository.findAll().stream()
+            .filter(s -> isEligibleForExam(s.getId()))
+            .map(this::toStudentResponse)
+            .collect(Collectors.toList());
+    }
+
+    private boolean isEligibleForExam(Long studentId) {
+        long presentDays = attendanceRepository.countPresentDaysForStudent(studentId);
+        if (presentDays < MIN_PRESENT_DAYS_FOR_EXAM) {
+            return false;
+        }
+        List<StudentGroup> active = studentGroupRepository.findByStudentIdAndIsActiveTrue(studentId);
+        if (active.isEmpty()) {
+            return false;
+        }
+        return active.stream().anyMatch(sg -> "PAID".equals(sg.getPaymentStatus()));
+    }
+
+    @Transactional
+    public ExamRegistrationResponse registerStudentForExam(Long examId, Long studentId) {
+        Exam exam = findExamById(examId);
+        Student student = studentRepository.findById(studentId)
+            .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
+
+        if (examRegistrationRepository.existsByExamIdAndStudentId(examId, studentId)) {
+            throw new DuplicateResourceException("Student already registered for this exam");
+        }
+
+        if (!isEligibleForExam(studentId)) {
+            throw new BadRequestException(
+                "O'quvchi imtihon uchun mos emas (to'lov holati yoki davomat yetarli emas)");
+        }
+
+        Map<String, Object> payPreview = calculateExamPaymentPreview(examId, studentId);
+        Object ad = payPreview.get("amountDue");
+        BigDecimal amountDue = ad instanceof BigDecimal ? (BigDecimal) ad : BigDecimal.ZERO;
+
+        String payStatus = BigDecimal.ZERO.compareTo(amountDue) >= 0 ? "PAID" : "PENDING";
+
+        ExamRegistration reg = ExamRegistration.builder()
+            .exam(exam)
+            .student(student)
+            .paymentStatus(payStatus)
+            .amountDue(amountDue)
+            .amountPaid(BigDecimal.ZERO.compareTo(amountDue) >= 0 ? amountDue : BigDecimal.ZERO)
+            .status("REGISTERED")
+            .build();
+
+        ExamRegistration saved = examRegistrationRepository.save(reg);
+        return toRegistrationResponse(saved);
+    }
+
+    private StudentResponse toStudentResponse(Student s) {
+        return StudentResponse.builder()
+            .id(s.getId())
+            .uuid(s.getUuid())
+            .firstName(s.getFirstName())
+            .lastName(s.getLastName())
+            .phone(s.getPhone())
+            .parentPhone(s.getParentPhone())
+            .birthDate(s.getBirthDate())
+            .gender(s.getGender())
+            .marketingSource(s.getMarketingSource())
+            .status(s.getStatus())
+            .notes(s.getNotes())
+            .address(s.getAddress())
+            .photoUrl(s.getPhotoUrl())
+            .admissionNumber(s.getAdmissionNumber())
+            .admissionDate(s.getAdmissionDate())
+            .referralStudentId(s.getReferralStudent() != null ? s.getReferralStudent().getId() : null)
+            .createdAt(s.getCreatedAt())
+            .build();
+    }
+
+    private ExamRegistrationResponse toRegistrationResponse(ExamRegistration r) {
+        return ExamRegistrationResponse.builder()
+            .id(r.getId())
+            .examId(r.getExam().getId())
+            .studentId(r.getStudent().getId())
+            .studentName(r.getStudent().getFirstName() + " " + r.getStudent().getLastName())
+            .paymentStatus(r.getPaymentStatus())
+            .amountDue(r.getAmountDue())
+            .amountPaid(r.getAmountPaid())
+            .registrationDate(r.getRegistrationDate())
+            .status(r.getStatus())
+            .notes(r.getNotes())
+            .build();
     }
 
     private Exam buildExam(Exam e, ExamRequest req) {

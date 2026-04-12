@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -42,4 +43,11 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
 
     @Query("SELECT COUNT(sg) FROM StudentGroup sg WHERE sg.isActive = true")
     long countActiveEnrollments();
+
+    @Query("SELECT sg FROM StudentGroup sg WHERE sg.group.id = :groupId AND sg.paymentStatus = 'SUSPENDED'")
+    List<StudentGroup> findSuspendedByGroupId(@Param("groupId") Long groupId);
+
+    @Query("SELECT sg FROM StudentGroup sg WHERE sg.paymentStatus = 'SUSPENDED' "
+           + "AND sg.suspendedAt IS NOT NULL AND sg.suspendedAt <= :cutoff")
+    List<StudentGroup> findSuspendedOnOrBefore(@Param("cutoff") LocalDateTime cutoff);
 }

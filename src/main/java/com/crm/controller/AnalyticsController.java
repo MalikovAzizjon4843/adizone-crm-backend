@@ -29,4 +29,9 @@ public class AnalyticsController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> getStudentAnalytics() {
         return ResponseEntity.ok(ApiResponse.success(analyticsService.getStudentAnalytics()));
     }
+
+    @GetMapping("/marketing/sources")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getMarketingSources() {
+        return ResponseEntity.ok(ApiResponse.success(analyticsService.getMarketingSources()));
+    }
 }

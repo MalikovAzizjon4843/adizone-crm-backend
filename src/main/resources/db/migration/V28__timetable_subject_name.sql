@@ -1,0 +1,2 @@
+ALTER TABLE timetable
+    ADD COLUMN IF NOT EXISTS subject_name VARCHAR(255);

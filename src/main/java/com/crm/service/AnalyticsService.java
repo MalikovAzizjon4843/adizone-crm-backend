@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.crm.entity.enums.MarketingSource;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -195,6 +197,18 @@ public class AnalyticsService {
 
     private static String key(int year, int month) {
         return year + "-" + month;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getMarketingSources() {
+        Map<String, Long> bySource = new LinkedHashMap<>();
+        for (MarketingSource source : MarketingSource.values()) {
+            bySource.put(source.name(), studentRepository.countByMarketingSource(source));
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("bySource", bySource);
+        result.put("total", bySource.values().stream().mapToLong(Long::longValue).sum());
+        return result;
     }
 
     @Transactional(readOnly = true)
