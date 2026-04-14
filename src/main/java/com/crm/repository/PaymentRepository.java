@@ -71,4 +71,6 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             Pageable pageable);
 
     Optional<Payment> findFirstByStudent_IdAndPeriodToIsNotNullOrderByPeriodToDesc(Long studentId);
+
+    Page<Payment> findAllByOrderByCreatedAtDesc(Pageable pageable);
 }

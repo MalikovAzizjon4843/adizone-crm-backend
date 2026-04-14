@@ -8,4 +8,6 @@ public class ScheduleResponse {
     private DayOfWeek dayOfWeek;
     private LocalTime startTime;
     private LocalTime endTime;
+    private Long roomId;
+    private String roomNumber;
 }

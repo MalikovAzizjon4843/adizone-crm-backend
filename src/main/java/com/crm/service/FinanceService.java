@@ -8,8 +8,14 @@ import com.crm.entity.Teacher;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.crm.entity.enums.ExpenseCategory;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -31,6 +37,25 @@ public class FinanceService {
         LocalDate end = to != null ? to : LocalDate.now();
         return expenseRepository.findByExpenseDateBetweenOrderByExpenseDateDesc(start, end)
             .stream().map(this::toResponse).collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public Page<ExpenseResponse> getExpensesFiltered(
+            LocalDate from, LocalDate to, String category, int page, int size) {
+        ExpenseCategory cat = parseExpenseCategory(category);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "expenseDate"));
+        return expenseRepository.findFiltered(from, to, cat, pageable).map(this::toResponse);
+    }
+
+    private static ExpenseCategory parseExpenseCategory(String category) {
+        if (category == null || category.isBlank()) {
+            return null;
+        }
+        try {
+            return ExpenseCategory.valueOf(category.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     @Transactional

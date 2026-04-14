@@ -4,12 +4,14 @@ import com.crm.dto.request.LeaveSubmitRequest;
 import com.crm.dto.response.LeaveResponse;
 import com.crm.dto.response.PageResponse;
 import com.crm.entity.Leave;
+import com.crm.entity.Teacher;
 import com.crm.entity.User;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.LeaveRepository;
 import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,10 +19,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class LeaveService {
 
     private final LeaveRepository leaveRepository;
@@ -64,8 +68,11 @@ public class LeaveService {
 
     @Transactional
     public LeaveResponse submitLeave(LeaveSubmitRequest request) {
-        User requester = userRepository.findById(request.getRequesterId())
-            .orElseThrow(() -> new ResourceNotFoundException("User", request.getRequesterId()));
+        User requester = resolveRequester(request);
+        if (requester == null) {
+            log.warn("Leave submitted without requester (teacherId={}, requesterId={})",
+                request.getTeacherId(), request.getRequesterId());
+        }
 
         Leave leave = Leave.builder()
             .requester(requester)
@@ -77,6 +84,36 @@ public class LeaveService {
             .build();
 
         return toResponse(leaveRepository.save(leave));
+    }
+
+    private User resolveRequester(LeaveSubmitRequest request) {
+        if (request.getRequesterId() != null) {
+            return userRepository.findById(request.getRequesterId()).orElse(null);
+        }
+        if (request.getTeacherId() != null) {
+            Teacher teacher = teacherRepository.findById(request.getTeacherId())
+                .orElseThrow(() -> new ResourceNotFoundException("Teacher", request.getTeacherId()));
+            if (teacher.getUser() != null) {
+                return teacher.getUser();
+            }
+            return userRepository.findAll().stream()
+                .filter(u -> namesMatch(u, teacher))
+                .findFirst()
+                .orElse(null);
+        }
+        return null;
+    }
+
+    private static boolean namesMatch(User u, Teacher t) {
+        if (u == null || t == null) {
+            return false;
+        }
+        return Objects.equals(normalize(u.getFirstName()), normalize(t.getFirstName()))
+            && Objects.equals(normalize(u.getLastName()), normalize(t.getLastName()));
+    }
+
+    private static String normalize(String s) {
+        return s == null ? "" : s.trim().toLowerCase();
     }
 
     @Transactional
@@ -129,8 +166,8 @@ public class LeaveService {
     private LeaveResponse toResponse(Leave l) {
         return LeaveResponse.builder()
             .id(l.getId()).uuid(l.getUuid())
-            .requesterId(l.getRequester().getId())
-            .requesterName(l.getRequester().getUsername())
+            .requesterId(l.getRequester() != null ? l.getRequester().getId() : null)
+            .requesterName(l.getRequester() != null ? l.getRequester().getUsername() : null)
             .leaveType(l.getLeaveType())
             .fromDate(l.getFromDate()).toDate(l.getToDate())
             .reason(l.getReason()).status(l.getStatus())

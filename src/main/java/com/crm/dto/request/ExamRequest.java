@@ -12,7 +12,10 @@ public class ExamRequest {
     @NotBlank(message = "Exam name is required")
     private String examName;
     private String examType;
+    /** Akademik sinf (ixtiyoriy) */
     private Long classId;
+    /** CRM guruhi — frontend asosan shuni yuboradi */
+    private Long groupId;
     private Long subjectId;
     private LocalDate examDate;
     private LocalTime startTime;

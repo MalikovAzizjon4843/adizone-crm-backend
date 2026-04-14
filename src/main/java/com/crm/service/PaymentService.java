@@ -77,13 +77,25 @@ public class PaymentService {
             .receivedBy(receiver)
             .build();
 
-        if (request.getGroupId() != null) {
-            Group group = groupRepository.findById(request.getGroupId())
-                .orElseThrow(() -> new ResourceNotFoundException("Group", request.getGroupId()));
+        Long effectiveGroupId = request.getGroupId();
+        if (effectiveGroupId == null && request.getStudentId() != null) {
+            studentGroupRepository.findByStudentIdAndIsActiveTrue(request.getStudentId()).stream()
+                .findFirst()
+                .ifPresent(sg -> {
+                    payment.setGroup(sg.getGroup());
+                    payment.setStudentGroup(sg);
+                });
+            if (payment.getGroup() != null) {
+                effectiveGroupId = payment.getGroup().getId();
+            }
+        } else if (effectiveGroupId != null) {
+            final Long gid = effectiveGroupId;
+            Group group = groupRepository.findById(gid)
+                .orElseThrow(() -> new ResourceNotFoundException("Group", gid));
             payment.setGroup(group);
 
             studentGroupRepository.findByStudentIdAndGroupIdAndIsActiveTrue(
-                    request.getStudentId(), request.getGroupId())
+                    request.getStudentId(), gid)
                 .ifPresent(sg -> {
                     if (sg.getNextPaymentDate() != null) {
                         sg.setNextPaymentDate(sg.getNextPaymentDate().plusDays(30));
@@ -105,9 +117,9 @@ public class PaymentService {
             .build();
         incomeRepository.save(income);
 
-        if (request.getGroupId() != null) {
+        if (effectiveGroupId != null) {
             studentPaymentLifecycleService.onPaymentReceived(
-                request.getStudentId(), request.getGroupId(), payDate);
+                request.getStudentId(), effectiveGroupId, payDate);
         }
 
         return toResponse(saved);
@@ -145,17 +157,8 @@ public class PaymentService {
             String status,
             LocalDate from,
             LocalDate to) {
-        PaymentStatus st = null;
-        if (status != null && !status.isBlank()) {
-            try {
-                st = PaymentStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
-            } catch (IllegalArgumentException ignored) {
-                // leave null → no status filter
-            }
-        }
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "paymentDate"));
-        Page<Payment> p = paymentRepository.searchPayments(studentId, groupId, st, from, to, pageable);
-        return p.map(this::toResponse);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        return paymentRepository.findAllByOrderByCreatedAtDesc(pageable).map(this::toResponse);
     }
 
     @Transactional(readOnly = true)

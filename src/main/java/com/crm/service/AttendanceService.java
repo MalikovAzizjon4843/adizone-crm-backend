@@ -24,6 +24,7 @@ public class AttendanceService {
 
     private final AttendanceRepository attendanceRepository;
     private final StudentRepository studentRepository;
+    private final StudentGroupRepository studentGroupRepository;
     private final GroupRepository groupRepository;
     private final UserRepository userRepository;
     private final TelegramService telegramService;
@@ -98,10 +99,27 @@ public class AttendanceService {
 
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getGroupAttendance(Long groupId, LocalDate date) {
-        List<Attendance> list = date != null
-            ? attendanceRepository.findByGroupIdAndAttendanceDateOrderByStudentLastName(groupId, date)
-            : attendanceRepository.findByGroupIdAndAttendanceDateOrderByStudentLastName(groupId, LocalDate.now());
-        return list.stream().map(this::toResponse).collect(Collectors.toList());
+        LocalDate d = date != null ? date : LocalDate.now();
+        List<Attendance> existing =
+            attendanceRepository.findByGroupIdAndAttendanceDateOrderByStudentLastName(groupId, d);
+        if (!existing.isEmpty()) {
+            return existing.stream().map(this::toResponse).collect(Collectors.toList());
+        }
+
+        Group group = groupRepository.findById(groupId)
+            .orElseThrow(() -> new ResourceNotFoundException("Group", groupId));
+
+        return studentGroupRepository.findByGroupIdAndIsActiveTrue(groupId).stream()
+            .map(sg -> AttendanceResponse.builder()
+                .studentId(sg.getStudent().getId())
+                .studentName(sg.getStudent().getFirstName() + " " + sg.getStudent().getLastName())
+                .groupId(groupId)
+                .groupName(group.getGroupName())
+                .attendanceDate(d)
+                .status(null)
+                .notes(null)
+                .build())
+            .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)

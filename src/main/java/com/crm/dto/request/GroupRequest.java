@@ -22,11 +22,22 @@ public class GroupRequest {
     private LocalDate startDate;
     private LocalDate endDate;
     private String notes;
+    /** Legacy: frontend JSON "schedules" — {@link #scheduleDays} bo‘sh bo‘lsa shu yerga map qilinadi */
     private List<ScheduleRequest> schedules;
     private List<ScheduleDayRequest> scheduleDays;
 
     @Data
     public static class ScheduleDayRequest {
+        private String dayOfWeek;
+        private String startTime;
+        private String endTime;
+        private Long roomId;
+        private String roomNumber;
+    }
+
+    /** Legacy API: kundalik jadval (string maydonlar, xona ixtiyoriy) */
+    @Data
+    public static class ScheduleRequest {
         private String dayOfWeek;
         private String startTime;
         private String endTime;

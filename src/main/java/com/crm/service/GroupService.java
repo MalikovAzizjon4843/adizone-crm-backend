@@ -8,7 +8,6 @@ import com.crm.dto.response.StudentGroupResponse;
 import com.crm.dto.response.SuspendedStudentResponse;
 import com.crm.entity.Course;
 import com.crm.entity.Group;
-import com.crm.entity.GroupSchedule;
 import com.crm.entity.GroupScheduleDay;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
@@ -25,6 +24,7 @@ import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
@@ -105,20 +105,10 @@ public class GroupService {
 
         Group saved = groupRepository.save(group);
 
-        if (request.getSchedules() != null && !request.getSchedules().isEmpty()) {
-            List<GroupSchedule> schedules = request.getSchedules().stream()
-                .map(s -> GroupSchedule.builder()
-                    .group(saved)
-                    .dayOfWeek(s.getDayOfWeek())
-                    .startTime(s.getStartTime())
-                    .endTime(s.getEndTime())
-                    .build())
-                .collect(Collectors.toList());
-            saved.setSchedules(schedules);
-            groupRepository.save(saved);
+        List<GroupRequest.ScheduleDayRequest> resolved = resolveScheduleDays(request);
+        if (resolved != null) {
+            saveScheduleDays(saved, resolved);
         }
-
-        saveScheduleDays(saved, request);
 
         return toResponse(groupRepository.findById(saved.getId()).orElse(saved), false);
     }
@@ -146,20 +136,58 @@ public class GroupService {
 
         Group saved = groupRepository.save(group);
 
-        if (request.getScheduleDays() != null) {
-            saveScheduleDays(saved, request);
+        if (request.getScheduleDays() != null || request.getSchedules() != null) {
+            List<GroupRequest.ScheduleDayRequest> resolved = resolveScheduleDays(request);
+            if (resolved != null) {
+                saveScheduleDays(saved, resolved);
+            }
         }
 
         return toResponse(saved, false);
     }
 
-    private void saveScheduleDays(Group group, GroupRequest request) {
-        if (request.getScheduleDays() == null) {
+    /**
+     * Avval {@code scheduleDays}, bo‘sh bo‘lsa {@code schedules} (legacy) dan birlashtiriladi.
+     */
+    private List<GroupRequest.ScheduleDayRequest> resolveScheduleDays(GroupRequest request) {
+        List<GroupRequest.ScheduleDayRequest> days = request.getScheduleDays();
+        if (days != null && !days.isEmpty()) {
+            return days;
+        }
+        if (days != null) {
+            return days;
+        }
+        if (request.getSchedules() != null) {
+            if (request.getSchedules().isEmpty()) {
+                return List.of();
+            }
+            return request.getSchedules().stream()
+                .map(this::fromLegacyScheduleEntry)
+                .collect(Collectors.toList());
+        }
+        return null;
+    }
+
+    private GroupRequest.ScheduleDayRequest fromLegacyScheduleEntry(GroupRequest.ScheduleRequest s) {
+        GroupRequest.ScheduleDayRequest d = new GroupRequest.ScheduleDayRequest();
+        if (s == null) {
+            return d;
+        }
+        d.setDayOfWeek(s.getDayOfWeek());
+        d.setStartTime(s.getStartTime());
+        d.setEndTime(s.getEndTime());
+        d.setRoomId(s.getRoomId());
+        d.setRoomNumber(s.getRoomNumber());
+        return d;
+    }
+
+    private void saveScheduleDays(Group group, List<GroupRequest.ScheduleDayRequest> days) {
+        if (days == null) {
             return;
         }
         groupScheduleDayRepository.deleteByGroup_Id(group.getId());
 
-        for (GroupRequest.ScheduleDayRequest day : request.getScheduleDays()) {
+        for (GroupRequest.ScheduleDayRequest day : days) {
             if (day.getDayOfWeek() == null || day.getDayOfWeek().isBlank()) {
                 continue;
             }
@@ -197,21 +225,24 @@ public class GroupService {
             groupScheduleDayRepository.save(scheduleDay);
         }
 
-        syncTimetableFromScheduleDays(group, request);
+        syncTimetableFromScheduleDays(group, days);
     }
 
     /**
      * Rebuilds {@link Timetable} rows from {@code scheduleDays} (delete all for group, then insert).
      */
-    private void syncTimetableFromScheduleDays(Group group, GroupRequest request) {
+    private void syncTimetableFromScheduleDays(Group group, List<GroupRequest.ScheduleDayRequest> days) {
         timetableRepository.deleteByGroup_Id(group.getId());
 
-        if (request.getScheduleDays() == null || request.getScheduleDays().isEmpty()) {
+        Group persisted = groupRepository.findById(group.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("Group", group.getId()));
+
+        if (days == null || days.isEmpty()) {
             log.debug("Timetable cleared for group id={}", group.getId());
             return;
         }
 
-        for (GroupRequest.ScheduleDayRequest dayReq : request.getScheduleDays()) {
+        for (GroupRequest.ScheduleDayRequest dayReq : days) {
             if (dayReq.getDayOfWeek() == null || dayReq.getDayOfWeek().isBlank()) {
                 continue;
             }
@@ -225,15 +256,19 @@ public class GroupService {
             }
 
             Timetable tt = Timetable.builder()
-                .group(group)
+                .group(persisted)
                 .dayOfWeek(dayReq.getDayOfWeek().trim())
                 .startTime(start)
                 .endTime(end)
-                .teacher(group.getTeacher())
+                .teacher(persisted.getTeacher())
                 .build();
 
-            if (group.getCourse() != null) {
-                tt.setSubjectName(group.getCourse().getCourseName());
+            if (tt.getTeacher() == null && persisted.getTeacher() != null) {
+                tt.setTeacher(persisted.getTeacher());
+            }
+
+            if (persisted.getCourse() != null) {
+                tt.setSubjectName(persisted.getCourse().getCourseName());
             }
 
             if (dayReq.getRoomId() != null) {
@@ -246,7 +281,7 @@ public class GroupService {
             timetableRepository.save(tt);
         }
 
-        log.info("Timetable auto-created for group: {}", group.getGroupName());
+        log.info("Timetable auto-created for group: {}", persisted.getGroupName());
     }
 
     private static LocalTime parseScheduleTime(String raw) {
@@ -335,29 +370,52 @@ public class GroupService {
     }
 
     private List<GroupResponse.ScheduleDayResponse> mapScheduleDays(Long groupId) {
-        return groupScheduleDayRepository.findByGroup_IdOrderByDayOfWeekAsc(groupId).stream()
+        return mapToScheduleDayResponses(
+            groupScheduleDayRepository.findByGroup_IdOrderByDayOfWeekAsc(groupId));
+    }
+
+    private List<GroupResponse.ScheduleDayResponse> mapToScheduleDayResponses(List<GroupScheduleDay> savedDays) {
+        return savedDays.stream()
             .map(d -> GroupResponse.ScheduleDayResponse.builder()
                 .id(d.getId())
                 .dayOfWeek(d.getDayOfWeek())
-                .startTime(d.getStartTime())
-                .endTime(d.getEndTime())
+                .startTime(d.getStartTime() != null ? d.getStartTime() : null)
+                .endTime(d.getEndTime() != null ? d.getEndTime() : null)
                 .roomNumber(d.getRoom() != null ? d.getRoom().getRoomNumber() : null)
                 .roomId(d.getRoom() != null ? d.getRoom().getId() : null)
                 .build())
             .collect(Collectors.toList());
     }
 
-    private GroupResponse toResponse(Group g, boolean includeMembers) {
-        List<ScheduleResponse> schedules = g.getSchedules() == null ? List.of() : g.getSchedules().stream()
-            .map(s -> ScheduleResponse.builder()
-                .id(s.getId())
-                .dayOfWeek(s.getDayOfWeek())
-                .startTime(s.getStartTime())
-                .endTime(s.getEndTime())
+    private List<ScheduleResponse> mapToScheduleResponses(List<GroupScheduleDay> savedDays) {
+        return savedDays.stream()
+            .map(d -> ScheduleResponse.builder()
+                .id(d.getId())
+                .dayOfWeek(parseDayOfWeekSafe(d.getDayOfWeek()))
+                .startTime(parseScheduleTime(d.getStartTime()))
+                .endTime(parseScheduleTime(d.getEndTime()))
+                .roomId(d.getRoom() != null ? d.getRoom().getId() : null)
+                .roomNumber(d.getRoom() != null ? d.getRoom().getRoomNumber() : null)
                 .build())
             .collect(Collectors.toList());
+    }
 
-        List<GroupResponse.ScheduleDayResponse> scheduleDays = mapScheduleDays(g.getId());
+    private static DayOfWeek parseDayOfWeekSafe(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return DayOfWeek.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private GroupResponse toResponse(Group g, boolean includeMembers) {
+        List<GroupScheduleDay> savedDays =
+            groupScheduleDayRepository.findByGroup_IdOrderByDayOfWeekAsc(g.getId());
+        List<ScheduleResponse> schedules = mapToScheduleResponses(savedDays);
+        List<GroupResponse.ScheduleDayResponse> scheduleDays = mapToScheduleDayResponses(savedDays);
 
         List<StudentGroupResponse> members = null;
         if (includeMembers && g.getStudentGroups() != null) {

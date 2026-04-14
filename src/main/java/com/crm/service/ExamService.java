@@ -30,6 +30,7 @@ public class ExamService {
     private final ExamRegistrationRepository examRegistrationRepository;
     private final StudentRepository studentRepository;
     private final ClassRepository classRepository;
+    private final GroupRepository groupRepository;
     private final SubjectRepository subjectRepository;
     private final PaymentRepository paymentRepository;
     private final StudentGroupRepository studentGroupRepository;
@@ -271,8 +272,15 @@ public class ExamService {
         e.setPassMarks(req.getPassMarks());
         e.setAcademicYear(req.getAcademicYear());
         if (req.getClassId() != null) {
-            e.setClassEntity(classRepository.findById(req.getClassId())
-                .orElseThrow(() -> new ResourceNotFoundException("Class", req.getClassId())));
+            classRepository.findById(req.getClassId()).ifPresent(e::setClassEntity);
+        }
+        if (req.getGroupId() != null) {
+            groupRepository.findById(req.getGroupId()).ifPresent(group -> {
+                e.setGroup(group);
+                if (group.getTeacher() != null) {
+                    e.setTeacher(group.getTeacher());
+                }
+            });
         }
         if (req.getSubjectId() != null) {
             e.setSubject(subjectRepository.findById(req.getSubjectId())
@@ -287,10 +295,14 @@ public class ExamService {
     }
 
     private ExamResponse toExamResponse(Exam e) {
+        Long groupId = e.getGroup() != null ? e.getGroup().getId() : null;
+        String groupName = e.getGroup() != null ? e.getGroup().getGroupName() : null;
         return ExamResponse.builder()
             .id(e.getId()).uuid(e.getUuid()).examName(e.getExamName()).examType(e.getExamType())
             .classId(e.getClassEntity() != null ? e.getClassEntity().getId() : null)
             .className(e.getClassEntity() != null ? e.getClassEntity().getClassName() : null)
+            .groupId(groupId)
+            .groupName(groupName)
             .subjectId(e.getSubject() != null ? e.getSubject().getId() : null)
             .subjectName(e.getSubject() != null ? e.getSubject().getSubjectName() : null)
             .examDate(e.getExamDate()).startTime(e.getStartTime()).endTime(e.getEndTime())

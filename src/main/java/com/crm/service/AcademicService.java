@@ -304,15 +304,48 @@ public class AcademicService {
             .sectionId(t.getSection() != null ? t.getSection().getId() : null)
             .sectionName(t.getSection() != null ? t.getSection().getSectionName() : null)
             .subjectId(t.getSubject() != null ? t.getSubject().getId() : null)
-            .subjectName(t.getSubject() != null ? t.getSubject().getSubjectName() : t.getSubjectName())
-            .teacherId(t.getTeacher() != null ? t.getTeacher().getId() : null)
-            .teacherName(t.getTeacher() != null
-                ? t.getTeacher().getFirstName() + " " + t.getTeacher().getLastName() : null)
+            .subjectName(resolveTimetableSubjectName(t))
+            .teacherId(resolveTimetableTeacherId(t))
+            .teacherName(resolveTimetableTeacherName(t))
             .classroomId(t.getClassroom() != null ? t.getClassroom().getId() : null)
             .roomName(t.getClassroom() != null ? classroomDisplayName(t.getClassroom()) : null)
             .roomNumber(t.getClassroom() != null ? t.getClassroom().getRoomNumber() : null)
             .dayOfWeek(t.getDayOfWeek()).startTime(t.getStartTime()).endTime(t.getEndTime())
             .academicYear(t.getAcademicYear()).createdAt(t.getCreatedAt()).build();
+    }
+
+    private static String resolveTimetableSubjectName(Timetable t) {
+        if (t.getSubject() != null) {
+            return t.getSubject().getSubjectName();
+        }
+        if (t.getSubjectName() != null && !t.getSubjectName().isBlank()) {
+            return t.getSubjectName();
+        }
+        if (t.getGroup() != null && t.getGroup().getCourse() != null) {
+            return t.getGroup().getCourse().getCourseName();
+        }
+        return null;
+    }
+
+    private static Long resolveTimetableTeacherId(Timetable t) {
+        if (t.getTeacher() != null) {
+            return t.getTeacher().getId();
+        }
+        if (t.getGroup() != null && t.getGroup().getTeacher() != null) {
+            return t.getGroup().getTeacher().getId();
+        }
+        return null;
+    }
+
+    private static String resolveTimetableTeacherName(Timetable t) {
+        if (t.getTeacher() != null) {
+            return t.getTeacher().getFirstName() + " " + t.getTeacher().getLastName();
+        }
+        if (t.getGroup() != null && t.getGroup().getTeacher() != null) {
+            Teacher gt = t.getGroup().getTeacher();
+            return gt.getFirstName() + " " + gt.getLastName();
+        }
+        return null;
     }
 
     private Timetable buildTimetable(Timetable t, TimetableRequest req) {

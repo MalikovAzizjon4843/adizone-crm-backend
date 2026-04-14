@@ -8,8 +8,11 @@ import java.time.LocalDate;
 
 @Data
 public class LeaveSubmitRequest {
-    @NotNull(message = "Requester user ID is required")
+    /** Ixtiyoriy — bo‘lmasa {@link #teacherId} orqali aniqlanadi */
     private Long requesterId;
+
+    /** Frontend o‘qituvchi tanlaydi — user bilan bog‘langan {@link com.crm.entity.User} qidiriladi */
+    private Long teacherId;
 
     @NotBlank(message = "Leave type is required")
     private String leaveType;

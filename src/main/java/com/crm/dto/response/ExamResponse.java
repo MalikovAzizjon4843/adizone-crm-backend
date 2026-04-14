@@ -16,6 +16,8 @@ public class ExamResponse {
     private String examType;
     private Long classId;
     private String className;
+    private Long groupId;
+    private String groupName;
     private Long subjectId;
     private String subjectName;
     private LocalDate examDate;

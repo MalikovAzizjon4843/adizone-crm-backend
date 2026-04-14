@@ -20,6 +20,8 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
 
     List<StudentGroup> findByGroupId(Long groupId);
 
+    List<StudentGroup> findByGroupIdAndIsActiveTrue(Long groupId);
+
     List<StudentGroup> findByStudentIdAndIsActiveTrue(Long studentId);
 
     Optional<StudentGroup> findByStudentIdAndGroupIdAndIsActiveTrue(Long studentId, Long groupId);

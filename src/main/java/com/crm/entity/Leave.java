@@ -22,7 +22,7 @@ public class Leave extends BaseEntity {
     private UUID uuid;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "requester_id", nullable = false)
+    @JoinColumn(name = "requester_id")
     private User requester;
 
     @Column(name = "leave_type", nullable = false, length = 30)
