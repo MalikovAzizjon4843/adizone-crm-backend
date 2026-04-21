@@ -17,6 +17,8 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     List<Attendance> findByGroupIdAndAttendanceDateOrderByStudentLastName(
             Long groupId, LocalDate date);
 
+    List<Attendance> findByGroup_IdAndAttendanceDate(Long groupId, LocalDate date);
+
     List<Attendance> findByStudentIdOrderByAttendanceDateDesc(Long studentId);
 
     Optional<Attendance> findByStudentIdAndGroupIdAndAttendanceDate(

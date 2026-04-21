@@ -12,6 +12,7 @@ public class LeaveResponse {
     private UUID uuid;
     private Long requesterId;
     private String requesterName;
+    private String teacherName;
     private String leaveType;
     private LocalDate fromDate;
     private LocalDate toDate;

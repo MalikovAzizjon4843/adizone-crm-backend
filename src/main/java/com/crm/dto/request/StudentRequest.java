@@ -1,7 +1,5 @@
 package com.crm.dto.request;
 
-import com.crm.entity.enums.MarketingSource;
-import com.crm.entity.enums.StudentStatus;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -16,25 +14,31 @@ import java.time.LocalDate;
 @Data
 public class StudentRequest {
 
-    @NotBlank(message = "First name is required")
+    @NotBlank(message = "Ism majburiy")
     private String firstName;
 
-    @NotBlank(message = "Last name is required")
+    @NotBlank(message = "Familiya majburiy")
     private String lastName;
 
-    @NotBlank(message = "Phone is required")
+    @NotBlank(message = "Telefon majburiy")
     private String phone;
 
-    private String parentPhone;
-    private LocalDate birthDate;
-    private String gender;
-    private MarketingSource marketingSource = MarketingSource.OTHER;
-    private Long referralStudentId;
-    private StudentStatus status = StudentStatus.ACTIVE;
-    private String notes;
-    private String address;
-    private String photoUrl;
+    @NotBlank(message = "Holat majburiy")
+    private String status;
+
+    @NotBlank(message = "Qayerdan kelganligi majburiy")
+    private String marketingSource;
 
     private String admissionNumber;
     private LocalDate admissionDate;
+    private Long groupId;
+    private Long courseId;
+    private String parentPhone;
+    private String address;
+    private String notes;
+
+    private LocalDate birthDate;
+    private String gender;
+    private Long referralStudentId;
+    private String photoUrl;
 }

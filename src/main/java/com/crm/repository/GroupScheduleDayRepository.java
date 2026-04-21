@@ -15,6 +15,8 @@ public interface GroupScheduleDayRepository extends JpaRepository<GroupScheduleD
 
     void deleteByGroup_Id(Long groupId);
 
+    List<GroupScheduleDay> findByRoomAndDayOfWeek(com.crm.entity.Classroom room, String dayOfWeek);
+
     @Query("SELECT s FROM GroupScheduleDay s " +
            "WHERE s.room IS NOT NULL AND s.room.id = :roomId " +
            "AND s.dayOfWeek = :day " +

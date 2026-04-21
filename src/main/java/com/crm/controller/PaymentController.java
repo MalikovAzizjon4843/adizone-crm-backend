@@ -26,15 +26,17 @@ public class PaymentController {
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<Page<PaymentResponse>>> getAll(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) Long studentId,
-            @RequestParam(required = false) Long groupId,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+            @RequestParam(defaultValue="0") int page,
+            @RequestParam(defaultValue="50") int size,
+            @RequestParam(required=false) Long studentId,
+            @RequestParam(required=false) Long groupId,
+            @RequestParam(required=false) String status,
+            @RequestParam(required=false) String from,
+            @RequestParam(required=false) String to) {
         return ResponseEntity.ok(ApiResponse.success(
-            paymentService.getAllPayments(page, size, studentId, groupId, status, from, to)));
+            paymentService.getAllPayments(
+                page, size, studentId, groupId,
+                status, from, to)));
     }
 
     @GetMapping("/stats")

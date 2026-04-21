@@ -13,6 +13,7 @@ import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
 import com.crm.entity.Teacher;
 import com.crm.entity.Timetable;
+import com.crm.entity.Classroom;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.DuplicateResourceException;
@@ -187,45 +188,97 @@ public class GroupService {
         }
         groupScheduleDayRepository.deleteByGroup_Id(group.getId());
 
-        for (GroupRequest.ScheduleDayRequest day : days) {
-            if (day.getDayOfWeek() == null || day.getDayOfWeek().isBlank()) {
+        for (GroupRequest.ScheduleDayRequest dayReq : days) {
+            if (dayReq.getDayOfWeek() == null || dayReq.getDayOfWeek().isBlank()) {
                 continue;
             }
 
-            if (day.getRoomId() != null
-                && day.getStartTime() != null && !day.getStartTime().isBlank()
-                && day.getEndTime() != null && !day.getEndTime().isBlank()) {
-                List<GroupScheduleDay> conflicts = groupScheduleDayRepository.findConflicts(
-                    day.getRoomId(),
-                    day.getDayOfWeek().trim(),
-                    day.getStartTime(),
-                    day.getEndTime(),
-                    group.getId());
-                if (!conflicts.isEmpty()) {
-                    throw new BadRequestException(
-                        day.getRoomId() + " xonada " + day.getDayOfWeek() + " kuni "
-                            + day.getStartTime() + "-" + day.getEndTime()
-                            + " vaqtida boshqa guruh dars o'tmoqda!");
-                }
+            Classroom room = null;
+            if (dayReq.getRoomId() != null) {
+                room = classroomRepository
+                    .findById(dayReq.getRoomId()).orElse(null);
+            } else if (dayReq.getRoomNumber() != null && !dayReq.getRoomNumber().isBlank()) {
+                room = classroomRepository
+                    .findByRoomNumberIgnoreCase(dayReq.getRoomNumber().trim())
+                    .orElse(null);
+            }
+            
+            // Validate conflict BEFORE saving
+            if (room != null && dayReq.getStartTime() != null && !dayReq.getStartTime().isBlank()
+                    && dayReq.getEndTime() != null && !dayReq.getEndTime().isBlank()) {
+                validateRoomConflict(group, 
+                    dayReq.getDayOfWeek().trim(),
+                    dayReq.getStartTime(),
+                    dayReq.getEndTime(),
+                    room);
             }
 
             GroupScheduleDay scheduleDay = new GroupScheduleDay();
             scheduleDay.setGroup(group);
-            scheduleDay.setDayOfWeek(day.getDayOfWeek().trim());
-            scheduleDay.setStartTime(day.getStartTime());
-            scheduleDay.setEndTime(day.getEndTime());
-
-            if (day.getRoomId() != null) {
-                classroomRepository.findById(day.getRoomId()).ifPresent(scheduleDay::setRoom);
-            } else if (day.getRoomNumber() != null && !day.getRoomNumber().isBlank()) {
-                classroomRepository.findByRoomNumberIgnoreCase(day.getRoomNumber().trim())
-                    .ifPresent(scheduleDay::setRoom);
-            }
+            scheduleDay.setDayOfWeek(dayReq.getDayOfWeek().trim());
+            scheduleDay.setStartTime(dayReq.getStartTime());
+            scheduleDay.setEndTime(dayReq.getEndTime());
+            scheduleDay.setRoom(room);
 
             groupScheduleDayRepository.save(scheduleDay);
         }
 
         syncTimetableFromScheduleDays(group, days);
+    }
+
+    private void validateRoomConflict(Group currentGroup,
+            String dayOfWeek, String startTime, String endTime,
+            Classroom room) {
+        
+        if (room == null) return;
+        
+        List<GroupScheduleDay> conflicts = 
+            groupScheduleDayRepository.findByRoomAndDayOfWeek(
+                room, dayOfWeek);
+        
+        for (GroupScheduleDay existing : conflicts) {
+            if (existing.getGroup().getId()
+                    .equals(currentGroup.getId())) continue;
+            
+            LocalTime newStart = parseScheduleTime(startTime);
+            LocalTime newEnd = parseScheduleTime(endTime);
+            LocalTime exStart = parseScheduleTime(existing.getStartTime());
+            LocalTime exEnd = parseScheduleTime(existing.getEndTime());
+            
+            if (newStart == null || newEnd == null || exStart == null || exEnd == null) {
+                continue;
+            }
+            
+            boolean overlaps = newStart.isBefore(exEnd) && 
+                               newEnd.isAfter(exStart);
+            
+            if (overlaps) {
+                throw new BadRequestException(
+                    String.format(
+                        "Xona %s da %s kuni %s-%s vaqtida " +
+                        "allaqachon '%s' guruhi dars o'tmoqda! " +
+                        "Boshqa xona yoki vaqt tanlang.",
+                        room.getRoomNumber(),
+                        dayToUzbek(dayOfWeek),
+                        exStart, exEnd,
+                        existing.getGroup().getGroupName()
+                    )
+                );
+            }
+        }
+    }
+
+    private String dayToUzbek(String day) {
+        return switch (day.toUpperCase()) {
+            case "MONDAY" -> "Dushanba";
+            case "TUESDAY" -> "Seshanba";
+            case "WEDNESDAY" -> "Chorshanba";
+            case "THURSDAY" -> "Payshanba";
+            case "FRIDAY" -> "Juma";
+            case "SATURDAY" -> "Shanba";
+            case "SUNDAY" -> "Yakshanba";
+            default -> day;
+        };
     }
 
     /**

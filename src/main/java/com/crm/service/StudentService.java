@@ -6,6 +6,7 @@ import com.crm.entity.Payment;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
 import com.crm.entity.enums.AttendanceStatus;
+import com.crm.entity.enums.MarketingSource;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
@@ -90,6 +91,28 @@ public class StudentService {
         }
 
         Student student = buildFromRequest(new Student(), request);
+
+        // Auto-generate admission number if not provided:
+        if (request.getAdmissionNumber() == null || 
+            request.getAdmissionNumber().isBlank()) {
+            String admNum = "ADM-" + String.format("%05d",
+                studentRepository.count() + 1);
+            student.setAdmissionNumber(admNum);
+        } else {
+            student.setAdmissionNumber(request.getAdmissionNumber());
+        }
+
+        // Set admission date if not provided:
+        if (request.getAdmissionDate() == null) {
+            student.setAdmissionDate(LocalDate.now());
+        } else {
+            student.setAdmissionDate(request.getAdmissionDate());
+        }
+
+        // Default status if not provided:
+        if (request.getStatus() == null || request.getStatus().isBlank()) {
+            student.setStatus(StudentStatus.ACTIVE);
+        }
 
         if (request.getReferralStudentId() != null) {
             Student referral = findById(request.getReferralStudentId());
@@ -199,8 +222,23 @@ public class StudentService {
         s.setParentPhone(req.getParentPhone());
         s.setBirthDate(req.getBirthDate());
         s.setGender(req.getGender());
-        s.setMarketingSource(req.getMarketingSource());
-        s.setStatus(req.getStatus() != null ? req.getStatus() : StudentStatus.ACTIVE);
+        
+        if (req.getMarketingSource() != null && !req.getMarketingSource().isBlank()) {
+            try {
+                s.setMarketingSource(MarketingSource.valueOf(req.getMarketingSource().toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                s.setMarketingSource(MarketingSource.OTHER);
+            }
+        }
+        
+        if (req.getStatus() != null && !req.getStatus().isBlank()) {
+            try {
+                s.setStatus(StudentStatus.valueOf(req.getStatus().toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                s.setStatus(StudentStatus.ACTIVE);
+            }
+        }
+        
         s.setNotes(req.getNotes());
         s.setAddress(req.getAddress());
         s.setPhotoUrl(req.getPhotoUrl());

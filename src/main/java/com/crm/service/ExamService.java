@@ -271,9 +271,6 @@ public class ExamService {
         e.setTotalMarks(req.getTotalMarks());
         e.setPassMarks(req.getPassMarks());
         e.setAcademicYear(req.getAcademicYear());
-        if (req.getClassId() != null) {
-            classRepository.findById(req.getClassId()).ifPresent(e::setClassEntity);
-        }
         if (req.getGroupId() != null) {
             groupRepository.findById(req.getGroupId()).ifPresent(group -> {
                 e.setGroup(group);
@@ -281,6 +278,10 @@ public class ExamService {
                     e.setTeacher(group.getTeacher());
                 }
             });
+        }
+        
+        if (req.getClassId() != null && !req.getClassId().equals(req.getGroupId())) {
+            classRepository.findById(req.getClassId()).ifPresent(e::setClassEntity);
         }
         if (req.getSubjectId() != null) {
             e.setSubject(subjectRepository.findById(req.getSubjectId())

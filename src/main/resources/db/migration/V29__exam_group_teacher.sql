@@ -1,0 +1,7 @@
+ALTER TABLE exams
+    ADD COLUMN IF NOT EXISTS group_id BIGINT REFERENCES groups(id) ON DELETE SET NULL;
+
+ALTER TABLE exams
+    ADD COLUMN IF NOT EXISTS teacher_id BIGINT REFERENCES teachers(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_exams_group_id ON exams(group_id);

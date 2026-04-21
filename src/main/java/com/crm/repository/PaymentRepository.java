@@ -73,4 +73,22 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     Optional<Payment> findFirstByStudent_IdAndPeriodToIsNotNullOrderByPeriodToDesc(Long studentId);
 
     Page<Payment> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    @Query("SELECT p FROM Payment p ORDER BY p.createdAt DESC")
+    Page<Payment> findAllOrderByCreatedAtDesc(Pageable pageable);
+
+    @Query("SELECT p FROM Payment p " +
+           "WHERE (:studentId IS NULL OR p.student.id = :studentId) " +
+           "AND (:groupId IS NULL OR p.group.id = :groupId) " +
+           "AND (:status IS NULL OR p.status = :status) " +
+           "AND (:from IS NULL OR p.paymentDate >= :from) " +
+           "AND (:to IS NULL OR p.paymentDate <= :to) " +
+           "ORDER BY p.createdAt DESC")
+    Page<Payment> findFiltered(
+        @Param("studentId") Long studentId,
+        @Param("groupId") Long groupId,
+        @Param("status") String status,
+        @Param("from") LocalDate from,
+        @Param("to") LocalDate to,
+        Pageable pageable);
 }

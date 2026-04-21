@@ -68,20 +68,23 @@ public class LeaveService {
 
     @Transactional
     public LeaveResponse submitLeave(LeaveSubmitRequest request) {
-        User requester = resolveRequester(request);
-        if (requester == null) {
-            log.warn("Leave submitted without requester (teacherId={}, requesterId={})",
-                request.getTeacherId(), request.getRequesterId());
+        Leave leave = new Leave();
+        
+        Teacher teacher = teacherRepository.findById(request.getTeacherId())
+            .orElseThrow(() -> new ResourceNotFoundException("Teacher", request.getTeacherId()));
+        leave.setTeacher(teacher);
+
+        if (request.getRequesterId() != null) {
+            userRepository.findById(request.getRequesterId()).ifPresent(leave::setRequester);
+        } else if (teacher.getUser() != null) {
+            leave.setRequester(teacher.getUser());
         }
 
-        Leave leave = Leave.builder()
-            .requester(requester)
-            .leaveType(request.getLeaveType())
-            .fromDate(request.getFromDate())
-            .toDate(request.getToDate())
-            .reason(request.getReason())
-            .status("PENDING")
-            .build();
+        leave.setLeaveType(request.getLeaveType());
+        leave.setFromDate(request.getFromDate());
+        leave.setToDate(request.getToDate());
+        leave.setReason(request.getReason());
+        leave.setStatus("PENDING");
 
         return toResponse(leaveRepository.save(leave));
     }
@@ -164,7 +167,7 @@ public class LeaveService {
     }
 
     private LeaveResponse toResponse(Leave l) {
-        return LeaveResponse.builder()
+        LeaveResponse response = LeaveResponse.builder()
             .id(l.getId()).uuid(l.getUuid())
             .requesterId(l.getRequester() != null ? l.getRequester().getId() : null)
             .requesterName(l.getRequester() != null ? l.getRequester().getUsername() : null)
@@ -175,5 +178,11 @@ public class LeaveService {
             .approvedByName(l.getApprovedBy() != null ? l.getApprovedBy().getUsername() : null)
             .approvedAt(l.getApprovedAt()).createdAt(l.getCreatedAt())
             .build();
+            
+        if (l.getTeacher() != null) {
+            response.setTeacherName(l.getTeacher().getFirstName() + " " + l.getTeacher().getLastName());
+        }
+        
+        return response;
     }
 }

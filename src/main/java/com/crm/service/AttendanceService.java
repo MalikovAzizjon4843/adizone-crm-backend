@@ -100,24 +100,24 @@ public class AttendanceService {
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getGroupAttendance(Long groupId, LocalDate date) {
         LocalDate d = date != null ? date : LocalDate.now();
-        List<Attendance> existing =
-            attendanceRepository.findByGroupIdAndAttendanceDateOrderByStudentLastName(groupId, d);
+        List<Attendance> existing = attendanceRepository.findByGroup_IdAndAttendanceDate(groupId, d);
+        
         if (!existing.isEmpty()) {
-            return existing.stream().map(this::toResponse).collect(Collectors.toList());
+            return existing.stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
         }
-
-        Group group = groupRepository.findById(groupId)
-            .orElseThrow(() -> new ResourceNotFoundException("Group", groupId));
-
-        return studentGroupRepository.findByGroupIdAndIsActiveTrue(groupId).stream()
+        
+        List<StudentGroup> activeStudents = studentGroupRepository.findByGroup_IdAndIsActiveTrue(groupId);
+        
+        return activeStudents.stream()
             .map(sg -> AttendanceResponse.builder()
                 .studentId(sg.getStudent().getId())
                 .studentName(sg.getStudent().getFirstName() + " " + sg.getStudent().getLastName())
                 .groupId(groupId)
-                .groupName(group.getGroupName())
                 .attendanceDate(d)
                 .status(null)
-                .notes(null)
+                .notes("")
                 .build())
             .collect(Collectors.toList());
     }

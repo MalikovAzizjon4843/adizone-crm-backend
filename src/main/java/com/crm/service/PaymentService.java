@@ -77,17 +77,21 @@ public class PaymentService {
             .receivedBy(receiver)
             .build();
 
-        Long effectiveGroupId = request.getGroupId();
-        if (effectiveGroupId == null && request.getStudentId() != null) {
-            studentGroupRepository.findByStudentIdAndIsActiveTrue(request.getStudentId()).stream()
+        // Auto-set group from student's active enrollment
+        if (payment.getGroup() == null && request.getGroupId() == null) {
+            studentGroupRepository
+                .findByStudentIdAndIsActiveTrue(request.getStudentId())
+                .stream()
                 .findFirst()
                 .ifPresent(sg -> {
                     payment.setGroup(sg.getGroup());
                     payment.setStudentGroup(sg);
                 });
-            if (payment.getGroup() != null) {
-                effectiveGroupId = payment.getGroup().getId();
-            }
+        }
+
+        Long effectiveGroupId = request.getGroupId();
+        if (effectiveGroupId == null && payment.getGroup() != null) {
+            effectiveGroupId = payment.getGroup().getId();
         } else if (effectiveGroupId != null) {
             final Long gid = effectiveGroupId;
             Group group = groupRepository.findById(gid)
@@ -150,15 +154,22 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public Page<PaymentResponse> getAllPayments(
-            int page,
-            int size,
-            Long studentId,
-            Long groupId,
-            String status,
-            LocalDate from,
-            LocalDate to) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        return paymentRepository.findAllByOrderByCreatedAtDesc(pageable).map(this::toResponse);
+            int page, int size, Long studentId,
+            Long groupId, String status,
+            String from, String to) {
+        
+        Pageable pageable = PageRequest.of(page, size);
+        
+        LocalDate fromDate = from != null ? 
+            LocalDate.parse(from) : null;
+        LocalDate toDate = to != null ? 
+            LocalDate.parse(to) : null;
+        
+        Page<Payment> payments = paymentRepository.findFiltered(
+            studentId, groupId, status,
+            fromDate, toDate, pageable);
+        
+        return payments.map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
