@@ -25,6 +25,10 @@ public class Leave extends BaseEntity {
     @JoinColumn(name = "requester_id")
     private User requester;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "teacher_id")
+    private Teacher teacher;
+
     @Column(name = "leave_type", nullable = false, length = 30)
     private String leaveType;
 

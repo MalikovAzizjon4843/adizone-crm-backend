@@ -2,14 +2,18 @@ package com.crm.service;
 
 import com.crm.dto.request.StudentRequest;
 import com.crm.dto.response.*;
+import com.crm.entity.Course;
+import com.crm.entity.Group;
 import com.crm.entity.Payment;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
 import com.crm.entity.enums.AttendanceStatus;
 import com.crm.entity.enums.MarketingSource;
 import com.crm.entity.enums.StudentStatus;
+import com.crm.exception.BadRequestException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.repository.GroupRepository;
 import com.crm.repository.AttendanceRepository;
 import com.crm.repository.PaymentRepository;
 import com.crm.repository.StudentGroupRepository;
@@ -34,6 +38,7 @@ public class StudentService {
     private final StudentRepository studentRepository;
     private final StudentParentRepository studentParentRepository;
     private final StudentGroupRepository studentGroupRepository;
+    private final GroupRepository groupRepository;
     private final PaymentRepository paymentRepository;
     private final AttendanceRepository attendanceRepository;
 
@@ -119,7 +124,12 @@ public class StudentService {
             student.setReferralStudent(referral);
         }
 
-        return toResponse(studentRepository.save(student));
+        Student saved = studentRepository.save(student);
+        if (request.getGroupId() != null) {
+            addStudentToGroupIfNeeded(saved, request.getGroupId());
+        }
+
+        return toResponse(saved);
     }
 
     @Transactional
@@ -137,6 +147,21 @@ public class StudentService {
             student.setReferralStudent(referral);
         } else {
             student.setReferralStudent(null);
+        }
+
+        if (request.getGroupId() != null) {
+            Group target = groupRepository.findById(request.getGroupId())
+                .orElse(null);
+            if (target != null) {
+                for (StudentGroup sg : studentGroupRepository.findByStudentIdAndIsActiveTrue(student.getId())) {
+                    if (!sg.getGroup().getId().equals(target.getId())) {
+                        sg.setIsActive(false);
+                        sg.setLeaveDate(LocalDate.now());
+                        studentGroupRepository.save(sg);
+                    }
+                }
+                addStudentToGroupIfNeeded(student, target.getId());
+            }
         }
 
         return toResponse(studentRepository.save(student));
@@ -262,9 +287,36 @@ public class StudentService {
             .build();
     }
 
+    private void addStudentToGroupIfNeeded(Student student, Long groupId) {
+        Group group = groupRepository.findById(groupId).orElse(null);
+        if (group == null) {
+            return;
+        }
+        if (studentGroupRepository.findByStudentIdAndGroupIdAndIsActiveTrue(student.getId(), groupId)
+            .isPresent()) {
+            return;
+        }
+        long current = studentGroupRepository.countByGroupIdAndIsActiveTrue(groupId);
+        if (group.getMaxStudents() != null && current >= group.getMaxStudents()) {
+            throw new BadRequestException("Guruh to'lgan! Max: " + group.getMaxStudents());
+        }
+        LocalDate joinDate = LocalDate.now();
+        StudentGroup sg = StudentGroup.builder()
+            .student(student)
+            .group(group)
+            .joinDate(joinDate)
+            .paymentStartDate(joinDate)
+            .nextPaymentDate(joinDate.plusDays(30))
+            .isActive(true)
+            .paymentStatus("TRIAL")
+            .lessonsAttended(0)
+            .build();
+        studentGroupRepository.save(sg);
+    }
+
     private StudentDetailResponse toDetailResponse(Student s) {
-        List<StudentDetailResponse.GroupSummary> activeGroups = s.getStudentGroups().stream()
-            .filter(sg -> Boolean.TRUE.equals(sg.getIsActive()))
+        List<StudentDetailResponse.GroupSummary> activeGroups = studentGroupRepository
+            .findByStudentIdAndIsActiveTrue(s.getId()).stream()
             .map(this::toGroupSummary)
             .collect(Collectors.toList());
 
@@ -281,8 +333,8 @@ public class StudentService {
             .collect(Collectors.toList());
 
         List<StudentDetailResponse.PaymentSummary> paymentHistory = paymentRepository
-            .findByStudentIdOrderByPaymentDateDesc(s.getId()).stream()
-            .limit(100)
+            .findByStudent_IdOrderByCreatedAtDesc(s.getId()).stream()
+            .limit(20)
             .map(this::toPaymentSummary)
             .collect(Collectors.toList());
 
@@ -317,15 +369,27 @@ public class StudentService {
     }
 
     private StudentDetailResponse.GroupSummary toGroupSummary(StudentGroup sg) {
+        Group g = sg.getGroup();
+        if (g == null) {
+            return StudentDetailResponse.GroupSummary.builder()
+                .joinDate(sg.getJoinDate())
+                .leaveDate(sg.getLeaveDate())
+                .isActive(sg.getIsActive())
+                .paymentStatus(sg.getPaymentStatus())
+                .monthlyPrice(sg.getMonthlyPriceOverride())
+                .build();
+        }
+        Course course = g.getCourse();
         BigDecimal monthlyPrice = sg.getMonthlyPriceOverride() != null
             ? sg.getMonthlyPriceOverride()
-            : sg.getGroup().getCourse().getMonthlyPrice();
+            : (course != null ? course.getMonthlyPrice() : null);
         return StudentDetailResponse.GroupSummary.builder()
-            .groupId(sg.getGroup().getId())
-            .groupName(sg.getGroup().getGroupName())
-            .courseName(sg.getGroup().getCourse().getCourseName())
-            .teacherName(sg.getGroup().getTeacher() != null
-                ? sg.getGroup().getTeacher().getFirstName() + " " + sg.getGroup().getTeacher().getLastName() : null)
+            .groupId(g.getId())
+            .groupName(g.getGroupName())
+            .courseName(course != null ? course.getCourseName() : null)
+            .teacherName(g.getTeacher() != null
+                ? g.getTeacher().getFirstName() + " " + g.getTeacher().getLastName() : null)
+            .paymentStatus(sg.getPaymentStatus())
             .joinDate(sg.getJoinDate())
             .leaveDate(sg.getLeaveDate())
             .isActive(sg.getIsActive())
@@ -335,10 +399,12 @@ public class StudentService {
 
     private StudentDetailResponse.PaymentSummary toPaymentSummary(Payment p) {
         return StudentDetailResponse.PaymentSummary.builder()
+            .id(p.getId())
             .receiptNumber(p.getReceiptNumber())
             .amount(p.getAmount())
             .formattedAmount(formatUzs(p.getAmount()))
             .paymentDate(p.getPaymentDate())
+            .paymentMethod(p.getPaymentMethod())
             .groupName(p.getGroup() != null ? p.getGroup().getGroupName() : null)
             .status(p.getStatus())
             .build();

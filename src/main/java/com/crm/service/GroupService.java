@@ -4,7 +4,6 @@ import com.crm.dto.request.GroupRequest;
 import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.response.GroupResponse;
 import com.crm.dto.response.ScheduleResponse;
-import com.crm.dto.response.StudentGroupResponse;
 import com.crm.dto.response.SuspendedStudentResponse;
 import com.crm.entity.Course;
 import com.crm.entity.Group;
@@ -16,12 +15,10 @@ import com.crm.entity.Timetable;
 import com.crm.entity.Classroom;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.exception.BadRequestException;
-import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -361,18 +358,20 @@ public class GroupService {
     }
 
     @Transactional
-    public StudentGroupResponse addStudentToGroup(StudentGroupRequest request) {
+    public void addStudentToGroup(StudentGroupRequest request) {
         Student student = studentRepository.findById(request.getStudentId())
             .orElseThrow(() -> new ResourceNotFoundException("Student", request.getStudentId()));
         Group group = findById(request.getGroupId());
 
-        if (studentGroupRepository.existsByStudentIdAndGroupIdAndIsActiveTrue(
-                request.getStudentId(), request.getGroupId())) {
-            throw new DuplicateResourceException("Student is already in this group");
+        long currentCount = studentGroupRepository.countByGroupIdAndIsActiveTrue(request.getGroupId());
+        if (group.getMaxStudents() != null && currentCount >= group.getMaxStudents()) {
+            throw new BadRequestException("Guruh to'lgan! Max: " + group.getMaxStudents());
         }
 
-        if (group.getCurrentStudents() >= group.getMaxStudents()) {
-            throw new BadRequestException("Group is full (max: " + group.getMaxStudents() + ")");
+        if (studentGroupRepository.findByStudentIdAndGroupIdAndIsActiveTrue(
+                request.getStudentId(), request.getGroupId())
+            .isPresent()) {
+            throw new BadRequestException("O'quvchi bu guruhda allaqachon ro'yxatda");
         }
 
         LocalDate joinDate = request.getJoinDate() != null ? request.getJoinDate() : LocalDate.now();
@@ -391,21 +390,7 @@ public class GroupService {
             .lessonsAttended(0)
             .build();
 
-        StudentGroup saved = studentGroupRepository.save(sg);
-
-        return StudentGroupResponse.builder()
-            .id(saved.getId())
-            .studentId(student.getId())
-            .studentName(student.getFirstName() + " " + student.getLastName())
-            .groupId(group.getId())
-            .groupName(group.getGroupName())
-            .courseName(group.getCourse().getCourseName())
-            .teacherName(group.getTeacher() != null
-                ? group.getTeacher().getFirstName() + " " + group.getTeacher().getLastName() : null)
-            .joinDate(saved.getJoinDate())
-            .nextPaymentDate(saved.getNextPaymentDate())
-            .isActive(saved.getIsActive())
-            .build();
+        studentGroupRepository.save(sg);
     }
 
     @Transactional
@@ -470,26 +455,21 @@ public class GroupService {
         List<ScheduleResponse> schedules = mapToScheduleResponses(savedDays);
         List<GroupResponse.ScheduleDayResponse> scheduleDays = mapToScheduleDayResponses(savedDays);
 
-        List<StudentGroupResponse> members = null;
-        if (includeMembers && g.getStudentGroups() != null) {
-            members = g.getStudentGroups().stream()
-                .filter(sg -> Boolean.TRUE.equals(sg.getIsActive()))
+        List<GroupResponse.StudentSummary> members = null;
+        Integer currentForResponse = g.getCurrentStudents();
+        if (includeMembers) {
+            List<StudentGroup> activeInGroup = studentGroupRepository.findByGroupIdAndIsActiveTrue(g.getId());
+            currentForResponse = activeInGroup.size();
+            members = activeInGroup.stream()
                 .map(sg -> {
                     Student st = sg.getStudent();
-                    return StudentGroupResponse.builder()
-                        .id(sg.getId())
+                    return GroupResponse.StudentSummary.builder()
                         .studentId(st.getId())
                         .studentName(st.getFirstName() + " " + st.getLastName())
-                        .groupId(g.getId())
-                        .groupName(g.getGroupName())
-                        .courseName(g.getCourse().getCourseName())
-                        .teacherName(g.getTeacher() != null
-                            ? g.getTeacher().getFirstName() + " " + g.getTeacher().getLastName() : null)
+                        .phone(st.getPhone())
+                        .paymentStatus(sg.getPaymentStatus())
                         .joinDate(sg.getJoinDate())
-                        .nextPaymentDate(sg.getNextPaymentDate())
-                        .monthlyPrice(sg.getMonthlyPriceOverride() != null
-                            ? sg.getMonthlyPriceOverride() : g.getCourse().getMonthlyPrice())
-                        .isActive(sg.getIsActive())
+                        .status(st.getStatus() != null ? st.getStatus().name() : null)
                         .build();
                 })
                 .collect(Collectors.toList());
@@ -506,7 +486,7 @@ public class GroupService {
                 ? g.getTeacher().getFirstName() + " " + g.getTeacher().getLastName() : null)
             .room(g.getRoom())
             .maxStudents(g.getMaxStudents())
-            .currentStudents(g.getCurrentStudents())
+            .currentStudents(currentForResponse)
             .startDate(g.getStartDate())
             .endDate(g.getEndDate())
             .notes(g.getNotes())

@@ -30,8 +30,21 @@ public class GroupResponse {
     private List<ScheduleResponse> schedules;
     private List<ScheduleDayResponse> scheduleDays;
     /** Active members; populated only for single-group fetches (e.g. getById). */
-    private List<StudentGroupResponse> studentGroups;
+    private List<StudentSummary> studentGroups;
     private LocalDateTime createdAt;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StudentSummary {
+        private Long studentId;
+        private String studentName;
+        private String phone;
+        private String paymentStatus;
+        private LocalDate joinDate;
+        private String status;
+    }
 
     @Data
     @Builder

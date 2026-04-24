@@ -1,6 +1,7 @@
 package com.crm.dto.response;
 
 import com.crm.entity.enums.MarketingSource;
+import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.StudentStatus;
 import lombok.*;
@@ -49,6 +50,7 @@ public class StudentDetailResponse {
         private String groupName;
         private String courseName;
         private String teacherName;
+        private String paymentStatus;
         private LocalDate joinDate;
         private LocalDate leaveDate;
         private Boolean isActive;
@@ -60,10 +62,12 @@ public class StudentDetailResponse {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class PaymentSummary {
+        private Long id;
         private String receiptNumber;
         private BigDecimal amount;
         private String formattedAmount;
         private LocalDate paymentDate;
+        private PaymentMethod paymentMethod;
         private String groupName;
         private PaymentStatus status;
     }

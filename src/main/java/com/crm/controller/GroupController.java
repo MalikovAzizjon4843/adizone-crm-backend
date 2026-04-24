@@ -4,7 +4,6 @@ import com.crm.dto.request.GroupRequest;
 import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.GroupResponse;
-import com.crm.dto.response.StudentGroupResponse;
 import com.crm.dto.response.SuspendedStudentResponse;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.service.GroupService;
@@ -70,10 +69,12 @@ public class GroupController {
 
     @PostMapping("/students")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<ApiResponse<StudentGroupResponse>> addStudentToGroup(
+    public ResponseEntity<ApiResponse<String>> addStudentToGroup(
             @Valid @RequestBody StudentGroupRequest request) {
+        groupService.addStudentToGroup(request);
+        String message = "O'quvchi guruhga qo'shildi";
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success("Student added to group", groupService.addStudentToGroup(request)));
+            .body(ApiResponse.success(message, "OK"));
     }
 
     @DeleteMapping("/{groupId}/students/{studentId}")

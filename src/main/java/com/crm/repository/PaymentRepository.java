@@ -19,6 +19,8 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     List<Payment> findByStudentIdOrderByPaymentDateDesc(Long studentId);
 
+    List<Payment> findByStudent_IdOrderByCreatedAtDesc(Long studentId);
+
     Page<Payment> findByStudentId(Long studentId, Pageable pageable);
 
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p WHERE p.paymentDate BETWEEN :from AND :to " +
