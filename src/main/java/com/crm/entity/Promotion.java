@@ -40,6 +40,18 @@ public class Promotion extends BaseEntity {
     @Column(name = "to_academic_year", length = 20)
     private String toAcademicYear;
 
+    @Column(name = "source_month")
+    private Integer sourceMonth;
+
+    @Column(name = "source_year")
+    private Integer sourceYear;
+
+    @Column(name = "target_month")
+    private Integer targetMonth;
+
+    @Column(name = "target_year")
+    private Integer targetYear;
+
     @Column(name = "promotion_date")
     private LocalDate promotionDate;
 

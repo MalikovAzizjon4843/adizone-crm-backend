@@ -13,5 +13,7 @@ public class AttendanceResponse {
     private LocalDate attendanceDate;
     private AttendanceStatus status;
     private String notes;
+    private Boolean excused;
+    private String excuseReason;
     private LocalDateTime createdAt;
 }

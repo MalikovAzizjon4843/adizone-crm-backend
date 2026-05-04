@@ -43,6 +43,12 @@ public class Attendance {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    @Column(name = "excused")
+    private Boolean excused = false;
+
+    @Column(name = "excuse_reason", columnDefinition = "TEXT")
+    private String excuseReason;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

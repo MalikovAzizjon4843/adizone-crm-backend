@@ -30,7 +30,7 @@ public class AnalyticsController {
         return ResponseEntity.ok(ApiResponse.success(analyticsService.getStudentAnalytics()));
     }
 
-    @GetMapping("/marketing/sources")
+    @GetMapping({"/marketing/sources", "/marketing-sources"})
     public ResponseEntity<ApiResponse<Map<String, Object>>> getMarketingSources() {
         return ResponseEntity.ok(ApiResponse.success(analyticsService.getMarketingSources()));
     }

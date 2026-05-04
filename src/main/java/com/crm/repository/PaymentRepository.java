@@ -5,6 +5,7 @@ import com.crm.entity.enums.PaymentStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -15,7 +16,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface PaymentRepository extends JpaRepository<Payment, Long> {
+public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpecificationExecutor<Payment> {
 
     List<Payment> findByStudentIdOrderByPaymentDateDesc(Long studentId);
 
@@ -93,4 +94,12 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
         @Param("from") LocalDate from,
         @Param("to") LocalDate to,
         Pageable pageable);
+
+    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
+           "WHERE p.student.id = :studentId " +
+           "AND p.group.id = :groupId " +
+           "AND p.status = 'PAID'")
+    BigDecimal sumPaidByStudentAndGroup(
+        @Param("studentId") Long studentId,
+        @Param("groupId") Long groupId);
 }

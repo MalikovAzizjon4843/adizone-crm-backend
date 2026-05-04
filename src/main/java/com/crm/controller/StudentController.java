@@ -130,4 +130,27 @@ public class StudentController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> getStats() {
         return ResponseEntity.ok(ApiResponse.success(studentService.getStudentStats()));
     }
+
+    // Ketgan o'quvchilar (LEFT, GRADUATED)
+    @GetMapping("/left")
+    public ResponseEntity<ApiResponse<List<StudentResponse>>> getLeftStudents() {
+        return ResponseEntity.ok(ApiResponse.success(
+            studentService.getStudentsByStatus(
+                List.of("LEFT", "GRADUATED"))));
+    }
+
+    // Probniy o'quvchilar (TRIAL payment status)
+    @GetMapping("/trial")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getTrialStudents() {
+        return ResponseEntity.ok(ApiResponse.success(
+            studentService.getTrialStudents()));
+    }
+
+    // Student status history
+    @GetMapping("/{id}/history")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getHistory(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(
+            studentService.getStudentHistory(id)));
+    }
 }

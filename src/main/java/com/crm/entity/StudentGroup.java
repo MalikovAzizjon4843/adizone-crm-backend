@@ -74,6 +74,16 @@ public class StudentGroup {
     @Column(name = "suspension_reason", columnDefinition = "TEXT")
     private String suspensionReason;
 
+    /** GRADUATED, LEFT, TRANSFERRED, SUSPENDED, OTHER */
+    @Column(name = "exit_reason", length = 50)
+    private String exitReason;
+
+    @Column(name = "exit_date")
+    private LocalDate exitDate;
+
+    @Column(name = "exit_notes", columnDefinition = "TEXT")
+    private String exitNotes;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

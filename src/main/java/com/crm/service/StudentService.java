@@ -7,18 +7,14 @@ import com.crm.entity.Group;
 import com.crm.entity.Payment;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
+import com.crm.entity.StudentStatusHistory;
 import com.crm.entity.enums.AttendanceStatus;
 import com.crm.entity.enums.MarketingSource;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
-import com.crm.repository.GroupRepository;
-import com.crm.repository.AttendanceRepository;
-import com.crm.repository.PaymentRepository;
-import com.crm.repository.StudentGroupRepository;
-import com.crm.repository.StudentParentRepository;
-import com.crm.repository.StudentRepository;
+import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
@@ -41,6 +37,7 @@ public class StudentService {
     private final GroupRepository groupRepository;
     private final PaymentRepository paymentRepository;
     private final AttendanceRepository attendanceRepository;
+    private final StudentStatusHistoryRepository studentStatusHistoryRepository;
 
     @Transactional(readOnly = true)
     public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status) {
@@ -421,5 +418,62 @@ public class StudentService {
     private String esc(String val) {
         if (val == null) return "";
         return "\"" + val.replace("\"", "\"\"") + "\"";
+    }
+
+    public List<StudentResponse> getStudentsByStatus(List<String> statuses) {
+        List<com.crm.entity.enums.StudentStatus> enumStatuses = statuses.stream()
+            .map(s -> {
+                try {
+                    return com.crm.entity.enums.StudentStatus.valueOf(s);
+                } catch (IllegalArgumentException e) {
+                    return null;
+                }
+            })
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.toList());
+
+        return studentRepository.findByStatusIn(enumStatuses)
+            .stream()
+            .map(this::toResponse)
+            .collect(Collectors.toList());
+    }
+
+    public List<Map<String, Object>> getTrialStudents() {
+        return studentGroupRepository
+            .findByPaymentStatusAndIsActiveTrue("TRIAL")
+            .stream()
+            .map(sg -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("studentId", sg.getStudent().getId());
+                m.put("studentName",
+                    sg.getStudent().getFirstName() + " " +
+                    sg.getStudent().getLastName());
+                m.put("phone", sg.getStudent().getPhone());
+                m.put("groupId", sg.getGroup().getId());
+                m.put("groupName", sg.getGroup().getGroupName());
+                m.put("joinDate", sg.getJoinDate());
+                m.put("lessonsAttended", sg.getLessonsAttended());
+                return m;
+            })
+            .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getStudentHistory(Long studentId) {
+        findById(studentId);
+        return studentStatusHistoryRepository
+            .findByStudent_IdOrderByChangedAtDesc(studentId)
+            .stream()
+            .map(h -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("id", h.getId());
+                m.put("fromStatus", h.getFromStatus());
+                m.put("toStatus", h.getToStatus());
+                m.put("reason", h.getReason());
+                m.put("notes", h.getNotes());
+                m.put("changedAt", h.getChangedAt());
+                return m;
+            })
+            .collect(Collectors.toList());
     }
 }

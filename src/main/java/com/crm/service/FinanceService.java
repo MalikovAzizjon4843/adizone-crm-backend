@@ -42,9 +42,13 @@ public class FinanceService {
     @Transactional(readOnly = true)
     public Page<ExpenseResponse> getExpensesFiltered(
             LocalDate from, LocalDate to, String category, int page, int size) {
+        
+        LocalDate start = from != null ? from : LocalDate.now().withDayOfMonth(1);
+        LocalDate end = to != null ? to : LocalDate.now();
+        
         ExpenseCategory cat = parseExpenseCategory(category);
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "expenseDate"));
-        return expenseRepository.findFiltered(from, to, cat, pageable).map(this::toResponse);
+        return expenseRepository.findFiltered(start, end, cat, pageable).map(this::toResponse);
     }
 
     private static ExpenseCategory parseExpenseCategory(String category) {

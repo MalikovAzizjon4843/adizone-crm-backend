@@ -56,4 +56,6 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
     @Query("SELECT sg FROM StudentGroup sg WHERE sg.paymentStatus = 'SUSPENDED' "
            + "AND sg.suspendedAt IS NOT NULL AND sg.suspendedAt <= :cutoff")
     List<StudentGroup> findSuspendedOnOrBefore(@Param("cutoff") LocalDateTime cutoff);
+
+    List<StudentGroup> findByPaymentStatusAndIsActiveTrue(String paymentStatus);
 }

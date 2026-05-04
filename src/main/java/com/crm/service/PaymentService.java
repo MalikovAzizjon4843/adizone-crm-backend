@@ -15,6 +15,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -157,19 +158,45 @@ public class PaymentService {
             int page, int size, Long studentId,
             Long groupId, String status,
             String from, String to) {
-        
-        Pageable pageable = PageRequest.of(page, size);
-        
-        LocalDate fromDate = from != null ? 
-            LocalDate.parse(from) : null;
-        LocalDate toDate = to != null ? 
-            LocalDate.parse(to) : null;
-        
-        Page<Payment> payments = paymentRepository.findFiltered(
-            studentId, groupId, status,
-            fromDate, toDate, pageable);
-        
-        return payments.map(this::toResponse);
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+
+        LocalDate fromDate = (from == null || from.isBlank()) ? null : LocalDate.parse(from);
+        LocalDate toDate = (to == null || to.isBlank()) ? null : LocalDate.parse(to);
+
+        PaymentStatus statusEnum = null;
+        if (status != null && !status.isBlank()) {
+            try {
+                statusEnum = PaymentStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+                statusEnum = null;
+            }
+        }
+
+        final Long sId = studentId;
+        final Long gId = groupId;
+        final PaymentStatus st = statusEnum;
+        final LocalDate fd = fromDate;
+        final LocalDate td = toDate;
+
+        Specification<Payment> spec = Specification.where(null);
+        if (sId != null) {
+            spec = spec.and((root, q, cb) -> cb.equal(root.get("student").get("id"), sId));
+        }
+        if (gId != null) {
+            spec = spec.and((root, q, cb) -> cb.equal(root.get("group").get("id"), gId));
+        }
+        if (st != null) {
+            spec = spec.and((root, q, cb) -> cb.equal(root.get("status"), st));
+        }
+        if (fd != null) {
+            spec = spec.and((root, q, cb) -> cb.greaterThanOrEqualTo(root.get("paymentDate"), fd));
+        }
+        if (td != null) {
+            spec = spec.and((root, q, cb) -> cb.lessThanOrEqualTo(root.get("paymentDate"), td));
+        }
+
+        return paymentRepository.findAll(spec, pageable).map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
@@ -295,5 +322,141 @@ public class PaymentService {
         long v = amount.setScale(0, RoundingMode.HALF_UP).longValue();
         String s = String.format(Locale.US, "%,d", v).replace(',', ' ');
         return s + " so'm";
+    }
+
+    public Map<String, Object> calculateStudentDebt(
+            Long studentId, Long groupId) {
+
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        // Find student group
+        StudentGroup sg = studentGroupRepository
+            .findByStudentIdAndGroupIdAndIsActiveTrue(
+                studentId, groupId)
+            .orElse(null);
+
+        if (sg == null) {
+            result.put("debt", 0);
+            result.put("message", "Guruh topilmadi");
+            return result;
+        }
+
+        Group group = sg.getGroup();
+        BigDecimal monthlyPrice = sg.getMonthlyPriceOverride() != null
+            ? sg.getMonthlyPriceOverride()
+            : (group.getCourse() != null
+                ? group.getCourse().getMonthlyPrice()
+                : BigDecimal.ZERO);
+
+        // Calculate days since join
+        LocalDate joinDate = sg.getJoinDate() != null
+            ? sg.getJoinDate() : LocalDate.now();
+        LocalDate today = LocalDate.now();
+
+        long daysSinceJoin = ChronoUnit.DAYS
+            .between(joinDate, today);
+
+        // Total should pay
+        double totalShouldPay =
+            (daysSinceJoin / 30.0) * monthlyPrice.doubleValue();
+
+        // Total paid
+        BigDecimal totalPaid = paymentRepository
+            .sumPaidByStudentAndGroup(studentId, groupId);
+        if (totalPaid == null) totalPaid = BigDecimal.ZERO;
+
+        double debt = Math.max(0, totalShouldPay - totalPaid.doubleValue());
+
+        result.put("studentId", studentId);
+        result.put("groupId", groupId);
+        result.put("joinDate", joinDate);
+        result.put("daysSinceJoin", daysSinceJoin);
+        result.put("monthlyPrice", monthlyPrice);
+        result.put("totalShouldPay", Math.round(totalShouldPay));
+        result.put("totalPaid", totalPaid);
+        result.put("debt", Math.round(debt));
+        result.put("message", debt > 0
+            ? String.format("%.0f kun uchun %.0f UZS qarzdorlik",
+                (double) daysSinceJoin, debt)
+            : "Qarzdorlik yo'q");
+
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getDebtorsEnhanced() {
+        List<StudentGroup> activeGroups =
+            studentGroupRepository.findAllActiveEnrollments();
+
+        LocalDate today = LocalDate.now();
+        LocalDate monthStart = today.withDayOfMonth(1);
+
+        List<Map<String, Object>> debtors = new java.util.ArrayList<>();
+        double totalDebt = 0;
+        List<Map<String, Object>> overdueDebtors =
+            new java.util.ArrayList<>();
+
+        for (StudentGroup sg : activeGroups) {
+            if ("TRIAL".equals(sg.getPaymentStatus())) continue;
+
+            boolean hasPaid = paymentRepository
+                .countPaidForStudentGroupInPeriod(
+                    sg.getStudent().getId(),
+                    sg.getGroup().getId(),
+                    monthStart, today) > 0;
+
+            if (!hasPaid) {
+                BigDecimal monthlyPrice = sg.getMonthlyPriceOverride() != null
+                    ? sg.getMonthlyPriceOverride()
+                    : (sg.getGroup().getCourse() != null
+                        ? sg.getGroup().getCourse().getMonthlyPrice()
+                        : BigDecimal.ZERO);
+
+                long daysOverdue = sg.getLastPaymentDate() != null
+                    ? ChronoUnit.DAYS.between(
+                        sg.getLastPaymentDate(), today)
+                    : ChronoUnit.DAYS.between(
+                        sg.getJoinDate() != null
+                            ? sg.getJoinDate() : today, today);
+
+                Map<String, Object> debtor = new LinkedHashMap<>();
+                debtor.put("studentId",
+                    sg.getStudent().getId());
+                debtor.put("studentName",
+                    sg.getStudent().getFirstName() + " " +
+                    sg.getStudent().getLastName());
+                debtor.put("phone", sg.getStudent().getPhone());
+                debtor.put("groupId", sg.getGroup().getId());
+                debtor.put("groupName",
+                    sg.getGroup().getGroupName());
+                debtor.put("monthlyAmount", monthlyPrice);
+                debtor.put("daysOverdue", daysOverdue);
+                debtor.put("paymentStatus",
+                    sg.getPaymentStatus());
+                debtor.put("lastPaymentDate",
+                    sg.getLastPaymentDate());
+
+                totalDebt += monthlyPrice.doubleValue();
+                debtors.add(debtor);
+
+                if (daysOverdue > 7) {
+                    overdueDebtors.add(debtor);
+                }
+            }
+        }
+
+        // Sort by daysOverdue desc
+        debtors.sort((a, b) ->
+            Long.compare((Long) b.get("daysOverdue"),
+                         (Long) a.get("daysOverdue")));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalDebt", totalDebt);
+        result.put("totalDebtors", debtors.size());
+        result.put("overdueCount", overdueDebtors.size());
+        result.put("overdueDebtors", overdueDebtors);
+        result.put("allDebtors", debtors);
+
+        return result;
     }
 }

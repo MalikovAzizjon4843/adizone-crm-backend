@@ -1,22 +1,29 @@
 package com.crm.service;
 
+import com.crm.dto.request.BulkPromoteRequest;
 import com.crm.dto.request.PromotionRequest;
 import com.crm.dto.response.PageResponse;
 import com.crm.dto.response.PromotionResponse;
 import com.crm.entity.*;
+import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.*;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PromotionService {
 
     private final PromotionRepository promotionRepository;
@@ -24,6 +31,8 @@ public class PromotionService {
     private final ClassRepository classRepository;
     private final SectionRepository sectionRepository;
     private final UserRepository userRepository;
+    private final GroupRepository groupRepository;
+    private final StudentGroupRepository studentGroupRepository;
 
     @Transactional(readOnly = true)
     public PageResponse<PromotionResponse> getAllPromotions(int page, int size) {
@@ -77,6 +86,87 @@ public class PromotionService {
                 .orElseThrow(() -> new ResourceNotFoundException("User", request.getPromotedById())));
 
         return toResponse(promotionRepository.save(promotion));
+    }
+
+    @Transactional
+    public Map<String, Object> bulkPromote(BulkPromoteRequest request) {
+        log.info("Starting bulk promotion from group {} to {}", request.getSourceGroupId(), request.getTargetGroupId());
+
+        // 1. Validate groups
+        Group sourceGroup = groupRepository.findById(request.getSourceGroupId())
+            .orElseThrow(() -> new ResourceNotFoundException("Source Group", request.getSourceGroupId()));
+        Group targetGroup = groupRepository.findById(request.getTargetGroupId())
+            .orElseThrow(() -> new ResourceNotFoundException("Target Group", request.getTargetGroupId()));
+
+        // 2. Validate month range
+        if (request.getSourceMonth() < 1 || request.getSourceMonth() > 12 ||
+            request.getTargetMonth() < 1 || request.getTargetMonth() > 12) {
+            throw new BadRequestException("Month must be between 1 and 12");
+        }
+
+        // 3. Find students currently active in source group
+        List<StudentGroup> sourceEnrollments = studentGroupRepository.findByGroupIdAndIsActiveTrue(request.getSourceGroupId());
+        
+        if (sourceEnrollments.isEmpty()) {
+            log.info("No active students found in group {}", request.getSourceGroupId());
+            Map<String, Object> response = new HashMap<>();
+            response.put("count", 0);
+            response.put("message", "No active students found in source group");
+            return response;
+        }
+
+        User promotedBy = getCurrentUser();
+        int count = 0;
+
+        for (StudentGroup sg : sourceEnrollments) {
+            // Deactivate old enrollment
+            sg.setIsActive(false);
+            sg.setLeaveDate(LocalDate.now());
+            sg.setExitReason("TRANSFERRED");
+            sg.setExitNotes("Bulk promoted to group: " + targetGroup.getGroupName());
+            studentGroupRepository.save(sg);
+
+            // Create new enrollment in target group
+            StudentGroup newEnrollment = StudentGroup.builder()
+                .student(sg.getStudent())
+                .group(targetGroup)
+                .joinDate(LocalDate.of(request.getTargetYear(), request.getTargetMonth(), 1))
+                .isActive(true)
+                .paymentStatus("PENDING")
+                .monthlyPriceOverride(sg.getMonthlyPriceOverride())
+                .discountPercentage(sg.getDiscountPercentage())
+                .build();
+            studentGroupRepository.save(newEnrollment);
+
+            // Record promotion
+            Promotion promotion = Promotion.builder()
+                .student(sg.getStudent())
+                // .fromClass(sourceGroup.getClassEntity()) // Removed as it doesn't exist
+                // .toClass(targetGroup.getClassEntity())
+                .fromAcademicYear(String.valueOf(request.getSourceYear()))
+                .toAcademicYear(String.valueOf(request.getTargetYear()))
+                .sourceMonth(request.getSourceMonth())
+                .sourceYear(request.getSourceYear())
+                .targetMonth(request.getTargetMonth())
+                .targetYear(request.getTargetYear())
+                .promotionDate(LocalDate.now())
+                .promotedBy(promotedBy)
+                .remarks(request.getRemarks())
+                .build();
+            promotionRepository.save(promotion);
+            
+            count++;
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("count", count);
+        result.put("message", "Successfully promoted " + count + " students");
+        return result;
+    }
+
+    private User getCurrentUser() {
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        return userRepository.findByUsername(username).orElse(null);
     }
 
     @Transactional

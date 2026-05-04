@@ -74,4 +74,20 @@ public class PaymentController {
     public ResponseEntity<ApiResponse<List<DebtorResponse>>> getDebtors() {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getDebtors()));
     }
+
+    @GetMapping("/calculate-debt")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> calculateDebt(
+            @RequestParam Long studentId,
+            @RequestParam Long groupId) {
+        return ResponseEntity.ok(ApiResponse.success(
+            paymentService.calculateStudentDebt(studentId, groupId)));
+    }
+
+    @GetMapping("/debtors/summary")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getDebtorsSummary() {
+        return ResponseEntity.ok(ApiResponse.success(
+            paymentService.getDebtorsEnhanced()));
+    }
 }

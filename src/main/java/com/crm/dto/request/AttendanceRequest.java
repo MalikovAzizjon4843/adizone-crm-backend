@@ -14,5 +14,7 @@ public class AttendanceRequest {
         private Long studentId;
         private AttendanceStatus status;
         private String notes;
+        private Boolean excused;
+        private String excuseReason;
     }
 }

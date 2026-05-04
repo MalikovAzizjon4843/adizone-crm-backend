@@ -58,6 +58,17 @@ public class AttendanceService {
             attendance.setNotes(item.getNotes());
             attendance.setMarkedBy(marker);
 
+            // Handle excused absences
+            if (attendance.getStatus() == AttendanceStatus.ABSENT
+                    && Boolean.TRUE.equals(item.getExcused())) {
+                attendance.setStatus(AttendanceStatus.EXCUSED);
+                attendance.setExcused(true);
+                attendance.setExcuseReason(item.getExcuseReason());
+            } else {
+                attendance.setExcused(item.getExcused() != null ? item.getExcused() : false);
+                attendance.setExcuseReason(item.getExcuseReason());
+            }
+
             Attendance saved = attendanceRepository.save(attendance);
             results.add(toResponse(saved));
 
@@ -138,6 +149,8 @@ public class AttendanceService {
             .attendanceDate(a.getAttendanceDate())
             .status(a.getStatus())
             .notes(a.getNotes())
+            .excused(a.getExcused())
+            .excuseReason(a.getExcuseReason())
             .createdAt(a.getCreatedAt())
             .build();
     }

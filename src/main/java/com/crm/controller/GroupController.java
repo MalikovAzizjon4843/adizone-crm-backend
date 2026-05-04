@@ -1,6 +1,7 @@
 package com.crm.controller;
 
 import com.crm.dto.request.GroupRequest;
+import com.crm.dto.request.RemoveStudentRequest;
 import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.GroupResponse;
@@ -83,5 +84,17 @@ public class GroupController {
             @PathVariable Long groupId, @PathVariable Long studentId) {
         groupService.removeStudentFromGroup(studentId, groupId);
         return ResponseEntity.ok(ApiResponse.success("Student removed from group", null));
+    }
+
+    @PostMapping("/{groupId}/remove-student")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<String>> removeStudentWithReason(
+            @PathVariable Long groupId,
+            @RequestBody RemoveStudentRequest request) {
+        groupService.removeStudentFromGroup(
+            groupId, request.getStudentId(),
+            request.getReason(), request.getNotes());
+        return ResponseEntity.ok(
+            ApiResponse.success("O'quvchi guruhdan chiqarildi", "OK"));
     }
 }

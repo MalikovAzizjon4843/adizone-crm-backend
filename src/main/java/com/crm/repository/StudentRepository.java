@@ -63,4 +63,6 @@ public interface StudentRepository extends JpaRepository<Student, Long> {
            + "AND (sg.paymentStatus IN ('OVERDUE', 'SUSPENDED', 'ARCHIVED') "
            + "OR (sg.nextPaymentDate IS NOT NULL AND sg.nextPaymentDate < :today))")
     List<Student> findArchivedOrFrozenWithBalanceSignals(@Param("today") LocalDate today);
+
+    List<Student> findByStatusIn(List<StudentStatus> statuses);
 }

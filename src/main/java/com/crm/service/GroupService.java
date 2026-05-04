@@ -10,6 +10,7 @@ import com.crm.entity.Group;
 import com.crm.entity.GroupScheduleDay;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
+import com.crm.entity.StudentStatusHistory;
 import com.crm.entity.Teacher;
 import com.crm.entity.Timetable;
 import com.crm.entity.Classroom;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
@@ -43,6 +45,7 @@ public class GroupService {
     private final GroupScheduleDayRepository groupScheduleDayRepository;
     private final ClassroomRepository classroomRepository;
     private final TimetableRepository timetableRepository;
+    private final StudentStatusHistoryRepository studentStatusHistoryRepository;
 
     @Transactional(readOnly = true)
     public List<GroupResponse> getAllGroups(GroupStatus status) {
@@ -400,6 +403,44 @@ public class GroupService {
         sg.setIsActive(false);
         sg.setLeaveDate(LocalDate.now());
         studentGroupRepository.save(sg);
+    }
+
+    @Transactional
+    public void removeStudentFromGroup(Long groupId, Long studentId,
+            String reason, String notes) {
+        StudentGroup sg = studentGroupRepository
+            .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, groupId)
+            .orElseThrow(() -> new ResourceNotFoundException("StudentGroup", studentId));
+
+        sg.setIsActive(false);
+        sg.setExitDate(LocalDate.now());
+        sg.setLeaveDate(LocalDate.now());
+        sg.setExitReason(reason);
+        sg.setExitNotes(notes);
+        studentGroupRepository.save(sg);
+
+        // Update student status based on reason
+        Student student = sg.getStudent();
+        String previousStatus = student.getStatus() != null ? student.getStatus().name() : "ACTIVE";
+        switch (reason != null ? reason : "OTHER") {
+            case "GRADUATED" -> student.setStatus(com.crm.entity.enums.StudentStatus.GRADUATED);
+            case "LEFT" -> student.setStatus(com.crm.entity.enums.StudentStatus.LEFT);
+            case "TRANSFERRED" -> {
+                // Keep ACTIVE - just moving groups
+            }
+            case "SUSPENDED" -> student.setStatus(com.crm.entity.enums.StudentStatus.SUSPENDED);
+        }
+        studentRepository.save(student);
+
+        // Save to student history
+        StudentStatusHistory history = new StudentStatusHistory();
+        history.setStudent(student);
+        history.setFromStatus(previousStatus);
+        history.setToStatus(student.getStatus() != null ? student.getStatus().name() : previousStatus);
+        history.setReason(reason);
+        history.setNotes(notes);
+        history.setChangedAt(LocalDateTime.now());
+        studentStatusHistoryRepository.save(history);
     }
 
     public Group findById(Long id) {

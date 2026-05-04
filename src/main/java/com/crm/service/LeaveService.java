@@ -6,6 +6,7 @@ import com.crm.dto.response.PageResponse;
 import com.crm.entity.Leave;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
+import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.LeaveRepository;
 import com.crm.repository.TeacherRepository;
@@ -74,11 +75,13 @@ public class LeaveService {
             .orElseThrow(() -> new ResourceNotFoundException("Teacher", request.getTeacherId()));
         leave.setTeacher(teacher);
 
-        if (request.getRequesterId() != null) {
-            userRepository.findById(request.getRequesterId()).ifPresent(leave::setRequester);
-        } else if (teacher.getUser() != null) {
-            leave.setRequester(teacher.getUser());
+        User requester = resolveRequester(request);
+        if (requester == null) {
+            throw new BadRequestException(
+                "Requester ulanmagan: o'qituvchi (id=" + request.getTeacherId()
+                + ") uchun User mavjud emas. requesterId yuboring yoki o'qituvchini foydalanuvchiga bog'lang.");
         }
+        leave.setRequester(requester);
 
         leave.setLeaveType(request.getLeaveType());
         leave.setFromDate(request.getFromDate());
