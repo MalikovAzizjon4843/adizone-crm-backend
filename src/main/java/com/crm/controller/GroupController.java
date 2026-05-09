@@ -61,6 +61,15 @@ public class GroupController {
         return ResponseEntity.ok(ApiResponse.success("Group updated", groupService.updateGroup(id, request)));
     }
 
+    @PatchMapping("/{id}/status")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<GroupResponse>> updateStatus(
+            @PathVariable Long id,
+            @RequestParam String status) {
+        return ResponseEntity.ok(ApiResponse.success(
+            "Status yangilandi", groupService.updateStatus(id, status)));
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deleteGroup(@PathVariable Long id) {

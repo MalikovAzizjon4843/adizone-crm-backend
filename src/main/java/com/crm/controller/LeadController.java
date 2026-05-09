@@ -65,9 +65,11 @@ public class LeadController {
 
     @PostMapping("/{id:\\d+}/convert")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<ApiResponse<LeadResponse>> convertToStudent(@PathVariable Long id) {
-        return ResponseEntity.ok(ApiResponse.success(
+    public ResponseEntity<ApiResponse<LeadResponse>> convertToStudent(
+            @PathVariable Long id,
+            @RequestParam(required = false) Long groupId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(
                 "O'quvchiga o'tkazildi",
-                leadService.convertToStudent(id)));
+                leadService.convertToStudent(id, groupId)));
     }
 }

@@ -3,9 +3,17 @@ package com.crm.service;
 import com.crm.dto.request.LeadRequest;
 import com.crm.dto.response.LeadResponse;
 import com.crm.dto.response.PageResponse;
+import com.crm.entity.Group;
 import com.crm.entity.Lead;
+import com.crm.entity.Student;
+import com.crm.entity.StudentGroup;
+import com.crm.entity.enums.MarketingSource;
+import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.repository.GroupRepository;
 import com.crm.repository.LeadRepository;
+import com.crm.repository.StudentGroupRepository;
+import com.crm.repository.StudentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -14,6 +22,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -23,6 +32,9 @@ import java.util.stream.Collectors;
 public class LeadService {
 
     private final LeadRepository leadRepository;
+    private final StudentRepository studentRepository;
+    private final GroupRepository groupRepository;
+    private final StudentGroupRepository studentGroupRepository;
 
     @Transactional
     public LeadResponse createLead(LeadRequest request) {
@@ -86,11 +98,69 @@ public class LeadService {
 
     @Transactional
     public LeadResponse convertToStudent(Long id) {
+        return convertToStudent(id, null);
+    }
+
+    @Transactional
+    public LeadResponse convertToStudent(Long id, Long groupId) {
         Lead lead = leadRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Lead", id));
+
+        if (Boolean.TRUE.equals(lead.getConverted()) && lead.getStudent() != null) {
+            lead.setStatus("ENROLLED");
+            return toResponse(leadRepository.save(lead));
+        }
+
+        String fullName = lead.getFullName() != null ? lead.getFullName().trim() : "";
+        String firstName = fullName.isEmpty() ? "" : fullName.split("\\s+")[0];
+        String lastName = fullName.contains(" ")
+            ? fullName.substring(fullName.indexOf(' ') + 1).trim() : "";
+
+        Student student = Student.builder()
+                .firstName(firstName)
+                .lastName(lastName)
+                .phone(lead.getPhone())
+                .status(StudentStatus.ACTIVE)
+                .admissionDate(LocalDate.now())
+                .admissionNumber("ADM-" + String.format("%05d",
+                        studentRepository.count() + 1))
+                .marketingSource(parseMarketingSource(lead.getSource()))
+                .build();
+        student = studentRepository.save(student);
+
+        if (groupId != null) {
+            Group group = groupRepository.findById(groupId).orElse(null);
+            if (group != null) {
+                LocalDate today = LocalDate.now();
+                StudentGroup sg = StudentGroup.builder()
+                        .student(student)
+                        .group(group)
+                        .joinDate(today)
+                        .paymentStartDate(today)
+                        .nextPaymentDate(today.plusDays(30))
+                        .isActive(true)
+                        .paymentStatus("TRIAL")
+                        .lessonsAttended(0)
+                        .build();
+                studentGroupRepository.save(sg);
+            }
+        }
+
+        lead.setStudent(student);
         lead.setConverted(true);
         lead.setStatus("ENROLLED");
         return toResponse(leadRepository.save(lead));
+    }
+
+    private MarketingSource parseMarketingSource(String src) {
+        if (src == null || src.isBlank()) {
+            return MarketingSource.OTHER;
+        }
+        try {
+            return MarketingSource.valueOf(src.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return MarketingSource.OTHER;
+        }
     }
 
     @Transactional(readOnly = true)

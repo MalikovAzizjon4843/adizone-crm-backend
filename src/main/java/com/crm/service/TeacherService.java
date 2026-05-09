@@ -7,7 +7,13 @@ import com.crm.entity.Teacher;
 import com.crm.entity.User;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.entity.Group;
+import com.crm.entity.GroupScheduleDay;
+import com.crm.entity.Payroll;
 import com.crm.repository.GroupRepository;
+import com.crm.repository.GroupScheduleDayRepository;
+import com.crm.repository.PayrollRepository;
+import com.crm.repository.StudentGroupRepository;
 import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +32,9 @@ public class TeacherService {
     private final TeacherRepository teacherRepository;
     private final UserRepository userRepository;
     private final GroupRepository groupRepository;
+    private final GroupScheduleDayRepository groupScheduleDayRepository;
+    private final StudentGroupRepository studentGroupRepository;
+    private final PayrollRepository payrollRepository;
 
     @Transactional(readOnly = true)
     public List<TeacherResponse> getAllTeachers(boolean activeOnly) {
@@ -129,6 +138,85 @@ public class TeacherService {
                .append(t.getCreatedAt()).append("\n");
         }
         return csv.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getTeacherDashboard(String username) {
+        User user = userRepository.findByUsername(username)
+            .orElseThrow(() -> new ResourceNotFoundException(
+                "User not found with username: " + username));
+
+        Teacher teacher = teacherRepository.findByUserId(user.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("Teacher", user.getId()));
+
+        Map<String, Object> dashboard = new LinkedHashMap<>();
+        dashboard.put("teacherId", teacher.getId());
+        dashboard.put("teacherName", teacher.getFirstName() + " " + teacher.getLastName());
+
+        List<Group> myGroups = groupRepository.findByTeacher_IdAndStatus(
+            teacher.getId(), GroupStatus.ACTIVE);
+        dashboard.put("totalGroups", myGroups.size());
+
+        dashboard.put("groups", myGroups.stream().map(g -> {
+            Map<String, Object> gm = new LinkedHashMap<>();
+            gm.put("id", g.getId());
+            gm.put("groupName", g.getGroupName());
+            gm.put("courseName", g.getCourse() != null
+                ? g.getCourse().getCourseName() : null);
+            gm.put("studentCount",
+                studentGroupRepository.countByGroup_IdAndIsActiveTrue(g.getId()));
+            gm.put("scheduleDays",
+                groupScheduleDayRepository.findByGroup_IdOrderByDayOfWeekAsc(g.getId())
+                    .stream()
+                    .map(d -> {
+                        Map<String, Object> dm = new LinkedHashMap<>();
+                        dm.put("dayOfWeek", d.getDayOfWeek());
+                        dm.put("startTime", d.getStartTime() != null ? d.getStartTime() : "");
+                        dm.put("endTime", d.getEndTime() != null ? d.getEndTime() : "");
+                        return dm;
+                    })
+                    .collect(Collectors.toList()));
+            return gm;
+        }).collect(Collectors.toList()));
+
+        String todayDay = java.time.LocalDate.now().getDayOfWeek().toString();
+        List<Map<String, Object>> todayLessons = new ArrayList<>();
+        for (Group g : myGroups) {
+            for (GroupScheduleDay d : groupScheduleDayRepository
+                    .findByGroup_IdOrderByDayOfWeekAsc(g.getId())) {
+                if (d.getDayOfWeek() == null
+                        || !d.getDayOfWeek().equalsIgnoreCase(todayDay)) {
+                    continue;
+                }
+                Map<String, Object> lesson = new LinkedHashMap<>();
+                lesson.put("groupId", g.getId());
+                lesson.put("groupName", g.getGroupName());
+                lesson.put("startTime", d.getStartTime() != null ? d.getStartTime() : "");
+                lesson.put("endTime", d.getEndTime() != null ? d.getEndTime() : "");
+                lesson.put("roomNumber", d.getRoom() != null ? d.getRoom().getRoomNumber() : "");
+                lesson.put("studentCount",
+                    studentGroupRepository.countByGroup_IdAndIsActiveTrue(g.getId()));
+                todayLessons.add(lesson);
+            }
+        }
+        todayLessons.sort((a, b) -> String.valueOf(a.get("startTime"))
+            .compareTo(String.valueOf(b.get("startTime"))));
+        dashboard.put("todayLessons", todayLessons);
+
+        long totalStudents = myGroups.stream()
+            .mapToLong(g -> studentGroupRepository.countByGroup_IdAndIsActiveTrue(g.getId()))
+            .sum();
+        dashboard.put("totalStudents", totalStudents);
+
+        java.time.LocalDate now = java.time.LocalDate.now();
+        payrollRepository.findByTeacherIdAndMonthAndYear(
+                teacher.getId(), now.getMonthValue(), now.getYear())
+            .ifPresent(p -> {
+                dashboard.put("salary", p.getNetSalary());
+                dashboard.put("salaryStatus", p.getStatus());
+            });
+
+        return dashboard;
     }
 
     public Teacher findById(Long id) {

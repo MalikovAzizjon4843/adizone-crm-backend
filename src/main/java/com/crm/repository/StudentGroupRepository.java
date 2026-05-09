@@ -58,4 +58,6 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
     List<StudentGroup> findSuspendedOnOrBefore(@Param("cutoff") LocalDateTime cutoff);
 
     List<StudentGroup> findByPaymentStatusAndIsActiveTrue(String paymentStatus);
+
+    long countByGroup_IdAndIsActiveTrue(Long groupId);
 }

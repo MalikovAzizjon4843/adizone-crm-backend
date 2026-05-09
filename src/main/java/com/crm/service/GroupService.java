@@ -354,6 +354,21 @@ public class GroupService {
     }
 
     @Transactional
+    public GroupResponse updateStatus(Long id, String status) {
+        Group group = findById(id);
+        GroupStatus parsed;
+        try {
+            parsed = GroupStatus.valueOf(status.trim().toUpperCase());
+        } catch (Exception e) {
+            throw new BadRequestException(
+                "Noto'g'ri status: " + status +
+                ". Ruxsat etilgan: FORMING, ACTIVE, COMPLETED, CANCELLED");
+        }
+        group.setStatus(parsed);
+        return toResponse(groupRepository.save(group), false);
+    }
+
+    @Transactional
     public void deleteGroup(Long id) {
         Group group = findById(id);
         group.setStatus(GroupStatus.CANCELLED);

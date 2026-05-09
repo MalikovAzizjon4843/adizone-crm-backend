@@ -115,9 +115,18 @@ public class StudentPaymentLifecycleService {
 
         if ("ARCHIVED".equals(prevStatus) || "SUSPENDED".equals(prevStatus)) {
             log.info("Student {} reactivated after payment", studentId);
+            sg.setIsActive(true);
         }
 
         studentGroupRepository.save(sg);
+
+        Student student = sg.getStudent();
+        if (student.getStatus() == com.crm.entity.enums.StudentStatus.SUSPENDED
+                || student.getStatus() == com.crm.entity.enums.StudentStatus.FROZEN) {
+            student.setStatus(com.crm.entity.enums.StudentStatus.ACTIVE);
+            studentRepository.save(student);
+            log.info("Student {} unblocked after payment", student.getId());
+        }
     }
 
     @Scheduled(cron = "0 0 9 * * *")

@@ -247,6 +247,7 @@ public class PaymentService {
         LocalDate monthEnd = ym.atEndOfMonth();
 
         return studentGroupRepository.findAllActiveEnrollments().stream()
+            .filter(sg -> !"TRIAL".equals(sg.getPaymentStatus()))
             .filter(sg -> paymentRepository.countPaidForStudentGroupInPeriod(
                 sg.getStudent().getId(), sg.getGroup().getId(), monthStart, monthEnd) == 0)
             .map(sg -> {
