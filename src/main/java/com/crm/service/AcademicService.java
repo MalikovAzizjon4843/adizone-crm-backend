@@ -10,6 +10,8 @@ import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DayOfWeek;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -24,6 +26,9 @@ public class AcademicService {
     private final TimetableRepository timetableRepository;
     private final TeacherRepository teacherRepository;
     private final GroupRepository groupRepository;
+    private final StudentGroupRepository studentGroupRepository;
+
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
 
     // ── Classes ────────────────────────────────────────────────────
 
@@ -198,6 +203,45 @@ public class AcademicService {
     public List<TimetableResponse> getTimetableByTeacher(Long teacherId) {
         return timetableRepository.findByTeacherId(teacherId).stream()
             .map(this::toTimetableResponse).collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public RoomTimetableDto getByRoom(DayOfWeek dayOfWeek) {
+        List<Classroom> rooms = classroomRepository.findAllByOrderByRoomNumberAsc();
+        List<Timetable> entries = timetableRepository.findByDayOfWeek(dayOfWeek.name());
+
+        List<RoomLessonDto> lessons = entries.stream().map(t -> {
+            RoomLessonDto dto = new RoomLessonDto();
+            dto.setId(t.getId());
+            dto.setClassroomId(t.getClassroom() != null ? t.getClassroom().getId() : null);
+            Group g = t.getGroup();
+            long studentCount = 0;
+            if (g != null) {
+                dto.setGroupId(g.getId());
+                dto.setGroupName(g.getGroupName());
+                Long teacherId = resolveTimetableTeacherId(t);
+                String teacherName = resolveTimetableTeacherName(t);
+                dto.setTeacherId(teacherId);
+                dto.setTeacherName(teacherName);
+                studentCount = studentGroupRepository.countByGroupIdAndIsActiveTrue(g.getId());
+                dto.setStudentCount(studentCount);
+            }
+            dto.setStartTime(t.getStartTime().format(TIME_FMT));
+            dto.setEndTime(t.getEndTime().format(TIME_FMT));
+            if (t.getClassroom() != null) {
+                int capacity = t.getClassroom().getCapacity() != null ? t.getClassroom().getCapacity() : 0;
+                dto.setCapacity(capacity);
+                dto.setFreeSeats(Math.max(0, capacity - (int) studentCount));
+            }
+            return dto;
+        }).collect(Collectors.toList());
+
+        RoomTimetableDto result = new RoomTimetableDto();
+        result.setClassrooms(rooms.stream()
+            .map(r -> new ClassroomBriefDto(r.getId(), classroomDisplayName(r), r.getCapacity()))
+            .collect(Collectors.toList()));
+        result.setLessons(lessons);
+        return result;
     }
 
     @Transactional

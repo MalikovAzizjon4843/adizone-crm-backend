@@ -17,6 +17,7 @@ public interface TimetableRepository extends JpaRepository<Timetable, Long> {
     List<Timetable> findByClassEntityId(Long classId);
     List<Timetable> findByGroupId(Long groupId);
     List<Timetable> findByTeacherId(Long teacherId);
+    List<Timetable> findByDayOfWeek(String dayOfWeek);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM Timetable t WHERE t.group.id = :groupId")
