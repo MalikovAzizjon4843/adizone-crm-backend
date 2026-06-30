@@ -2,14 +2,23 @@ package com.crm.service;
 
 import com.crm.dto.request.TeacherRequest;
 import com.crm.dto.response.PageResponse;
+import com.crm.dto.response.TeacherKpiAttendanceDto;
+import com.crm.dto.response.TeacherKpiConversionDto;
+import com.crm.dto.response.TeacherKpiDto;
+import com.crm.dto.response.TeacherKpiGroupDto;
+import com.crm.dto.response.TeacherKpiSatisfactionDto;
+import com.crm.dto.response.TeacherKpiStudentAttendanceDto;
 import com.crm.dto.response.TeacherResponse;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
+import com.crm.entity.enums.AttendanceStatus;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.entity.Classroom;
 import com.crm.entity.Group;
 import com.crm.entity.GroupScheduleDay;
 import com.crm.entity.Payroll;
+import com.crm.repository.AttendanceRepository;
 import com.crm.repository.GroupRepository;
 import com.crm.repository.GroupScheduleDayRepository;
 import com.crm.repository.PayrollRepository;
@@ -21,7 +30,10 @@ import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -35,6 +47,7 @@ public class TeacherService {
     private final GroupScheduleDayRepository groupScheduleDayRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final PayrollRepository payrollRepository;
+    private final AttendanceRepository attendanceRepository;
 
     @Transactional(readOnly = true)
     public List<TeacherResponse> getAllTeachers(boolean activeOnly) {
@@ -217,6 +230,168 @@ public class TeacherService {
             });
 
         return dashboard;
+    }
+
+    @Transactional(readOnly = true)
+    public TeacherKpiDto getKpi(Long teacherId, LocalDate from, LocalDate to) {
+        Teacher teacher = findById(teacherId);
+
+        TeacherKpiDto dto = new TeacherKpiDto();
+        dto.setTeacherId(teacherId);
+        dto.setTeacherName(teacher.getFirstName() + " " + teacher.getLastName());
+
+        fillFinancialKpi(dto, teacherId, from, to);
+
+        List<Group> groups = groupRepository.findByTeacherId(teacherId);
+        List<TeacherKpiGroupDto> groupDtos = groups.stream().map(g -> {
+            TeacherKpiGroupDto gd = new TeacherKpiGroupDto();
+            gd.setGroupId(g.getId());
+            gd.setGroupName(g.getGroupName());
+            long count = studentGroupRepository.countByGroupIdAndIsActiveTrue(g.getId());
+            gd.setStudentCount(count);
+            fillGroupRoomInfo(g, gd, count);
+            return gd;
+        }).collect(Collectors.toList());
+        dto.setGroups(groupDtos);
+
+        List<Long> groupIds = groups.stream().map(Group::getId).collect(Collectors.toList());
+
+        TeacherKpiConversionDto conv = new TeacherKpiConversionDto();
+        if (!groupIds.isEmpty()) {
+            long newStudents = studentGroupRepository
+                .countByGroupIdsAndJoinDateBetween(groupIds, from, to);
+            long paidStudents = studentGroupRepository
+                .countPaidByGroupIdsAndJoinDateBetween(groupIds, from, to);
+            conv.setNewStudents(newStudents);
+            conv.setPaidStudents(paidStudents);
+            conv.setConversionRate(newStudents > 0
+                ? round1(paidStudents * 100.0 / newStudents) : 0.0);
+        }
+        dto.setConversion(conv);
+
+        TeacherKpiAttendanceDto att = new TeacherKpiAttendanceDto();
+        if (!groupIds.isEmpty()) {
+            long planned = countPlannedLessons(groups, from, to);
+            long conducted = attendanceRepository
+                .countDistinctSessionsByGroupIdsAndDateBetween(groupIds, from, to);
+            att.setPlannedLessons(planned);
+            att.setConductedLessons(conducted);
+            att.setMissedLessons(Math.max(0, planned - conducted));
+        }
+        att.setPenaltyAmount(BigDecimal.ZERO);
+        dto.setTeacherAttendance(att);
+
+        TeacherKpiStudentAttendanceDto sAtt = new TeacherKpiStudentAttendanceDto();
+        if (!groupIds.isEmpty()) {
+            long present = attendanceRepository.countByGroupIdsAndStatusAndDateBetween(
+                groupIds, AttendanceStatus.PRESENT, from, to)
+                + attendanceRepository.countByGroupIdsAndStatusAndDateBetween(
+                    groupIds, AttendanceStatus.LATE, from, to);
+            long absent = attendanceRepository.countByGroupIdsAndStatusAndDateBetween(
+                groupIds, AttendanceStatus.ABSENT, from, to);
+            long excused = attendanceRepository.countByGroupIdsAndStatusAndDateBetween(
+                groupIds, AttendanceStatus.EXCUSED, from, to);
+            long total = present + absent + excused;
+            if (total > 0) {
+                sAtt.setPresentRate(round1(present * 100.0 / total));
+                sAtt.setAbsentUnexcusedRate(round1(absent * 100.0 / total));
+                sAtt.setAbsentExcusedRate(round1(excused * 100.0 / total));
+            }
+        }
+        dto.setStudentAttendance(sAtt);
+
+        dto.setSatisfaction(new TeacherKpiSatisfactionDto());
+        dto.setStudentProgress(0.0);
+
+        return dto;
+    }
+
+    private void fillFinancialKpi(TeacherKpiDto dto, Long teacherId, LocalDate from, LocalDate to) {
+        BigDecimal balance = BigDecimal.ZERO;
+        BigDecimal bonus = BigDecimal.ZERO;
+        BigDecimal penalty = BigDecimal.ZERO;
+
+        for (Payroll p : payrollRepository.findByTeacherId(teacherId)) {
+            if (!payrollOverlapsRange(p, from, to)) {
+                continue;
+            }
+            if (p.getNetSalary() != null) {
+                balance = balance.add(p.getNetSalary());
+            }
+            if (p.getAllowances() != null) {
+                bonus = bonus.add(p.getAllowances());
+            }
+            if (p.getDeductions() != null) {
+                penalty = penalty.add(p.getDeductions());
+            }
+        }
+
+        dto.setBalance(balance);
+        dto.setBonus(bonus);
+        dto.setAdvance(BigDecimal.ZERO);
+        dto.setPenalty(penalty);
+    }
+
+    private static boolean payrollOverlapsRange(Payroll p, LocalDate from, LocalDate to) {
+        if (p.getMonth() == null || p.getYear() == null) {
+            return false;
+        }
+        LocalDate periodStart = LocalDate.of(p.getYear(), p.getMonth(), 1);
+        LocalDate periodEnd = periodStart.withDayOfMonth(periodStart.lengthOfMonth());
+        return !periodEnd.isBefore(from) && !periodStart.isAfter(to);
+    }
+
+    private void fillGroupRoomInfo(Group g, TeacherKpiGroupDto gd, long count) {
+        Classroom classroom = groupScheduleDayRepository
+            .findByGroup_IdOrderByDayOfWeekAsc(g.getId()).stream()
+            .map(GroupScheduleDay::getRoom)
+            .filter(Objects::nonNull)
+            .findFirst()
+            .orElse(null);
+
+        if (classroom != null) {
+            String roomName = classroom.getRoomNumber() != null
+                ? classroom.getRoomNumber() : classroom.getRoomName();
+            gd.setRoomName(roomName);
+            int cap = classroom.getCapacity() != null ? classroom.getCapacity() : 0;
+            gd.setCapacity(cap);
+            gd.setFreeSeats(Math.max(0, cap - (int) count));
+        } else if (g.getRoom() != null && !g.getRoom().isBlank()) {
+            gd.setRoomName(g.getRoom());
+            int cap = g.getMaxStudents() != null ? g.getMaxStudents() : 0;
+            gd.setCapacity(cap);
+            gd.setFreeSeats(Math.max(0, cap - (int) count));
+        }
+    }
+
+    private long countPlannedLessons(List<Group> groups, LocalDate from, LocalDate to) {
+        long planned = 0;
+        for (Group g : groups) {
+            for (GroupScheduleDay d : groupScheduleDayRepository
+                    .findByGroup_IdOrderByDayOfWeekAsc(g.getId())) {
+                if (d.getDayOfWeek() == null || d.getDayOfWeek().isBlank()) {
+                    continue;
+                }
+                DayOfWeek dow;
+                try {
+                    dow = DayOfWeek.valueOf(d.getDayOfWeek().trim().toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    continue;
+                }
+                LocalDate cur = from;
+                while (!cur.isAfter(to)) {
+                    if (cur.getDayOfWeek() == dow) {
+                        planned++;
+                    }
+                    cur = cur.plusDays(1);
+                }
+            }
+        }
+        return planned;
+    }
+
+    private static double round1(double v) {
+        return Math.round(v * 10.0) / 10.0;
     }
 
     public Teacher findById(Long id) {

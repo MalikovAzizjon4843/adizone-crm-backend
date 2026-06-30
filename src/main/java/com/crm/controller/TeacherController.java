@@ -8,11 +8,13 @@ import com.crm.service.ImportService;
 import com.crm.service.TeacherService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -35,6 +37,22 @@ public class TeacherController {
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<TeacherResponse>> getTeacherById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(teacherService.getTeacherById(id)));
+    }
+
+    @GetMapping("/{id}/kpi")
+    public ResponseEntity<TeacherKpiDto> getKpi(
+            @PathVariable Long id,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        if (from == null) {
+            from = LocalDate.now().withDayOfMonth(1);
+        }
+        if (to == null) {
+            to = LocalDate.now();
+        }
+        return ResponseEntity.ok(teacherService.getKpi(id, from, to));
     }
 
     @PostMapping

@@ -60,4 +60,16 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
     List<StudentGroup> findByPaymentStatusAndIsActiveTrue(String paymentStatus);
 
     long countByGroup_IdAndIsActiveTrue(Long groupId);
+
+    @Query("SELECT COUNT(sg) FROM StudentGroup sg WHERE sg.group.id IN :groupIds "
+           + "AND sg.joinDate BETWEEN :from AND :to")
+    long countByGroupIdsAndJoinDateBetween(@Param("groupIds") List<Long> groupIds,
+                                            @Param("from") LocalDate from,
+                                            @Param("to") LocalDate to);
+
+    @Query("SELECT COUNT(sg) FROM StudentGroup sg WHERE sg.group.id IN :groupIds "
+           + "AND sg.joinDate BETWEEN :from AND :to AND sg.paymentStatus = 'PAID'")
+    long countPaidByGroupIdsAndJoinDateBetween(@Param("groupIds") List<Long> groupIds,
+                                                @Param("from") LocalDate from,
+                                                @Param("to") LocalDate to);
 }
