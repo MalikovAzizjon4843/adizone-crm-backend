@@ -126,20 +126,18 @@ public class AuthService {
     @Transactional
     public UserResponse register(RegisterRequest request) {
         if (userRepository.existsByUsername(request.getUsername())) {
-            throw new DuplicateResourceException("Username already exists: " + request.getUsername());
+            throw new BadRequestException("Bu username allaqachon band");
         }
-        if (request.getEmail() != null && userRepository.existsByEmail(request.getEmail())) {
-            throw new DuplicateResourceException("Email already exists: " + request.getEmail());
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
+            throw new BadRequestException("Parollar mos kelmadi");
         }
 
         User user = User.builder()
             .username(request.getUsername())
-            .email(request.getEmail())
             .password(passwordEncoder.encode(request.getPassword()))
             .firstName(request.getFirstName())
-            .lastName(request.getLastName())
-            .phone(request.getPhone())
-            .role(request.getRole() != null ? request.getRole() : UserRole.ADMIN)
+            .lastName(request.getFirstName())
+            .role(UserRole.ADMIN)
             .isActive(true)
             .build();
 

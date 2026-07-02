@@ -9,6 +9,7 @@ import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.AuthResponse;
 import com.crm.dto.response.UserResponse;
 import com.crm.entity.User;
+import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.UserRepository;
@@ -16,8 +17,8 @@ import com.crm.service.AuthService;
 import com.crm.service.FileStorageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -57,10 +58,28 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
-    public ResponseEntity<ApiResponse<UserResponse>> register(@Valid @RequestBody RegisterRequest request) {
-        UserResponse response = authService.register(request);
-        return ResponseEntity.ok(ApiResponse.success("User registered successfully", response));
+    public ResponseEntity<ApiResponse<String>> register(
+            @Valid @RequestBody RegisterRequest request) {
+
+        if (userRepository.existsByUsername(request.getUsername())) {
+            throw new BadRequestException("Bu username allaqachon band");
+        }
+
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
+            throw new BadRequestException("Parollar mos kelmadi");
+        }
+
+        User user = new User();
+        user.setUsername(request.getUsername());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setFirstName(request.getFirstName());
+        user.setLastName(request.getFirstName());
+        user.setRole(UserRole.ADMIN);
+        user.setIsActive(true);
+        userRepository.save(user);
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success("Ro'yxatdan o'tdingiz!"));
     }
 
     @GetMapping("/me")
