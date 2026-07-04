@@ -2,9 +2,8 @@ package com.crm.repository;
 
 import com.crm.entity.Expense;
 import com.crm.entity.enums.ExpenseCategory;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -14,19 +13,9 @@ import java.time.LocalDate;
 import java.util.List;
 
 @Repository
-public interface ExpenseRepository extends JpaRepository<Expense, Long> {
+public interface ExpenseRepository extends JpaRepository<Expense, Long>, JpaSpecificationExecutor<Expense> {
 
     List<Expense> findByExpenseDateBetweenOrderByExpenseDateDesc(LocalDate from, LocalDate to);
-
-    @Query("SELECT e FROM Expense e WHERE " +
-           "(:from IS NULL OR e.expenseDate >= :from) AND " +
-           "(:to IS NULL OR e.expenseDate <= :to) AND " +
-           "(:category IS NULL OR e.category = :category)")
-    Page<Expense> findFiltered(
-            @Param("from") LocalDate from,
-            @Param("to") LocalDate to,
-            @Param("category") ExpenseCategory category,
-            Pageable pageable);
 
     List<Expense> findByCategory(ExpenseCategory category);
 

@@ -12,6 +12,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,13 +43,29 @@ public class FinanceService {
     @Transactional(readOnly = true)
     public Page<ExpenseResponse> getExpensesFiltered(
             LocalDate from, LocalDate to, String category, int page, int size) {
-        
-        LocalDate start = from != null ? from : LocalDate.now().withDayOfMonth(1);
-        LocalDate end = to != null ? to : LocalDate.now();
-        
+
         ExpenseCategory cat = parseExpenseCategory(category);
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "expenseDate"));
-        return expenseRepository.findFiltered(start, end, cat, pageable).map(this::toResponse);
+
+        final LocalDate fromDate = from;
+        final LocalDate toDate = to;
+        final ExpenseCategory categoryFilter = cat;
+
+        Specification<Expense> spec = Specification.where(null);
+        if (fromDate != null) {
+            spec = spec.and((root, q, cb) ->
+                cb.greaterThanOrEqualTo(root.get("expenseDate"), fromDate));
+        }
+        if (toDate != null) {
+            spec = spec.and((root, q, cb) ->
+                cb.lessThanOrEqualTo(root.get("expenseDate"), toDate));
+        }
+        if (categoryFilter != null) {
+            spec = spec.and((root, q, cb) ->
+                cb.equal(root.get("category"), categoryFilter));
+        }
+
+        return expenseRepository.findAll(spec, pageable).map(this::toResponse);
     }
 
     private static ExpenseCategory parseExpenseCategory(String category) {
