@@ -16,7 +16,12 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
 
     List<Teacher> findByIsActiveTrue();
     Optional<Teacher> findByPhone(String phone);
-    Optional<Teacher> findByUserId(Long userId);
+
+    @Query("SELECT t FROM Teacher t WHERE t.user.id = :userId")
+    Optional<Teacher> findByUser_Id(@Param("userId") Long userId);
+
+    List<Teacher> findByUserIsNull();
+
     long countByIsActiveTrue();
 
     @Query("SELECT t FROM Teacher t WHERE t.isActive = true AND (" +

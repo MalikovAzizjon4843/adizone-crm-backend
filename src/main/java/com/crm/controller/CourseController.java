@@ -16,12 +16,14 @@ public class CourseController {
     private final CourseService courseService;
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<List<CourseResponse>>> getAllCourses(
             @RequestParam(defaultValue = "true") boolean activeOnly) {
         return ResponseEntity.ok(ApiResponse.success(courseService.getAllCourses(activeOnly)));
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<CourseResponse>> getCourseById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(courseService.getCourseById(id)));
     }

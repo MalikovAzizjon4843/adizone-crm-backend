@@ -21,13 +21,13 @@ public class ClassroomController {
     private final ClassroomService classroomService;
 
     @GetMapping
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<List<ClassroomResponse>>> getAll() {
         return ResponseEntity.ok(ApiResponse.success(classroomService.getAll()));
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<ClassroomResponse>> getById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(classroomService.getById(id)));
     }

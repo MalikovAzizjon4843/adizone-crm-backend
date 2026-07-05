@@ -20,6 +20,7 @@ public class HomeworkController {
     private final HomeworkService homeworkService;
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<PageResponse<HomeworkResponse>>> getAllHomeworks(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -27,6 +28,7 @@ public class HomeworkController {
     }
 
     @GetMapping("/group/{groupId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<PageResponse<HomeworkResponse>>> getHomeworkByGroup(
             @PathVariable Long groupId,
             @RequestParam(defaultValue = "0") int page,
@@ -35,6 +37,7 @@ public class HomeworkController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<HomeworkResponse>> getHomeworkById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(homeworkService.getHomeworkById(id)));
     }
@@ -61,6 +64,7 @@ public class HomeworkController {
     }
 
     @GetMapping("/{id}/submissions")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<List<HomeworkSubmissionResponse>>> getSubmissions(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(homeworkService.getSubmissions(id)));
     }

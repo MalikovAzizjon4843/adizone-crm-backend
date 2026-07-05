@@ -11,6 +11,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -32,6 +34,24 @@ public class TeacherController {
     public ResponseEntity<ApiResponse<List<TeacherResponse>>> getAllTeachers(
             @RequestParam(defaultValue = "true") boolean activeOnly) {
         return ResponseEntity.ok(ApiResponse.success(teacherService.getAllTeachers(activeOnly)));
+    }
+
+    @GetMapping("/me/kpi")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ResponseEntity<TeacherKpiDto> myKpi(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        if (from == null) {
+            from = LocalDate.now().withDayOfMonth(1);
+        }
+        if (to == null) {
+            to = LocalDate.now();
+        }
+        return ResponseEntity.ok(
+            teacherService.getKpiForUsername(userDetails.getUsername(), from, to));
     }
 
     @GetMapping("/{id}")

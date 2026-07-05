@@ -24,12 +24,14 @@ public class GroupController {
     private final GroupService groupService;
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','TEACHER')")
     public ResponseEntity<ApiResponse<List<GroupResponse>>> getAllGroups(
             @RequestParam(required = false) GroupStatus status) {
         return ResponseEntity.ok(ApiResponse.success(groupService.getAllGroups(status)));
     }
 
     @GetMapping("/{id}/schedule")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','TEACHER')")
     public ResponseEntity<ApiResponse<List<GroupResponse.ScheduleDayResponse>>> getSchedule(
             @PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(groupService.getSchedule(id)));
@@ -43,6 +45,7 @@ public class GroupController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','TEACHER')")
     public ResponseEntity<ApiResponse<GroupResponse>> getGroupById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(groupService.getGroupById(id)));
     }

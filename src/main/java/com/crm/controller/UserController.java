@@ -11,6 +11,7 @@ import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.UserRepository;
 import com.crm.service.FileStorageService;
+import com.crm.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -33,6 +34,7 @@ public class UserController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final FileStorageService fileStorageService;
+    private final UserService userService;
 
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
@@ -72,7 +74,7 @@ public class UserController {
 
         Optional<User> existing = userRepository.findByUsername(request.getUsername());
         if (existing.isPresent()) {
-            UserResponse response = toResponse(existing.get());
+            UserResponse response = userService.createForTeacher(teacherId, request);
             return ResponseEntity.ok(
                 ApiResponse.<UserResponse>builder()
                     .success(true)
@@ -82,21 +84,9 @@ public class UserController {
             );
         }
 
-        User user = User.builder()
-            .firstName(request.getFirstName())
-            .lastName(request.getLastName())
-            .username(request.getUsername())
-            .password(passwordEncoder.encode(request.getPassword()))
-            .role(UserRole.TEACHER)
-            .phone(request.getPhone())
-            .email(request.getEmail())
-            .isActive(true)
-            .build();
-
-        User saved = userRepository.save(user);
-
+        UserResponse created = userService.createForTeacher(teacherId, request);
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success("User yaratildi", toResponse(saved)));
+            .body(ApiResponse.success("User yaratildi", created));
     }
 
     @PostMapping("/create-for-student/{studentId}")

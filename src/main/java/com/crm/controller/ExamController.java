@@ -21,6 +21,7 @@ public class ExamController {
     private final ExamService examService;
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<PageResponse<ExamResponse>>> getAllExams(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -38,6 +39,7 @@ public class ExamController {
     }
 
     @GetMapping("/{id}/eligible-students")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<List<StudentResponse>>> getEligibleStudents(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(examService.getEligibleStudents(id)));
     }
@@ -52,6 +54,7 @@ public class ExamController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<ExamResponse>> getExamById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(examService.getExamById(id)));
     }
@@ -78,6 +81,7 @@ public class ExamController {
     }
 
     @GetMapping("/{id}/results")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<List<ExamResultResponse>>> getResultsByExam(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(examService.getResultsByExam(id)));
     }
@@ -98,6 +102,7 @@ public class ExamController {
     }
 
     @GetMapping("/students/{studentId}/results")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<List<ExamResultResponse>>> getResultsByStudent(@PathVariable Long studentId) {
         return ResponseEntity.ok(ApiResponse.success(examService.getResultsByStudent(studentId)));
     }

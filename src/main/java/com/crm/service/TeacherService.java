@@ -13,6 +13,7 @@ import com.crm.entity.Teacher;
 import com.crm.entity.User;
 import com.crm.entity.enums.AttendanceStatus;
 import com.crm.entity.enums.GroupStatus;
+import com.crm.entity.enums.UserRole;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.entity.Classroom;
 import com.crm.entity.Group;
@@ -159,8 +160,7 @@ public class TeacherService {
             .orElseThrow(() -> new ResourceNotFoundException(
                 "User not found with username: " + username));
 
-        Teacher teacher = teacherRepository.findByUserId(user.getId())
-            .orElseThrow(() -> new ResourceNotFoundException("Teacher", user.getId()));
+        Teacher teacher = findTeacherByUserId(user.getId());
 
         Map<String, Object> dashboard = new LinkedHashMap<>();
         dashboard.put("teacherId", teacher.getId());
@@ -397,6 +397,74 @@ public class TeacherService {
     public Teacher findById(Long id) {
         return teacherRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Teacher", id));
+    }
+
+    public Teacher findTeacherByUserId(Long userId) {
+        return teacherRepository.findByUser_Id(userId)
+            .orElseThrow(() -> new ResourceNotFoundException(
+                "Sizning profilingiz o'qituvchi sifatida topilmadi"));
+    }
+
+    @Transactional(readOnly = true)
+    public TeacherKpiDto getKpiForUser(Long userId, LocalDate from, LocalDate to) {
+        Teacher teacher = findTeacherByUserId(userId);
+        return getKpi(teacher.getId(), from, to);
+    }
+
+    @Transactional(readOnly = true)
+    public TeacherKpiDto getKpiForUsername(String username, LocalDate from, LocalDate to) {
+        User user = userRepository.findByUsername(username)
+            .orElseThrow(() -> new ResourceNotFoundException(
+                "User not found with username: " + username));
+        return getKpiForUser(user.getId(), from, to);
+    }
+
+    @Transactional
+    public Map<String, Object> linkTeacherUsers() {
+        int linked = 0;
+        int skipped = 0;
+        for (Teacher teacher : teacherRepository.findByUserIsNull()) {
+            Optional<User> match = resolveUserForTeacher(teacher);
+            if (match.isEmpty()) {
+                skipped++;
+                continue;
+            }
+            User user = match.get();
+            if (teacherRepository.findByUser_Id(user.getId()).isPresent()) {
+                skipped++;
+                continue;
+            }
+            teacher.setUser(user);
+            teacherRepository.save(teacher);
+            linked++;
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("linkedCount", linked);
+        result.put("skippedCount", skipped);
+        result.put("remainingUnlinked", teacherRepository.findByUserIsNull().size());
+        return result;
+    }
+
+    private Optional<User> resolveUserForTeacher(Teacher teacher) {
+        List<User> byName = userRepository.findByFirstNameAndLastNameAndRole(
+            teacher.getFirstName(), teacher.getLastName(), UserRole.TEACHER);
+        if (byName.size() == 1) {
+            return Optional.of(byName.get(0));
+        }
+        if (teacher.getPhone() != null && !teacher.getPhone().isBlank()) {
+            Optional<User> byPhone = userRepository.findByPhoneAndRole(
+                teacher.getPhone(), UserRole.TEACHER);
+            if (byPhone.isPresent()) {
+                return byPhone;
+            }
+        }
+        if (teacher.getEmail() != null && !teacher.getEmail().isBlank()) {
+            Optional<User> byEmail = userRepository.findByEmail(teacher.getEmail());
+            if (byEmail.isPresent() && byEmail.get().getRole() == UserRole.TEACHER) {
+                return byEmail;
+            }
+        }
+        return Optional.empty();
     }
 
     private void assignGroupsToTeacher(Teacher teacher, List<Long> groupIds) {

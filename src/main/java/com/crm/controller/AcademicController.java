@@ -126,6 +126,7 @@ public class AcademicController {
     // ── Timetable ──────────────────────────────────────────────────
 
     @GetMapping("/api/timetable")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<PageResponse<TimetableResponse>>> getAllTimetable(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -133,26 +134,31 @@ public class AcademicController {
     }
 
     @GetMapping("/api/timetable/group/{groupId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<List<TimetableResponse>>> getTimetableByGroup(@PathVariable Long groupId) {
         return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableByGroup(groupId)));
     }
 
     @GetMapping("/api/timetable/by-room")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<RoomTimetableDto> getByRoom(@RequestParam String dayOfWeek) {
         return ResponseEntity.ok(academicService.getByRoom(DayOfWeek.valueOf(dayOfWeek)));
     }
 
     @GetMapping("/api/timetable/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<TimetableResponse>> getTimetableById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableById(id)));
     }
 
     @GetMapping("/api/timetable/class/{classId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<List<TimetableResponse>>> getTimetableByClass(@PathVariable Long classId) {
         return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableByClass(classId)));
     }
 
     @GetMapping("/api/timetable/teacher/{teacherId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<List<TimetableResponse>>> getTimetableByTeacher(@PathVariable Long teacherId) {
         return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableByTeacher(teacherId)));
     }
