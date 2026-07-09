@@ -20,7 +20,10 @@ import com.crm.repository.CashRegisterRepository;
 import com.crm.repository.CashTransactionRepository;
 import com.crm.repository.StudentRepository;
 import com.crm.repository.UserRepository;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -34,6 +37,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CashRegisterService {
@@ -65,9 +69,16 @@ public class CashRegisterService {
         CashRegister register = new CashRegister();
         register.setName(dto.getName());
         register.setAcceptOnlinePayment(Boolean.TRUE.equals(dto.getAcceptOnlinePayment()));
-        register.setArchived(Boolean.TRUE.equals(dto.getArchived()));
-        register.setStatus(register.isArchived()
-            ? CashRegisterStatus.ARCHIVED : CashRegisterStatus.ACTIVE);
+        register.setPlasticBalance(BigDecimal.ZERO);
+        register.setCashBalance(BigDecimal.ZERO);
+        register.setBalance(BigDecimal.ZERO);
+        if (Boolean.TRUE.equals(dto.getArchived())) {
+            register.setArchived(true);
+            register.setStatus(CashRegisterStatus.ARCHIVED);
+        } else {
+            register.setArchived(false);
+            register.setStatus(CashRegisterStatus.ACTIVE);
+        }
         if (dto.getModeratorId() != null) {
             register.setModerator(findUserById(dto.getModeratorId()));
         }
@@ -95,11 +106,25 @@ public class CashRegisterService {
     }
 
     @Transactional
-    public void delete(Long id) {
+    public String delete(Long id) {
         CashRegister register = findRegisterById(id);
-        register.setArchived(true);
-        register.setStatus(CashRegisterStatus.ARCHIVED);
-        cashRegisterRepository.save(register);
+        if (cashTransactionRepository.countByCashRegister_Id(id) > 0) {
+            register.setStatus(CashRegisterStatus.ARCHIVED);
+            register.setArchived(true);
+            cashRegisterRepository.save(register);
+            return "Tranzaksiyalari bor, arxivlandi";
+        }
+        cashRegisterRepository.deleteById(id);
+        return "O'chirildi";
+    }
+
+    @Transactional
+    public CashRegisterDto updateStatus(Long id, String status) {
+        CashRegister register = findRegisterById(id);
+        CashRegisterStatus registerStatus = parseRegisterStatus(status);
+        register.setStatus(registerStatus);
+        register.setArchived(registerStatus == CashRegisterStatus.ARCHIVED);
+        return toRegisterDto(cashRegisterRepository.save(register));
     }
 
     @Transactional(readOnly = true)
@@ -117,36 +142,56 @@ public class CashRegisterService {
         CashTransactionType typeFilter = parseTransactionType(type);
         CashPaymentMethod methodFilter = parsePaymentMethod(paymentMethod);
 
-        final Long registerId = cashRegisterId;
-        final LocalDate fromDate = from;
-        final LocalDate toDate = to;
-        final Long studentFilter = studentId;
-        final CashTransactionType txType = typeFilter;
-        final CashPaymentMethod txMethod = methodFilter;
+        log.debug(
+            "getTransactions registerId={}, from={}, to={}, studentId={}, type={}, paymentMethod={}, page={}, size={}",
+            cashRegisterId, from, to, studentId, typeFilter, methodFilter,
+            pageable.getPageNumber(), pageable.getPageSize());
 
-        Specification<CashTransaction> spec = Specification.where(
-            (root, q, cb) -> cb.equal(root.get("cashRegister").get("id"), registerId));
+        Specification<CashTransaction> spec = buildTransactionSpec(
+            cashRegisterId, from, to, studentId, typeFilter, methodFilter);
 
-        if (fromDate != null) {
-            spec = spec.and((root, q, cb) ->
-                cb.greaterThanOrEqualTo(root.get("transactionDate"), fromDate));
-        }
-        if (toDate != null) {
-            spec = spec.and((root, q, cb) ->
-                cb.lessThanOrEqualTo(root.get("transactionDate"), toDate));
-        }
-        if (studentFilter != null) {
-            spec = spec.and((root, q, cb) ->
-                cb.equal(root.get("student").get("id"), studentFilter));
-        }
-        if (txType != null) {
-            spec = spec.and((root, q, cb) -> cb.equal(root.get("type"), txType));
-        }
-        if (txMethod != null) {
-            spec = spec.and((root, q, cb) -> cb.equal(root.get("paymentMethod"), txMethod));
-        }
+        Page<CashTransaction> page = cashTransactionRepository.findAll(spec, pageable);
 
-        return cashTransactionRepository.findAll(spec, pageable).map(this::toTransactionDto);
+        log.debug("getTransactions registerId={} matched {} of {} total",
+            cashRegisterId, page.getNumberOfElements(), page.getTotalElements());
+
+        return page.map(this::toTransactionDto);
+    }
+
+    private static Specification<CashTransaction> buildTransactionSpec(
+            Long cashRegisterId,
+            LocalDate from,
+            LocalDate to,
+            Long studentId,
+            CashTransactionType type,
+            CashPaymentMethod paymentMethod) {
+
+        Specification<CashTransaction> spec = (root, query, cb) -> {
+            Join<CashTransaction, CashRegister> registerJoin =
+                root.join("cashRegister", JoinType.INNER);
+            return cb.equal(registerJoin.get("id"), cashRegisterId);
+        };
+
+        if (from != null) {
+            spec = spec.and((root, query, cb) ->
+                cb.greaterThanOrEqualTo(root.get("transactionDate"), from));
+        }
+        if (to != null) {
+            spec = spec.and((root, query, cb) ->
+                cb.lessThanOrEqualTo(root.get("transactionDate"), to));
+        }
+        if (studentId != null) {
+            spec = spec.and((root, query, cb) ->
+                cb.equal(root.get("student").get("id"), studentId));
+        }
+        if (type != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("type"), type));
+        }
+        if (paymentMethod != null) {
+            spec = spec.and((root, query, cb) ->
+                cb.equal(root.get("paymentMethod"), paymentMethod));
+        }
+        return spec;
     }
 
     @Transactional

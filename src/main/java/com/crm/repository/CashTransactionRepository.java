@@ -8,4 +8,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface CashTransactionRepository extends JpaRepository<CashTransaction, Long>,
         JpaSpecificationExecutor<CashTransaction> {
+
+    long countByCashRegister_Id(Long cashRegisterId);
 }

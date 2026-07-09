@@ -1,6 +1,7 @@
 package com.crm.controller;
 
 import com.crm.dto.request.CashRegisterCreateDto;
+import com.crm.dto.request.CashRegisterStatusUpdateDto;
 import com.crm.dto.request.ExpenseCreateDto;
 import com.crm.dto.request.IncomeCreateDto;
 import com.crm.dto.request.TransferDto;
@@ -13,7 +14,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -58,26 +58,46 @@ public class CashRegisterController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
-        cashRegisterService.delete(id);
-        return ResponseEntity.ok(ApiResponse.success("Kassa arxivlandi", null));
+        String message = cashRegisterService.delete(id);
+        return ResponseEntity.ok(ApiResponse.success(message, null));
+    }
+
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<ApiResponse<CashRegisterDto>> updateStatus(
+            @PathVariable Long id,
+            @RequestBody CashRegisterStatusUpdateDto dto) {
+        if (dto.getStatus() == null || dto.getStatus().isBlank()) {
+            return ResponseEntity.badRequest()
+                .body(ApiResponse.error("status maydoni ko'rsatilishi shart"));
+        }
+        return ResponseEntity.ok(ApiResponse.success("Kassa holati yangilandi",
+            cashRegisterService.updateStatus(id, dto.getStatus())));
     }
 
     @GetMapping("/{id}/transactions")
     public ResponseEntity<ApiResponse<Page<CashTransactionDto>>> getTransactions(
             @PathVariable Long id,
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
             @RequestParam(required = false) Long studentId,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String paymentMethod,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
+        LocalDate fromDate = parseOptionalDate(from);
+        LocalDate toDate = parseOptionalDate(to);
         Pageable pageable = PageRequest.of(page, size,
             Sort.by(Sort.Direction.DESC, "transactionDate", "createdAt"));
         return ResponseEntity.ok(ApiResponse.success(
-            cashRegisterService.getTransactions(id, from, to, studentId, type, paymentMethod, pageable)));
+            cashRegisterService.getTransactions(
+                id, fromDate, toDate, studentId, type, paymentMethod, pageable)));
+    }
+
+    private static LocalDate parseOptionalDate(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return LocalDate.parse(value);
     }
 
     @PostMapping("/{id}/income")

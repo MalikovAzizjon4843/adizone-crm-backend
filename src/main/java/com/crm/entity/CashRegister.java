@@ -69,6 +69,9 @@ public class CashRegister {
         if (balance == null) {
             balance = BigDecimal.ZERO;
         }
+        if (status == null) {
+            status = archived ? CashRegisterStatus.ARCHIVED : CashRegisterStatus.ACTIVE;
+        }
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }
