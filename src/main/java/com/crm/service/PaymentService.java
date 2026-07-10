@@ -47,6 +47,7 @@ public class PaymentService {
     private final UserRepository userRepository;
     private final StudentPaymentLifecycleService studentPaymentLifecycleService;
     private final CashRegisterService cashRegisterService;
+    private final BonusPenaltyService bonusPenaltyService;
 
     @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
@@ -115,6 +116,21 @@ public class PaymentService {
         }
 
         Payment saved = paymentRepository.save(payment);
+
+        if (shouldApplyBonuses(request)) {
+            BigDecimal bpNet = bonusPenaltyService.applyPendingForStudent(
+                student.getId(), saved.getId(), saved.getPaymentDate());
+            BigDecimal bonusDiscount = bpNet.max(BigDecimal.ZERO);
+            saved.setBonusDiscount(bonusDiscount);
+            BigDecimal totalDiscount = (saved.getDiscountAmount() != null
+                ? saved.getDiscountAmount() : BigDecimal.ZERO).add(bonusDiscount);
+            saved.setDiscountAmount(totalDiscount);
+            if (bpNet.compareTo(BigDecimal.ZERO) < 0) {
+                String penaltyNote = "Jarima qo'llandi: " + bpNet.abs().toPlainString();
+                saved.setNotes(appendNote(saved.getNotes(), penaltyNote));
+            }
+            saved = paymentRepository.save(saved);
+        }
 
         Income income = Income.builder()
             .category(IncomeCategory.STUDENT_PAYMENT)
@@ -307,6 +323,7 @@ public class PaymentService {
             .groupName(p.getGroup() != null ? p.getGroup().getGroupName() : null)
             .amount(p.getAmount())
             .discountAmount(p.getDiscountAmount() != null ? p.getDiscountAmount() : BigDecimal.ZERO)
+            .bonusDiscount(p.getBonusDiscount() != null ? p.getBonusDiscount() : BigDecimal.ZERO)
             .receiptNumber(p.getReceiptNumber())
             .formattedAmount(formatUzs(p.getAmount()))
             .paymentDate(p.getPaymentDate())
@@ -335,6 +352,20 @@ public class PaymentService {
         PaymentMethod pm = request.getPaymentMethod() != null
             ? request.getPaymentMethod() : PaymentMethod.CASH;
         return pm == PaymentMethod.CASH ? CashPaymentMethod.CASH : CashPaymentMethod.PLASTIC;
+    }
+
+    private static boolean shouldApplyBonuses(PaymentRequest request) {
+        return request.getApplyBonuses() == null || Boolean.TRUE.equals(request.getApplyBonuses());
+    }
+
+    private static String appendNote(String existing, String addition) {
+        if (addition == null || addition.isBlank()) {
+            return existing;
+        }
+        if (existing == null || existing.isBlank()) {
+            return addition;
+        }
+        return existing + "\n" + addition;
     }
 
     private PaymentHistoryResponse toHistoryResponse(Payment p) {

@@ -19,6 +19,7 @@ public class PayrollResponse {
     private BigDecimal allowances;
     private BigDecimal deductions;
     private BigDecimal netSalary;
+    private BigDecimal bonusPenaltyAdjustment;
     private LocalDate paymentDate;
     private String paymentMethod;
     private String status;

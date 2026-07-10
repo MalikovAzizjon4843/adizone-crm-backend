@@ -44,6 +44,9 @@ public class Payroll extends BaseEntity {
     @Column(name = "net_salary", precision = 12, scale = 2)
     private BigDecimal netSalary;
 
+    @Column(name = "bonus_penalty_adjustment", precision = 12, scale = 2)
+    private BigDecimal bonusPenaltyAdjustment = BigDecimal.ZERO;
+
     @Column(name = "payment_date")
     private LocalDate paymentDate;
 

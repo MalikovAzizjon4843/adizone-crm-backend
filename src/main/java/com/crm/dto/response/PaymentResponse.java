@@ -22,6 +22,7 @@ public class PaymentResponse {
     private String groupName;
     private BigDecimal amount;
     private BigDecimal discountAmount;
+    private BigDecimal bonusDiscount;
     private String receiptNumber;
     /** Amount formatted for display, e.g. "800 000 so'm" */
     private String formattedAmount;

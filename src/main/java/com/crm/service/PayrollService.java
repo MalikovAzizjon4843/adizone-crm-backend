@@ -19,7 +19,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -31,6 +33,7 @@ public class PayrollService {
     private final TeacherRepository teacherRepository;
     private final UserRepository userRepository;
     private final CashRegisterService cashRegisterService;
+    private final BonusPenaltyService bonusPenaltyService;
 
     @Transactional(readOnly = true)
     public PageResponse<PayrollResponse> getAllPayroll(int page, int size, String status) {
@@ -68,7 +71,19 @@ public class PayrollService {
             .orElseThrow(() -> new ResourceNotFoundException("Teacher", request.getTeacherId()));
 
         Payroll payroll = buildPayroll(new Payroll(), request, teacher);
-        return toResponse(payrollRepository.save(payroll));
+        Payroll saved = payrollRepository.save(payroll);
+
+        LocalDate periodEnd = YearMonth.of(saved.getYear(), saved.getMonth()).atEndOfMonth();
+        BigDecimal adjustment = bonusPenaltyService.applyPendingForTeacher(
+            teacher.getId(), saved.getId(), periodEnd);
+        saved.setBonusPenaltyAdjustment(adjustment);
+        if (saved.getNetSalary() != null) {
+            saved.setNetSalary(saved.getNetSalary().add(adjustment));
+        } else if (adjustment.compareTo(BigDecimal.ZERO) != 0) {
+            saved.setNetSalary(adjustment);
+        }
+
+        return toResponse(payrollRepository.save(saved));
     }
 
     @Transactional
@@ -172,6 +187,7 @@ public class PayrollService {
             .month(p.getMonth()).year(p.getYear())
             .basicSalary(p.getBasicSalary()).allowances(p.getAllowances())
             .deductions(p.getDeductions()).netSalary(p.getNetSalary())
+            .bonusPenaltyAdjustment(p.getBonusPenaltyAdjustment())
             .paymentDate(p.getPaymentDate()).paymentMethod(p.getPaymentMethod())
             .status(p.getStatus()).notes(p.getNotes())
             .createdByName(p.getCreatedBy() != null ? p.getCreatedBy().getUsername() : null)

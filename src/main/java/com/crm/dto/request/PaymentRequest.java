@@ -27,4 +27,6 @@ public class PaymentRequest {
     private Long cashRegisterId;
     /** Override cash bucket: CASH or PLASTIC. If omitted, derived from paymentMethod. */
     private String paymentMethodForCash;
+    /** Apply pending student bonus/penalty on create. Defaults to true when null. */
+    private Boolean applyBonuses;
 }

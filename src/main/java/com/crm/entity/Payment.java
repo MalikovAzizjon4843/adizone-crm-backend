@@ -69,6 +69,9 @@ public class Payment {
     @Column(name = "discount_amount", precision = 12, scale = 2)
     private BigDecimal discountAmount = BigDecimal.ZERO;
 
+    @Column(name = "bonus_discount", precision = 12, scale = 2)
+    private BigDecimal bonusDiscount = BigDecimal.ZERO;
+
     @Column(name = "receipt_number", length = 32, unique = true)
     private String receiptNumber;
 
@@ -94,6 +97,9 @@ public class Payment {
         }
         if (discountAmount == null) {
             discountAmount = BigDecimal.ZERO;
+        }
+        if (bonusDiscount == null) {
+            bonusDiscount = BigDecimal.ZERO;
         }
     }
 
