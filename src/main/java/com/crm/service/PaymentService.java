@@ -6,8 +6,11 @@ import com.crm.dto.response.PaymentHistoryResponse;
 import com.crm.dto.response.PaymentResponse;
 import com.crm.dto.response.SuspendedStudentResponse;
 import com.crm.entity.*;
+import com.crm.entity.enums.CashPaymentMethod;
 import com.crm.entity.enums.IncomeCategory;
+import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.PaymentStatus;
+import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +46,7 @@ public class PaymentService {
     private final IncomeRepository incomeRepository;
     private final UserRepository userRepository;
     private final StudentPaymentLifecycleService studentPaymentLifecycleService;
+    private final CashRegisterService cashRegisterService;
 
     @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
@@ -121,6 +125,20 @@ public class PaymentService {
             .receivedBy(receiver)
             .build();
         incomeRepository.save(income);
+
+        if (request.getCashRegisterId() != null) {
+            CashPaymentMethod cashMethod = resolveCashPaymentMethod(request);
+            CashTransaction cashTx = cashRegisterService.recordIncome(
+                request.getCashRegisterId(),
+                saved.getAmount(),
+                cashMethod,
+                student,
+                "O'quvchi to'lovi",
+                "To'lov #" + saved.getReceiptNumber(),
+                saved.getPaymentDate());
+            saved.setCashRegister(cashTx.getCashRegister());
+            saved = paymentRepository.save(saved);
+        }
 
         if (effectiveGroupId != null) {
             studentPaymentLifecycleService.onPaymentReceived(
@@ -298,7 +316,25 @@ public class PaymentService {
             .periodTo(p.getPeriodTo())
             .description(p.getDescription())
             .createdAt(p.getCreatedAt())
+            .cashRegisterId(p.getCashRegister() != null ? p.getCashRegister().getId() : null)
+            .cashRegisterName(p.getCashRegister() != null ? p.getCashRegister().getName() : null)
             .build();
+    }
+
+    private static CashPaymentMethod resolveCashPaymentMethod(PaymentRequest request) {
+        if (request.getPaymentMethodForCash() != null
+                && !request.getPaymentMethodForCash().isBlank()) {
+            try {
+                return CashPaymentMethod.valueOf(
+                    request.getPaymentMethodForCash().trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                throw new BadRequestException(
+                    "Noto'g'ri paymentMethodForCash: " + request.getPaymentMethodForCash());
+            }
+        }
+        PaymentMethod pm = request.getPaymentMethod() != null
+            ? request.getPaymentMethod() : PaymentMethod.CASH;
+        return pm == PaymentMethod.CASH ? CashPaymentMethod.CASH : CashPaymentMethod.PLASTIC;
     }
 
     private PaymentHistoryResponse toHistoryResponse(Payment p) {

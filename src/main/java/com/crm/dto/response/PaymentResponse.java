@@ -32,4 +32,6 @@ public class PaymentResponse {
     private LocalDate periodTo;
     private String description;
     private LocalDateTime createdAt;
+    private Long cashRegisterId;
+    private String cashRegisterName;
 }

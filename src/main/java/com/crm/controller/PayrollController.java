@@ -1,5 +1,6 @@
 package com.crm.controller;
 
+import com.crm.dto.request.PayrollPayDto;
 import com.crm.dto.request.PayrollRequest;
 import com.crm.dto.response.*;
 import com.crm.service.PayrollService;
@@ -10,7 +11,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/payroll")
@@ -47,9 +47,10 @@ public class PayrollController {
     @PostMapping("/{id}/pay")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<PayrollResponse>> markPayrollPaid(
-            @PathVariable Long id, @RequestBody(required = false) Map<String, String> body) {
-        String method = body != null && body.get("paymentMethod") != null ? body.get("paymentMethod") : "CASH";
-        return ResponseEntity.ok(ApiResponse.success("Payroll marked paid", payrollService.markAsPaid(id, method)));
+            @PathVariable Long id,
+            @RequestBody(required = false) PayrollPayDto body) {
+        return ResponseEntity.ok(ApiResponse.success("Payroll marked paid",
+            payrollService.markAsPaid(id, body)));
     }
 
     @PutMapping("/{id}")

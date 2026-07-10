@@ -59,4 +59,8 @@ public class Payroll extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     private User createdBy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cash_register_id")
+    private CashRegister cashRegister;
 }

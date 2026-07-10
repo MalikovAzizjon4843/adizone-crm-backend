@@ -1,10 +1,13 @@
 package com.crm.service;
 
+import com.crm.dto.request.PayrollPayDto;
 import com.crm.dto.request.PayrollRequest;
 import com.crm.dto.response.PageResponse;
 import com.crm.dto.response.PayrollResponse;
 import com.crm.entity.Payroll;
 import com.crm.entity.Teacher;
+import com.crm.entity.User;
+import com.crm.entity.enums.CashPaymentMethod;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.PayrollRepository;
@@ -12,6 +15,7 @@ import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +30,7 @@ public class PayrollService {
     private final PayrollRepository payrollRepository;
     private final TeacherRepository teacherRepository;
     private final UserRepository userRepository;
+    private final CashRegisterService cashRegisterService;
 
     @Transactional(readOnly = true)
     public PageResponse<PayrollResponse> getAllPayroll(int page, int size, String status) {
@@ -81,14 +86,52 @@ public class PayrollService {
     }
 
     @Transactional
-    public PayrollResponse markAsPaid(Long id, String paymentMethod) {
-        Payroll p = findById(id);
-        p.setStatus("PAID");
-        if (paymentMethod != null && !paymentMethod.isBlank()) {
-            p.setPaymentMethod(paymentMethod);
+    public PayrollResponse markAsPaid(Long id, PayrollPayDto payDto) {
+        Payroll payroll = findById(id);
+        payroll.setStatus("PAID");
+        String paymentMethod = payDto != null && payDto.getPaymentMethod() != null
+                && !payDto.getPaymentMethod().isBlank()
+            ? payDto.getPaymentMethod() : "CASH";
+        payroll.setPaymentMethod(paymentMethod);
+        payroll.setPaymentDate(LocalDate.now());
+
+        Payroll saved = payrollRepository.save(payroll);
+
+        if (payDto != null && payDto.getCashRegisterId() != null) {
+            CashPaymentMethod cashMethod = resolveCashPaymentMethod(payDto.getPaymentMethodForCash());
+            Teacher teacher = saved.getTeacher();
+            String teacherName = teacher != null
+                ? teacher.getFirstName() + " " + teacher.getLastName() : "";
+            var cashTx = cashRegisterService.recordExpense(
+                payDto.getCashRegisterId(),
+                saved.getNetSalary(),
+                cashMethod,
+                "Oylik: " + teacherName,
+                "Oylik to'lovi (" + saved.getMonth() + "/" + saved.getYear() + ")",
+                LocalDate.now(),
+                currentUser(),
+                null,
+                teacher,
+                null,
+                null);
+            saved.setCashRegister(cashTx.getCashRegister());
+            saved = payrollRepository.save(saved);
         }
-        p.setPaymentDate(LocalDate.now());
-        return toResponse(payrollRepository.save(p));
+
+        return toResponse(saved);
+    }
+
+    private User currentUser() {
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        return userRepository.findByUsername(username).orElse(null);
+    }
+
+    private static CashPaymentMethod resolveCashPaymentMethod(String paymentMethodForCash) {
+        if (paymentMethodForCash != null
+                && "PLASTIC".equalsIgnoreCase(paymentMethodForCash.trim())) {
+            return CashPaymentMethod.PLASTIC;
+        }
+        return CashPaymentMethod.CASH;
     }
 
     public Payroll findById(Long id) {
@@ -132,6 +175,8 @@ public class PayrollService {
             .paymentDate(p.getPaymentDate()).paymentMethod(p.getPaymentMethod())
             .status(p.getStatus()).notes(p.getNotes())
             .createdByName(p.getCreatedBy() != null ? p.getCreatedBy().getUsername() : null)
+            .cashRegisterId(p.getCashRegister() != null ? p.getCashRegister().getId() : null)
+            .cashRegisterName(p.getCashRegister() != null ? p.getCashRegister().getName() : null)
             .createdAt(p.getCreatedAt()).build();
     }
 }

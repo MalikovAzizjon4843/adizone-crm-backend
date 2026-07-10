@@ -48,6 +48,10 @@ public class Expense {
     @JoinColumn(name = "approved_by")
     private User approvedBy;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cash_register_id")
+    private CashRegister cashRegister;
+
     @Column(columnDefinition = "TEXT")
     private String description;
 

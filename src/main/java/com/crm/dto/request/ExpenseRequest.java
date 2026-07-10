@@ -13,4 +13,8 @@ public class ExpenseRequest {
     private Long teacherId;
     private String description;
     private String notes;
+    /** Cash register to deduct this expense from. */
+    private Long cashRegisterId;
+    /** Cash bucket: CASH or PLASTIC. Defaults to CASH when omitted. */
+    private String paymentMethodForCash;
 }

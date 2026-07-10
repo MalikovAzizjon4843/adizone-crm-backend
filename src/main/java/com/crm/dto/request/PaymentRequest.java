@@ -23,4 +23,8 @@ public class PaymentRequest {
     private String description;
     private String notes;
     private BigDecimal discountAmount;
+    /** Cash register that receives this payment as income. */
+    private Long cashRegisterId;
+    /** Override cash bucket: CASH or PLASTIC. If omitted, derived from paymentMethod. */
+    private String paymentMethodForCash;
 }

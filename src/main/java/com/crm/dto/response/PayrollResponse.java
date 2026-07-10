@@ -24,5 +24,7 @@ public class PayrollResponse {
     private String status;
     private String notes;
     private String createdByName;
+    private Long cashRegisterId;
+    private String cashRegisterName;
     private LocalDateTime createdAt;
 }

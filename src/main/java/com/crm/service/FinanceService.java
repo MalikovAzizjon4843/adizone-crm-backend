@@ -5,6 +5,8 @@ import com.crm.dto.response.ExpenseResponse;
 import com.crm.dto.response.FinanceReportResponse;
 import com.crm.entity.Expense;
 import com.crm.entity.Teacher;
+import com.crm.entity.User;
+import com.crm.entity.enums.CashPaymentMethod;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +15,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +34,8 @@ public class FinanceService {
     private final IncomeRepository incomeRepository;
     private final PaymentRepository paymentRepository;
     private final TeacherRepository teacherRepository;
+    private final UserRepository userRepository;
+    private final CashRegisterService cashRegisterService;
 
     @Transactional(readOnly = true)
     public List<ExpenseResponse> getExpenses(LocalDate from, LocalDate to) {
@@ -96,7 +101,37 @@ public class FinanceService {
             expense.setTeacher(teacher);
         }
 
-        return toResponse(expenseRepository.save(expense));
+        Expense saved = expenseRepository.save(expense);
+
+        if (request.getCashRegisterId() != null) {
+            CashPaymentMethod cashMethod = resolveCashPaymentMethod(request.getPaymentMethodForCash());
+            User creator = currentUser();
+            var cashTx = cashRegisterService.recordExpense(
+                request.getCashRegisterId(),
+                saved.getAmount(),
+                cashMethod,
+                "Xarajat: " + saved.getCategory(),
+                saved.getDescription(),
+                saved.getExpenseDate(),
+                creator);
+            saved.setCashRegister(cashTx.getCashRegister());
+            saved = expenseRepository.save(saved);
+        }
+
+        return toResponse(saved);
+    }
+
+    private User currentUser() {
+        String username = SecurityContextHolder.getContext().getAuthentication().getName();
+        return userRepository.findByUsername(username).orElse(null);
+    }
+
+    private static CashPaymentMethod resolveCashPaymentMethod(String paymentMethodForCash) {
+        if (paymentMethodForCash != null
+                && "PLASTIC".equalsIgnoreCase(paymentMethodForCash.trim())) {
+            return CashPaymentMethod.PLASTIC;
+        }
+        return CashPaymentMethod.CASH;
     }
 
     @Transactional(readOnly = true)
@@ -144,6 +179,8 @@ public class FinanceService {
                 ? e.getTeacher().getFirstName() + " " + e.getTeacher().getLastName() : null)
             .description(e.getDescription())
             .createdAt(e.getCreatedAt())
+            .cashRegisterId(e.getCashRegister() != null ? e.getCashRegister().getId() : null)
+            .cashRegisterName(e.getCashRegister() != null ? e.getCashRegister().getName() : null)
             .build();
     }
 }

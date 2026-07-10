@@ -40,6 +40,10 @@ public class Payment {
     @JoinColumn(name = "student_group_id")
     private StudentGroup studentGroup;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cash_register_id")
+    private CashRegister cashRegister;
+
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal amount;
 

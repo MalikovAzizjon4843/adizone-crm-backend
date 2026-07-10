@@ -16,4 +16,6 @@ public class ExpenseResponse {
     private String teacherName;
     private String description;
     private LocalDateTime createdAt;
+    private Long cashRegisterId;
+    private String cashRegisterName;
 }

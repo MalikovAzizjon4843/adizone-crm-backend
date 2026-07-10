@@ -9,6 +9,7 @@ import com.crm.dto.response.CashTransactionDto;
 import com.crm.entity.CashRegister;
 import com.crm.entity.CashTransaction;
 import com.crm.entity.Student;
+import com.crm.entity.Teacher;
 import com.crm.entity.User;
 import com.crm.entity.enums.CashPaymentMethod;
 import com.crm.entity.enums.CashRegisterStatus;
@@ -194,64 +195,145 @@ public class CashRegisterService {
         return spec;
     }
 
+    /**
+     * Records income into a cash register: updates balance and persists a transaction.
+     */
     @Transactional
-    public CashTransactionDto addIncome(Long cashRegisterId, IncomeCreateDto dto) {
-        CashRegister register = findRegisterById(cashRegisterId);
-        BigDecimal amount = requirePositiveAmount(dto.getAmount());
-        CashPaymentMethod method = requirePaymentMethod(dto.getPaymentMethod());
+    public CashTransaction recordIncome(
+            Long cashRegisterId,
+            BigDecimal amount,
+            CashPaymentMethod method,
+            Student student,
+            String transactionName,
+            String note,
+            LocalDate transactionDate) {
 
-        if (method == CashPaymentMethod.ONLINE && !register.isAcceptOnlinePayment()) {
+        CashRegister register = findRegisterById(cashRegisterId);
+        BigDecimal positiveAmount = requirePositiveAmount(amount);
+        CashPaymentMethod cashMethod = requirePaymentMethod(method);
+
+        if (cashMethod == CashPaymentMethod.ONLINE && !register.isAcceptOnlinePayment()) {
             throw new BadRequestException("Bu kassa onlayn to'lovlarni qabul qilmaydi");
         }
 
-        addToBalance(register, method, amount);
+        addToBalance(register, cashMethod, positiveAmount);
         cashRegisterRepository.save(register);
 
         CashTransaction tx = new CashTransaction();
         tx.setCashRegister(register);
         tx.setType(CashTransactionType.INCOME);
-        tx.setPaymentMethod(method);
-        tx.setAmount(amount);
-        tx.setTransactionName(dto.getTransactionType());
-        tx.setNote(dto.getNote());
-        tx.setTransactionDate(dto.getTransactionDate() != null
-            ? dto.getTransactionDate() : LocalDate.now());
+        tx.setPaymentMethod(cashMethod);
+        tx.setAmount(positiveAmount);
+        tx.setTransactionName(transactionName);
+        tx.setNote(note);
+        tx.setTransactionDate(transactionDate != null ? transactionDate : LocalDate.now());
+        tx.setStatus(CashTransactionStatus.COMPLETED);
         tx.setCreatedBy(currentUser());
-
-        if (dto.getStudentId() != null) {
-            Student student = findStudentById(dto.getStudentId());
+        if (student != null) {
             tx.setStudent(student);
         }
-
-        return toTransactionDto(cashTransactionRepository.save(tx));
+        return cashTransactionRepository.save(tx);
     }
 
     @Transactional
-    public CashTransactionDto addExpense(Long cashRegisterId, ExpenseCreateDto dto) {
-        CashRegister register = findRegisterById(cashRegisterId);
-        BigDecimal amount = requirePositiveAmount(dto.getAmount());
-        CashPaymentMethod method = requirePaymentMethod(dto.getPaymentMethod());
+    public CashTransactionDto addIncome(Long cashRegisterId, IncomeCreateDto dto) {
+        Student student = null;
+        if (dto.getStudentId() != null) {
+            student = findStudentById(dto.getStudentId());
+        }
 
-        subtractFromBalance(register, method, amount);
-        cashRegisterRepository.save(register);
+        CashTransaction tx = recordIncome(
+            cashRegisterId,
+            dto.getAmount(),
+            dto.getPaymentMethod(),
+            student,
+            dto.getTransactionType(),
+            dto.getNote(),
+            dto.getTransactionDate());
+
+        return toTransactionDto(tx);
+    }
+
+    /**
+     * Records expense in a cash register: deducts balance (may go negative) and persists a transaction.
+     */
+    @Transactional
+    public CashTransaction recordExpense(
+            Long registerId,
+            BigDecimal amount,
+            CashPaymentMethod method,
+            String transactionName,
+            String note,
+            LocalDate date,
+            User createdBy) {
+        return recordExpense(registerId, amount, method, transactionName, note, date, createdBy,
+            null, null, null, null);
+    }
+
+    @Transactional
+    public CashTransaction recordExpense(
+            Long registerId,
+            BigDecimal amount,
+            CashPaymentMethod method,
+            String transactionName,
+            String note,
+            LocalDate date,
+            User createdBy,
+            Student student,
+            Teacher teacher,
+            LocalDate periodMonth,
+            BigDecimal totalAmount) {
+
+        CashRegister register = findRegisterById(registerId);
+        BigDecimal positiveAmount = requirePositiveAmount(amount);
+        CashPaymentMethod cashMethod = requirePaymentMethod(method);
 
         CashTransaction tx = new CashTransaction();
         tx.setCashRegister(register);
         tx.setType(CashTransactionType.EXPENSE);
-        tx.setPaymentMethod(method);
-        tx.setAmount(amount);
-        tx.setPeriodMonth(dto.getPeriodMonth());
-        tx.setTotalAmount(dto.getTotalAmount());
-        tx.setNote(dto.getNote());
-        tx.setTransactionDate(dto.getTransactionDate() != null
-            ? dto.getTransactionDate() : LocalDate.now());
-        tx.setCreatedBy(currentUser());
+        tx.setPaymentMethod(cashMethod);
+        tx.setAmount(positiveAmount);
+        tx.setTransactionName(transactionName);
+        tx.setNote(note);
+        tx.setTransactionDate(date != null ? date : LocalDate.now());
+        tx.setStatus(CashTransactionStatus.COMPLETED);
+        tx.setCreatedBy(createdBy != null ? createdBy : currentUser());
+        if (student != null) {
+            tx.setStudent(student);
+        }
+        if (teacher != null) {
+            tx.setTeacher(teacher);
+        }
+        tx.setPeriodMonth(periodMonth);
+        tx.setTotalAmount(totalAmount);
+        cashTransactionRepository.save(tx);
 
+        subtractFromBalanceAllowNegative(register, cashMethod, positiveAmount);
+        cashRegisterRepository.save(register);
+        return tx;
+    }
+
+    @Transactional
+    public CashTransactionDto addExpense(Long cashRegisterId, ExpenseCreateDto dto) {
+        Student student = null;
         if (dto.getStudentId() != null) {
-            tx.setStudent(findStudentById(dto.getStudentId()));
+            student = findStudentById(dto.getStudentId());
         }
 
-        return toTransactionDto(cashTransactionRepository.save(tx));
+        CashTransaction tx = recordExpense(
+            cashRegisterId,
+            dto.getAmount(),
+            dto.getPaymentMethod(),
+            null,
+            dto.getNote(),
+            dto.getTransactionDate(),
+            currentUser(),
+            student,
+            null,
+            dto.getPeriodMonth(),
+            dto.getTotalAmount());
+
+        return toTransactionDto(tx);
     }
 
     @Transactional
@@ -323,6 +405,16 @@ public class CashRegisterService {
             if (register.getCashBalance().compareTo(amount) < 0) {
                 throw new BadRequestException("Naqd balans yetarli emas");
             }
+            register.setCashBalance(register.getCashBalance().subtract(amount));
+        }
+        recomputeBalance(register);
+    }
+
+    private void subtractFromBalanceAllowNegative(
+            CashRegister register, CashPaymentMethod method, BigDecimal amount) {
+        if (method == CashPaymentMethod.PLASTIC) {
+            register.setPlasticBalance(register.getPlasticBalance().subtract(amount));
+        } else {
             register.setCashBalance(register.getCashBalance().subtract(amount));
         }
         recomputeBalance(register);
