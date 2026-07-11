@@ -12,6 +12,8 @@ public interface ClassroomRepository extends JpaRepository<Classroom, Long> {
 
     List<Classroom> findAllByOrderByRoomNumberAsc();
 
+    List<Classroom> findByIsActiveTrueOrderByRoomNumberAsc();
+
     Optional<Classroom> findByRoomNumberIgnoreCase(String roomNumber);
 
     boolean existsByRoomNumberIgnoreCase(String roomNumber);

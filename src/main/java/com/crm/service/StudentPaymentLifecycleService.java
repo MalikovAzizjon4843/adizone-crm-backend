@@ -121,12 +121,13 @@ public class StudentPaymentLifecycleService {
         studentGroupRepository.save(sg);
 
         Student student = sg.getStudent();
+        student.setPaymentStatus(com.crm.entity.enums.PaymentStatus.PAID);
         if (student.getStatus() == com.crm.entity.enums.StudentStatus.SUSPENDED
                 || student.getStatus() == com.crm.entity.enums.StudentStatus.FROZEN) {
             student.setStatus(com.crm.entity.enums.StudentStatus.ACTIVE);
-            studentRepository.save(student);
             log.info("Student {} unblocked after payment", student.getId());
         }
+        studentRepository.save(student);
     }
 
     @Scheduled(cron = "0 0 9 * * *")

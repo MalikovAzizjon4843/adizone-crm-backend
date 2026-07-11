@@ -1,9 +1,11 @@
 package com.crm.dto.response;
 
 import com.crm.entity.enums.MarketingSource;
+import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.StudentStatus;
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -29,5 +31,11 @@ public class StudentResponse {
     private String admissionNumber;
     private LocalDate admissionDate;
     private Long referralStudentId;
+    private Long currentGroupId;
+    private String currentGroupName;
+    private PaymentStatus paymentStatus;
+    private LocalDate paymentStartDate;
+    private LocalDate nextPaymentDate;
+    private BigDecimal monthlyFee;
     private LocalDateTime createdAt;
 }

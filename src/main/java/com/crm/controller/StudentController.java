@@ -1,7 +1,9 @@
 package com.crm.controller;
 
 
+import com.crm.dto.request.PaymentStartDateRequest;
 import com.crm.dto.request.StudentRequest;
+import com.crm.dto.request.TransferGroupRequest;
 import com.crm.dto.response.*;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.BadRequestException;
@@ -68,6 +70,25 @@ public class StudentController {
     public ResponseEntity<ApiResponse<StudentResponse>> updateStudent(
             @PathVariable Long id, @Valid @RequestBody StudentRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Student updated", studentService.updateStudent(id, request)));
+    }
+
+    @PostMapping("/{id}/transfer-group")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<StudentDetailResponse>> transferGroup(
+            @PathVariable Long id,
+            @Valid @RequestBody TransferGroupRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Guruh o'zgartirildi",
+            studentService.transferGroup(id, request)));
+    }
+
+    @PatchMapping("/{id}/payment-start-date")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<StudentDetailResponse>> updatePaymentStartDate(
+            @PathVariable Long id,
+            @Valid @RequestBody PaymentStartDateRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("To'lov boshlanish sanasi yangilandi",
+            studentService.updatePaymentStartDate(
+                id, request.getPaymentStartDate(), request.getIsTrial())));
     }
 
     @DeleteMapping("/{id}")

@@ -1,0 +1,2 @@
+ALTER TABLE leave_requests
+    ADD COLUMN IF NOT EXISTS teacher_id BIGINT REFERENCES teachers(id) ON DELETE SET NULL;

@@ -16,6 +16,8 @@ public class GroupRequest {
     private Long courseId;
     private Long teacherId;
     private String room;
+    /** Default classroom for the group (fallback for schedule days / auto-timetable). */
+    private Long classroomId;
     @Min(1)
     private Integer maxStudents = 20;
     @NotNull

@@ -1,6 +1,7 @@
 package com.crm.service;
 
 import com.crm.dto.request.StudentRequest;
+import com.crm.dto.request.TransferGroupRequest;
 import com.crm.dto.response.*;
 import com.crm.entity.Course;
 import com.crm.entity.Group;
@@ -10,6 +11,7 @@ import com.crm.entity.StudentGroup;
 import com.crm.entity.StudentStatusHistory;
 import com.crm.entity.enums.AttendanceStatus;
 import com.crm.entity.enums.MarketingSource;
+import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.DuplicateResourceException;
@@ -24,6 +26,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -38,6 +41,7 @@ public class StudentService {
     private final PaymentRepository paymentRepository;
     private final AttendanceRepository attendanceRepository;
     private final StudentStatusHistoryRepository studentStatusHistoryRepository;
+    private final PaymentScheduleService paymentScheduleService;
 
     @Transactional(readOnly = true)
     public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status) {
@@ -52,8 +56,13 @@ public class StudentService {
             studentPage = studentRepository.findAll(pageable);
         }
 
-        List<StudentResponse> content = studentPage.getContent()
-            .stream().map(this::toResponse).collect(Collectors.toList());
+        List<Student> students = studentPage.getContent();
+        Map<Long, StudentGroup> currentGroups = loadCurrentGroups(
+            students.stream().map(Student::getId).collect(Collectors.toList()));
+
+        List<StudentResponse> content = students.stream()
+            .map(s -> toResponse(s, currentGroups.get(s.getId())))
+            .collect(Collectors.toList());
 
         return PageResponse.<StudentResponse>builder()
             .content(content)
@@ -116,6 +125,10 @@ public class StudentService {
             student.setStatus(StudentStatus.ACTIVE);
         }
 
+        if (student.getPaymentStatus() == null) {
+            student.setPaymentStatus(PaymentStatus.PENDING);
+        }
+
         if (request.getReferralStudentId() != null) {
             Student referral = findById(request.getReferralStudentId());
             student.setReferralStudent(referral);
@@ -165,18 +178,103 @@ public class StudentService {
     }
 
     @Transactional
+    public StudentDetailResponse transferGroup(Long studentId, TransferGroupRequest request) {
+        if (request.getToGroupId() == null) {
+            throw new BadRequestException("toGroupId majburiy");
+        }
+
+        Student student = findById(studentId);
+        Group toGroup = groupRepository.findById(request.getToGroupId())
+            .orElseThrow(() -> new ResourceNotFoundException("Group", request.getToGroupId()));
+
+        if (studentGroupRepository.existsByStudentIdAndGroupIdAndIsActiveTrue(
+                studentId, request.getToGroupId())) {
+            throw new BadRequestException("O'quvchi bu guruhda bor");
+        }
+
+        String reason = request.getReason() != null && !request.getReason().isBlank()
+            ? request.getReason().trim() : "TRANSFERRED";
+        String note = request.getNote();
+
+        if (request.getFromGroupId() != null) {
+            StudentGroup from = studentGroupRepository
+                .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, request.getFromGroupId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                    "Student is not active in group " + request.getFromGroupId()));
+            LocalDate today = LocalDate.now();
+            from.setIsActive(false);
+            from.setLeaveDate(today);
+            from.setExitDate(today);
+            from.setExitReason(reason);
+            from.setExitNotes(note);
+            studentGroupRepository.save(from);
+        }
+
+        long current = studentGroupRepository.countByGroupIdAndIsActiveTrue(toGroup.getId());
+        if (toGroup.getMaxStudents() != null && current >= toGroup.getMaxStudents()) {
+            throw new BadRequestException("Guruh to'lgan! Max: " + toGroup.getMaxStudents());
+        }
+
+        LocalDate joinDate = LocalDate.now();
+        BigDecimal fee = toGroup.getCourse() != null && toGroup.getCourse().getMonthlyPrice() != null
+            ? toGroup.getCourse().getMonthlyPrice() : BigDecimal.ZERO;
+        student.setPaymentStartDate(joinDate);
+        student.setMonthlyFee(fee);
+        student.setPaymentStatus(PaymentStatus.PENDING);
+        studentRepository.save(student);
+
+        StudentGroup newEnrollment = StudentGroup.builder()
+            .student(student)
+            .group(toGroup)
+            .joinDate(joinDate)
+            .paymentStartDate(joinDate)
+            .nextPaymentDate(joinDate)
+            .isTrial(false)
+            .isActive(true)
+            .monthlyPriceOverride(fee)
+            .paymentStatus("PENDING")
+            .lessonsAttended(0)
+            .build();
+        studentGroupRepository.save(newEnrollment);
+        paymentScheduleService.recalculateForStudent(student);
+
+        String previousStatus = student.getStatus() != null ? student.getStatus().name() : "ACTIVE";
+        StudentStatusHistory history = new StudentStatusHistory();
+        history.setStudent(student);
+        history.setFromStatus(previousStatus);
+        history.setToStatus(previousStatus);
+        history.setReason(reason);
+        history.setNotes(note != null ? note : ("Guruhga o'tkazildi: " + toGroup.getGroupName()));
+        history.setChangedAt(LocalDateTime.now());
+        studentStatusHistoryRepository.save(history);
+
+        return toDetailResponse(student);
+    }
+
+    @Transactional
     public void deleteStudent(Long id) {
         Student student = findById(id);
         student.setStatus(StudentStatus.LEFT);
         studentRepository.save(student);
     }
 
+    @Transactional
+    public StudentDetailResponse updatePaymentStartDate(Long studentId,
+            LocalDate paymentStartDate, Boolean isTrial) {
+        paymentScheduleService.updatePaymentStartDate(studentId, paymentStartDate, isTrial);
+        return getStudentById(studentId);
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<StudentResponse> searchStudents(String query, int page, int size) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<Student> studentPage = studentRepository.searchStudents(query, pageable);
-        List<StudentResponse> content = studentPage.getContent()
-            .stream().map(this::toResponse).collect(Collectors.toList());
+        List<Student> students = studentPage.getContent();
+        Map<Long, StudentGroup> currentGroups = loadCurrentGroups(
+            students.stream().map(Student::getId).collect(Collectors.toList()));
+        List<StudentResponse> content = students.stream()
+            .map(s -> toResponse(s, currentGroups.get(s.getId())))
+            .collect(Collectors.toList());
         return PageResponse.<StudentResponse>builder()
             .content(content).pageNumber(page).pageSize(size)
             .totalElements(studentPage.getTotalElements())
@@ -270,7 +368,16 @@ public class StudentService {
     }
 
     private StudentResponse toResponse(Student s) {
-        return StudentResponse.builder()
+        StudentGroup current = studentGroupRepository.findByStudentIdAndIsActiveTrue(s.getId())
+            .stream()
+            .max(Comparator.comparing(StudentGroup::getJoinDate,
+                Comparator.nullsLast(Comparator.naturalOrder())))
+            .orElse(null);
+        return toResponse(s, current);
+    }
+
+    private StudentResponse toResponse(Student s, StudentGroup currentGroup) {
+        StudentResponse.StudentResponseBuilder builder = StudentResponse.builder()
             .id(s.getId()).uuid(s.getUuid())
             .firstName(s.getFirstName()).lastName(s.getLastName())
             .phone(s.getPhone()).parentPhone(s.getParentPhone())
@@ -280,8 +387,33 @@ public class StudentService {
             .address(s.getAddress()).photoUrl(s.getPhotoUrl())
             .admissionNumber(s.getAdmissionNumber()).admissionDate(s.getAdmissionDate())
             .referralStudentId(s.getReferralStudent() != null ? s.getReferralStudent().getId() : null)
-            .createdAt(s.getCreatedAt())
-            .build();
+            .paymentStatus(s.getPaymentStatus() != null ? s.getPaymentStatus() : PaymentStatus.PENDING)
+            .paymentStartDate(s.getPaymentStartDate())
+            .nextPaymentDate(s.getNextPaymentDate())
+            .monthlyFee(s.getMonthlyFee())
+            .createdAt(s.getCreatedAt());
+
+        if (currentGroup != null && currentGroup.getGroup() != null) {
+            builder.currentGroupId(currentGroup.getGroup().getId())
+                .currentGroupName(currentGroup.getGroup().getGroupName());
+        }
+        return builder.build();
+    }
+
+    private Map<Long, StudentGroup> loadCurrentGroups(Collection<Long> studentIds) {
+        if (studentIds == null || studentIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<Long, StudentGroup> map = new LinkedHashMap<>();
+        for (StudentGroup sg : studentGroupRepository.findActiveByStudentIds(studentIds)) {
+            Long sid = sg.getStudent() != null ? sg.getStudent().getId() : null;
+            if (sid == null) {
+                continue;
+            }
+            // Query ordered by joinDate DESC — keep first (latest) per student
+            map.putIfAbsent(sid, sg);
+        }
+        return map;
     }
 
     private void addStudentToGroupIfNeeded(Student student, Long groupId) {
@@ -298,17 +430,27 @@ public class StudentService {
             throw new BadRequestException("Guruh to'lgan! Max: " + group.getMaxStudents());
         }
         LocalDate joinDate = LocalDate.now();
+        BigDecimal fee = group.getCourse() != null && group.getCourse().getMonthlyPrice() != null
+            ? group.getCourse().getMonthlyPrice() : BigDecimal.ZERO;
+        student.setPaymentStartDate(joinDate);
+        student.setMonthlyFee(fee);
+        student.setPaymentStatus(PaymentStatus.PENDING);
+        studentRepository.save(student);
+
         StudentGroup sg = StudentGroup.builder()
             .student(student)
             .group(group)
             .joinDate(joinDate)
             .paymentStartDate(joinDate)
-            .nextPaymentDate(joinDate.plusDays(30))
+            .nextPaymentDate(joinDate)
+            .isTrial(false)
             .isActive(true)
-            .paymentStatus("TRIAL")
+            .monthlyPriceOverride(fee)
+            .paymentStatus("PENDING")
             .lessonsAttended(0)
             .build();
         studentGroupRepository.save(sg);
+        paymentScheduleService.recalculateForStudent(student);
     }
 
     private StudentDetailResponse toDetailResponse(Student s) {
@@ -316,6 +458,12 @@ public class StudentService {
             .findByStudentIdAndIsActiveTrue(s.getId()).stream()
             .map(this::toGroupSummary)
             .collect(Collectors.toList());
+
+        StudentGroup current = studentGroupRepository.findByStudentIdAndIsActiveTrue(s.getId())
+            .stream()
+            .max(Comparator.comparing(StudentGroup::getJoinDate,
+                Comparator.nullsLast(Comparator.naturalOrder())))
+            .orElse(null);
 
         List<StudentDetailResponse.StudentParentInfo> parents = studentParentRepository
             .findByStudentId(s.getId()).stream()
@@ -347,7 +495,7 @@ public class StudentService {
             }
         }
 
-        return StudentDetailResponse.builder()
+        StudentDetailResponse.StudentDetailResponseBuilder builder = StudentDetailResponse.builder()
             .id(s.getId()).uuid(s.getUuid())
             .firstName(s.getFirstName()).lastName(s.getLastName())
             .phone(s.getPhone()).parentPhone(s.getParentPhone())
@@ -357,12 +505,21 @@ public class StudentService {
             .address(s.getAddress()).photoUrl(s.getPhotoUrl())
             .admissionNumber(s.getAdmissionNumber()).admissionDate(s.getAdmissionDate())
             .referralStudentId(s.getReferralStudent() != null ? s.getReferralStudent().getId() : null)
+            .paymentStatus(s.getPaymentStatus() != null ? s.getPaymentStatus() : PaymentStatus.PENDING)
+            .paymentStartDate(s.getPaymentStartDate())
+            .nextPaymentDate(s.getNextPaymentDate())
+            .monthlyFee(s.getMonthlyFee())
             .activeGroups(activeGroups)
             .paymentHistory(paymentHistory)
             .attendanceSummary(attendanceSummary)
             .parents(parents)
-            .createdAt(s.getCreatedAt())
-            .build();
+            .createdAt(s.getCreatedAt());
+
+        if (current != null && current.getGroup() != null) {
+            builder.currentGroupId(current.getGroup().getId())
+                .currentGroupName(current.getGroup().getGroupName());
+        }
+        return builder.build();
     }
 
     private StudentDetailResponse.GroupSummary toGroupSummary(StudentGroup sg) {

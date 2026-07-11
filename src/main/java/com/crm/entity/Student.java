@@ -1,12 +1,14 @@
 package com.crm.entity;
 
 import com.crm.entity.enums.MarketingSource;
+import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.StudentStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -72,6 +74,23 @@ public class Student extends BaseEntity {
 
     @Column(name = "admission_date")
     private LocalDate admissionDate;
+
+    /** To'lov hisoblash boshlanish sanasi (nextPaymentDate shundan). */
+    @Column(name = "payment_start_date")
+    private LocalDate paymentStartDate;
+
+    /** Keyingi to'lov muddati (sana asosidagi qarzdorlik). */
+    @Column(name = "next_payment_date")
+    private LocalDate nextPaymentDate;
+
+    /** Oylik to'lov miqdori (guruh/kursdan). */
+    @Column(name = "monthly_fee", precision = 12, scale = 2)
+    private BigDecimal monthlyFee;
+
+    /** TRIAL, PENDING, PAID, OVERDUE, SUSPENDED, ARCHIVED — hech qachon null bo'lmasin. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status", length = 20)
+    private PaymentStatus paymentStatus = PaymentStatus.PENDING;
 
     @OneToMany(mappedBy = "student", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     @Builder.Default

@@ -2,10 +2,14 @@ package com.crm.config;
 
 import com.crm.security.CustomUserDetailsService;
 import com.crm.security.jwt.JwtAuthenticationFilter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.crm.dto.response.ApiResponse;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -34,6 +38,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final CustomUserDetailsService userDetailsService;
+    private final ObjectMapper objectMapper;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -41,6 +46,9 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .authorizeHttpRequests(auth -> auth
+                // Preflight must be first — otherwise browsers hang ~30s on CORS
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
                 // ── Public endpoints (no JWT needed) ──
                 .requestMatchers(
                     "/api/auth/login",
@@ -53,6 +61,24 @@ public class SecurityConfig {
                 .requestMatchers("/api/settings/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/notices/latest").permitAll()
+
+                // ── Teacher-accessible reads (before broader / catch-alls) ──
+                .requestMatchers(HttpMethod.GET, "/api/timetable/grid")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
+                .requestMatchers(HttpMethod.GET, "/api/timetable/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
+                .requestMatchers(HttpMethod.GET, "/api/classrooms", "/api/classrooms/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
+                .requestMatchers(HttpMethod.GET, "/api/groups/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT", "TEACHER")
+                .requestMatchers(HttpMethod.GET, "/api/courses/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
+                .requestMatchers(HttpMethod.GET, "/api/exams/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
+                .requestMatchers(HttpMethod.GET, "/api/notices/**").authenticated()
+
+                .requestMatchers(HttpMethod.POST, "/api/students/*/transfer-group")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
                 // ── Role-based access ──
                 .requestMatchers("/api/analytics/**")
@@ -80,35 +106,23 @@ public class SecurityConfig {
                 .requestMatchers("/api/admin/**")
                     .hasRole("SUPER_ADMIN")
 
-                // ── Teacher self-service pages ──
-                .requestMatchers(HttpMethod.GET, "/api/groups/**")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT", "TEACHER")
-                .requestMatchers(HttpMethod.GET, "/api/timetable/**")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
                 .requestMatchers("/api/attendance/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
                 .requestMatchers("/api/homework/**")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
-                .requestMatchers(HttpMethod.GET, "/api/exams/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
                 .requestMatchers(HttpMethod.POST, "/api/exams/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
                 .requestMatchers(HttpMethod.PUT, "/api/exams/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
-                .requestMatchers(HttpMethod.GET, "/api/courses/**")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
-                .requestMatchers(HttpMethod.GET, "/api/classrooms", "/api/classrooms/**")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
                 .requestMatchers("/api/teachers/me/**")
                     .hasRole("TEACHER")
-
                 .requestMatchers("/api/teacher/**")
                     .hasRole("TEACHER")
 
+                // Classroom writes — after GET matcher above
                 .requestMatchers("/api/classrooms/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
-                .requestMatchers(HttpMethod.GET, "/api/notices/**").authenticated()
                 .requestMatchers(HttpMethod.POST, "/api/notices/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/api/notices/**")
@@ -122,6 +136,22 @@ public class SecurityConfig {
 
                 .anyRequest().authenticated()
             )
+            .exceptionHandling(ex -> ex
+                .authenticationEntryPoint((request, response, authException) -> {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    response.setCharacterEncoding("UTF-8");
+                    objectMapper.writeValue(response.getOutputStream(),
+                        ApiResponse.error("Avtorizatsiya talab qilinadi"));
+                })
+                .accessDeniedHandler((request, response, accessDeniedException) -> {
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    response.setCharacterEncoding("UTF-8");
+                    objectMapper.writeValue(response.getOutputStream(),
+                        ApiResponse.error("Ruxsat yo'q"));
+                })
+            )
             .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authenticationProvider(authenticationProvider())
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
@@ -133,7 +163,6 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
 
-        // Faqat BU BITTA setAllowedOriginPatterns bo'lishi kerak
         config.setAllowedOriginPatterns(List.of(
                 "https://admin.adizone.uz",
                 "https://adizone.uz",
@@ -150,11 +179,11 @@ public class SecurityConfig {
                 "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"
         ));
         config.setAllowedHeaders(List.of("*"));
+        config.setExposedHeaders(List.of("Authorization", "Content-Type"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
 
-        UrlBasedCorsConfigurationSource source =
-                new UrlBasedCorsConfigurationSource();
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;
     }

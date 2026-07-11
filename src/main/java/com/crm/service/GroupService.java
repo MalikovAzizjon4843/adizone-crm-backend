@@ -15,6 +15,7 @@ import com.crm.entity.Teacher;
 import com.crm.entity.Timetable;
 import com.crm.entity.Classroom;
 import com.crm.entity.enums.GroupStatus;
+import com.crm.entity.enums.PaymentStatus;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
@@ -23,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -30,6 +32,7 @@ import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -46,6 +49,7 @@ public class GroupService {
     private final ClassroomRepository classroomRepository;
     private final TimetableRepository timetableRepository;
     private final StudentStatusHistoryRepository studentStatusHistoryRepository;
+    private final PaymentScheduleService paymentScheduleService;
 
     @Transactional(readOnly = true)
     public List<GroupResponse> getAllGroups(GroupStatus status) {
@@ -103,6 +107,7 @@ public class GroupService {
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher", request.getTeacherId()));
             group.setTeacher(teacher);
         }
+        applyClassroom(group, request.getClassroomId());
 
         Group saved = groupRepository.save(group);
 
@@ -134,6 +139,7 @@ public class GroupService {
         } else {
             group.setTeacher(null);
         }
+        applyClassroom(group, request.getClassroomId());
 
         Group saved = groupRepository.save(group);
 
@@ -201,6 +207,9 @@ public class GroupService {
                 room = classroomRepository
                     .findByRoomNumberIgnoreCase(dayReq.getRoomNumber().trim())
                     .orElse(null);
+            }
+            if (room == null && group.getClassroom() != null) {
+                room = group.getClassroom();
             }
             
             // Validate conflict BEFORE saving
@@ -330,6 +339,10 @@ public class GroupService {
                 classroomRepository.findByRoomNumberIgnoreCase(dayReq.getRoomNumber().trim())
                     .ifPresent(tt::setClassroom);
             }
+            // Fallback: group default classroom
+            if (tt.getClassroom() == null && persisted.getClassroom() != null) {
+                tt.setClassroom(persisted.getClassroom());
+            }
 
             timetableRepository.save(tt);
         }
@@ -393,22 +406,42 @@ public class GroupService {
         }
 
         LocalDate joinDate = request.getJoinDate() != null ? request.getJoinDate() : LocalDate.now();
+        LocalDate paymentStart = request.getPaymentStartDate() != null
+            ? request.getPaymentStartDate() : LocalDate.now();
+        boolean isTrial = Boolean.TRUE.equals(request.getIsTrial());
+
+        BigDecimal fee = request.getMonthlyFee() != null
+            ? request.getMonthlyFee()
+            : (request.getMonthlyPriceOverride() != null
+                ? request.getMonthlyPriceOverride()
+                : (group.getCourse() != null && group.getCourse().getMonthlyPrice() != null
+                    ? group.getCourse().getMonthlyPrice()
+                    : BigDecimal.ZERO));
+
+        String initialStatus = isTrial ? "TRIAL" : "PENDING";
+
+        student.setPaymentStartDate(paymentStart);
+        student.setMonthlyFee(fee);
+        student.setPaymentStatus(isTrial ? PaymentStatus.TRIAL : PaymentStatus.PENDING);
+        studentRepository.save(student);
 
         StudentGroup sg = StudentGroup.builder()
             .student(student)
             .group(group)
             .joinDate(joinDate)
-            .paymentStartDate(joinDate)
-            .nextPaymentDate(joinDate.plusDays(30))
+            .paymentStartDate(paymentStart)
+            .nextPaymentDate(paymentStart)
+            .isTrial(isTrial)
             .isActive(true)
             .discountPercentage(request.getDiscountPercentage())
-            .monthlyPriceOverride(request.getMonthlyPriceOverride())
+            .monthlyPriceOverride(fee)
             .notes(request.getNotes())
-            .paymentStatus("TRIAL")
+            .paymentStatus(initialStatus)
             .lessonsAttended(0)
             .build();
 
         studentGroupRepository.save(sg);
+        paymentScheduleService.recalculateForStudent(student);
     }
 
     @Transactional
@@ -418,6 +451,7 @@ public class GroupService {
         sg.setIsActive(false);
         sg.setLeaveDate(LocalDate.now());
         studentGroupRepository.save(sg);
+        paymentScheduleService.clearPaymentSchedule(studentId);
     }
 
     @Transactional
@@ -456,6 +490,8 @@ public class GroupService {
         history.setNotes(notes);
         history.setChangedAt(LocalDateTime.now());
         studentStatusHistoryRepository.save(history);
+
+        paymentScheduleService.clearPaymentSchedule(student.getId());
     }
 
     public Group findById(Long id) {
@@ -519,12 +555,34 @@ public class GroupService {
             members = activeInGroup.stream()
                 .map(sg -> {
                     Student st = sg.getStudent();
+                    String name = st.getFirstName() + " " + st.getLastName();
+                    LocalDate joined = sg.getJoinDate();
+                    BigDecimal fee = st.getMonthlyFee() != null
+                        ? st.getMonthlyFee()
+                        : PaymentScheduleService.resolveMonthlyFee(sg);
+                    LocalDate payStart = st.getPaymentStartDate() != null
+                        ? st.getPaymentStartDate()
+                        : sg.getPaymentStartDate();
+                    LocalDate nextDue = st.getNextPaymentDate() != null
+                        ? st.getNextPaymentDate()
+                        : sg.getNextPaymentDate();
+                    String payStatus = st.getPaymentStatus() != null
+                        ? st.getPaymentStatus().name()
+                        : sg.getPaymentStatus();
+                    if (payStatus == null) {
+                        payStatus = PaymentStatus.PENDING.name();
+                    }
                     return GroupResponse.StudentSummary.builder()
                         .studentId(st.getId())
-                        .studentName(st.getFirstName() + " " + st.getLastName())
+                        .fullName(name)
+                        .studentName(name)
                         .phone(st.getPhone())
-                        .paymentStatus(sg.getPaymentStatus())
-                        .joinDate(sg.getJoinDate())
+                        .joinedAt(joined)
+                        .joinDate(joined)
+                        .paymentStatus(payStatus)
+                        .paymentStartDate(payStart)
+                        .nextPaymentDate(nextDue)
+                        .monthlyFee(fee)
                         .status(st.getStatus() != null ? st.getStatus().name() : null)
                         .build();
                 })
@@ -541,6 +599,8 @@ public class GroupService {
             .teacherName(g.getTeacher() != null
                 ? g.getTeacher().getFirstName() + " " + g.getTeacher().getLastName() : null)
             .room(g.getRoom())
+            .classroomId(g.getClassroom() != null ? g.getClassroom().getId() : null)
+            .classroomName(g.getClassroom() != null ? classroomDisplayName(g.getClassroom()) : null)
             .maxStudents(g.getMaxStudents())
             .currentStudents(currentForResponse)
             .startDate(g.getStartDate())
@@ -550,7 +610,46 @@ public class GroupService {
             .schedules(schedules)
             .scheduleDays(scheduleDays)
             .studentGroups(members)
+            .students(members)
             .createdAt(g.getCreatedAt())
             .build();
+    }
+
+    private void applyClassroom(Group group, Long classroomId) {
+        if (classroomId != null) {
+            Classroom classroom = classroomRepository.findById(classroomId)
+                .orElseThrow(() -> new ResourceNotFoundException("Classroom", classroomId));
+            group.setClassroom(classroom);
+            if (group.getRoom() == null || group.getRoom().isBlank()) {
+                group.setRoom(classroomDisplayName(classroom));
+            }
+        } else {
+            group.setClassroom(null);
+        }
+    }
+
+    private static String classroomDisplayName(Classroom c) {
+        if (c.getRoomNumber() != null && !c.getRoomNumber().isBlank()) {
+            return c.getRoomNumber();
+        }
+        return c.getRoomName();
+    }
+
+    @Transactional
+    public Map<String, Integer> linkTimetableRoomsFromGroups() {
+        List<Timetable> orphans = timetableRepository.findAllWithNullClassroom();
+        int updated = 0;
+        int skipped = 0;
+        for (Timetable t : orphans) {
+            Group g = t.getGroup();
+            if (g != null && g.getClassroom() != null) {
+                t.setClassroom(g.getClassroom());
+                timetableRepository.save(t);
+                updated++;
+            } else {
+                skipped++;
+            }
+        }
+        return Map.of("updated", updated, "skipped", skipped);
     }
 }

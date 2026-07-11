@@ -3,6 +3,7 @@ package com.crm.service;
 import com.crm.dto.request.*;
 import com.crm.dto.response.*;
 import com.crm.entity.*;
+import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -11,8 +12,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Service
@@ -29,6 +32,10 @@ public class AcademicService {
     private final StudentGroupRepository studentGroupRepository;
 
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
+    private static final String[] GRID_COLORS = {
+        "#4f46e5", "#0891b2", "#16a34a", "#ca8a04", "#dc2626",
+        "#9333ea", "#db2777", "#ea580c", "#0d9488", "#2563eb"
+    };
 
     // ── Classes ────────────────────────────────────────────────────
 
@@ -206,9 +213,10 @@ public class AcademicService {
     }
 
     @Transactional(readOnly = true)
-    public RoomTimetableDto getByRoom(DayOfWeek dayOfWeek) {
+    public RoomTimetableDto getByRoom(String dayOfWeek) {
+        String day = normalizeDayOfWeek(dayOfWeek);
         List<Classroom> rooms = classroomRepository.findAllByOrderByRoomNumberAsc();
-        List<Timetable> entries = timetableRepository.findByDayOfWeek(dayOfWeek.name());
+        List<Timetable> entries = timetableRepository.findByDayOfWeek(day);
 
         List<RoomLessonDto> lessons = entries.stream().map(t -> {
             RoomLessonDto dto = new RoomLessonDto();
@@ -244,9 +252,54 @@ public class AcademicService {
         return result;
     }
 
+    @Transactional(readOnly = true)
+    public TimetableGridResponse getTimetableGrid(String dayOfWeek) {
+        String day = normalizeDayOfWeek(dayOfWeek);
+        List<Classroom> rooms = classroomRepository.findByIsActiveTrueOrderByRoomNumberAsc();
+        // LEFT JOIN FETCH — classroom NULL entries are included (Xonasiz)
+        List<Timetable> entries = timetableRepository.findByDayOfWeekWithDetails(day);
+
+        List<TimetableGridResponse.TimetableGridRoomDto> roomDtos = rooms.stream()
+            .map(r -> TimetableGridResponse.TimetableGridRoomDto.builder()
+                .id(r.getId())
+                .name(classroomDisplayName(r))
+                .capacity(r.getCapacity())
+                .build())
+            .collect(Collectors.toList());
+
+        List<TimetableGridResponse.TimetableGridEntryDto> entryDtos = entries.stream()
+            .map(t -> {
+                Group g = t.getGroup();
+                Long groupId = g != null ? g.getId() : null;
+                String courseName = resolveTimetableSubjectName(t);
+                return TimetableGridResponse.TimetableGridEntryDto.builder()
+                    .id(t.getId())
+                    .roomId(t.getClassroom() != null ? t.getClassroom().getId() : null)
+                    .groupId(groupId)
+                    .groupName(g != null ? g.getGroupName() : null)
+                    .courseName(courseName)
+                    .teacherName(resolveTimetableTeacherName(t))
+                    .startTime(t.getStartTime() != null ? t.getStartTime().format(TIME_FMT) : null)
+                    .endTime(t.getEndTime() != null ? t.getEndTime().format(TIME_FMT) : null)
+                    .color(gridColor(groupId))
+                    .build();
+            })
+            .collect(Collectors.toList());
+
+        return TimetableGridResponse.builder()
+            .dayOfWeek(day)
+            .startTime("08:00")
+            .endTime("22:00")
+            .slotMinutes(30)
+            .rooms(roomDtos)
+            .entries(entryDtos)
+            .build();
+    }
+
     @Transactional
     public TimetableResponse createTimetable(TimetableRequest request) {
         Timetable t = buildTimetable(new Timetable(), request);
+        assertNoConflicts(t, null);
         return toTimetableResponse(timetableRepository.save(t));
     }
 
@@ -254,6 +307,7 @@ public class AcademicService {
     public TimetableResponse updateTimetable(Long id, TimetableRequest request) {
         Timetable t = findTimetableById(id);
         buildTimetable(t, request);
+        assertNoConflicts(t, id);
         return toTimetableResponse(timetableRepository.save(t));
     }
 
@@ -393,7 +447,7 @@ public class AcademicService {
     }
 
     private Timetable buildTimetable(Timetable t, TimetableRequest req) {
-        t.setDayOfWeek(req.getDayOfWeek());
+        t.setDayOfWeek(normalizeDayOfWeek(req.getDayOfWeek()));
         t.setStartTime(req.getStartTime());
         t.setEndTime(req.getEndTime());
         t.setAcademicYear(req.getAcademicYear());
@@ -408,5 +462,80 @@ public class AcademicService {
                 .ifPresent(t::setClassroom);
         }
         return t;
+    }
+
+    private void assertNoConflicts(Timetable candidate, Long excludeId) {
+        if (candidate.getStartTime() == null || candidate.getEndTime() == null
+                || candidate.getDayOfWeek() == null) {
+            return;
+        }
+        if (!candidate.getStartTime().isBefore(candidate.getEndTime())) {
+            throw new BadRequestException("Boshlanish vaqti tugashdan oldin bo'lishi kerak");
+        }
+
+        if (candidate.getClassroom() != null) {
+            List<Timetable> roomEntries = timetableRepository.findByClassroom_IdAndDayOfWeek(
+                candidate.getClassroom().getId(), candidate.getDayOfWeek());
+            for (Timetable existing : roomEntries) {
+                if (excludeId != null && excludeId.equals(existing.getId())) {
+                    continue;
+                }
+                if (timesOverlap(candidate.getStartTime(), candidate.getEndTime(),
+                        existing.getStartTime(), existing.getEndTime())) {
+                    String groupName = existing.getGroup() != null
+                        ? existing.getGroup().getGroupName() : "noma'lum guruh";
+                    throw new BadRequestException(String.format(
+                        "Bu xona %s—%s oralig'ida band (%s)",
+                        existing.getStartTime().format(TIME_FMT),
+                        existing.getEndTime().format(TIME_FMT),
+                        groupName));
+                }
+            }
+        }
+
+        Long teacherId = resolveTimetableTeacherId(candidate);
+        if (teacherId != null) {
+            List<Timetable> dayEntries = timetableRepository.findByDayOfWeek(candidate.getDayOfWeek());
+            for (Timetable existing : dayEntries) {
+                if (excludeId != null && excludeId.equals(existing.getId())) {
+                    continue;
+                }
+                Long existingTeacherId = resolveTimetableTeacherId(existing);
+                if (!teacherId.equals(existingTeacherId)) {
+                    continue;
+                }
+                if (timesOverlap(candidate.getStartTime(), candidate.getEndTime(),
+                        existing.getStartTime(), existing.getEndTime())) {
+                    throw new BadRequestException("O'qituvchi bu vaqtda band");
+                }
+            }
+        }
+    }
+
+    private static boolean timesOverlap(LocalTime newStart, LocalTime newEnd,
+                                        LocalTime existingStart, LocalTime existingEnd) {
+        if (newStart == null || newEnd == null || existingStart == null || existingEnd == null) {
+            return false;
+        }
+        return newStart.isBefore(existingEnd) && newEnd.isAfter(existingStart);
+    }
+
+    private static String normalizeDayOfWeek(String dayOfWeek) {
+        if (dayOfWeek == null || dayOfWeek.isBlank()) {
+            throw new BadRequestException("dayOfWeek majburiy");
+        }
+        try {
+            return DayOfWeek.valueOf(dayOfWeek.trim().toUpperCase(Locale.ROOT)).name();
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Noto'g'ri dayOfWeek: " + dayOfWeek);
+        }
+    }
+
+    private static String gridColor(Long groupId) {
+        if (groupId == null) {
+            return GRID_COLORS[0];
+        }
+        int idx = (int) (Math.floorMod(groupId, (long) GRID_COLORS.length));
+        return GRID_COLORS[idx];
     }
 }

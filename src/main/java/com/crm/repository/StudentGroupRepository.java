@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,6 +32,16 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
     Optional<StudentGroup> findByStudentIdAndGroupIdAndIsActiveTrue(Long studentId, Long groupId);
 
     boolean existsByStudentIdAndGroupIdAndIsActiveTrue(Long studentId, Long groupId);
+
+    @Query("""
+        SELECT sg FROM StudentGroup sg
+        JOIN FETCH sg.student st
+        JOIN FETCH sg.group g
+        LEFT JOIN FETCH g.course
+        WHERE sg.isActive = true AND st.id IN :studentIds
+        ORDER BY sg.joinDate DESC
+        """)
+    List<StudentGroup> findActiveByStudentIds(@Param("studentIds") Collection<Long> studentIds);
 
     @Query("SELECT sg FROM StudentGroup sg WHERE sg.isActive = true AND sg.student.status = 'ACTIVE'")
     List<StudentGroup> findAllActiveEnrollments();

@@ -34,6 +34,12 @@ public class StudentDetailResponse {
     private String admissionNumber;
     private LocalDate admissionDate;
     private Long referralStudentId;
+    private Long currentGroupId;
+    private String currentGroupName;
+    private PaymentStatus paymentStatus;
+    private LocalDate paymentStartDate;
+    private LocalDate nextPaymentDate;
+    private BigDecimal monthlyFee;
     private List<GroupSummary> activeGroups;
     private List<PaymentSummary> paymentHistory;
     private Map<String, Integer> attendanceSummary;

@@ -2,6 +2,8 @@ package com.crm.service;
 
 import com.crm.dto.request.PaymentRequest;
 import com.crm.dto.response.DebtorResponse;
+import com.crm.dto.response.DebtorsListResponse;
+import com.crm.dto.response.ExpectedPaymentsResponse;
 import com.crm.dto.response.PaymentHistoryResponse;
 import com.crm.dto.response.PaymentResponse;
 import com.crm.dto.response.SuspendedStudentResponse;
@@ -10,6 +12,7 @@ import com.crm.entity.enums.CashPaymentMethod;
 import com.crm.entity.enums.IncomeCategory;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.PaymentStatus;
+import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
@@ -48,6 +51,7 @@ public class PaymentService {
     private final StudentPaymentLifecycleService studentPaymentLifecycleService;
     private final CashRegisterService cashRegisterService;
     private final BonusPenaltyService bonusPenaltyService;
+    private final PaymentScheduleService paymentScheduleService;
 
     @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
@@ -68,6 +72,10 @@ public class PaymentService {
         long seq = paymentRepository.count() + 1;
         String receipt = "RCP-" + String.format("%05d", seq);
 
+        LocalDate[] period = resolvePaymentPeriod(student, request);
+        LocalDate periodStart = period[0];
+        LocalDate periodEnd = period[1];
+
         Payment payment = Payment.builder()
             .student(student)
             .amount(request.getAmount())
@@ -76,8 +84,8 @@ public class PaymentService {
             .paymentDate(payDate)
             .paymentMethod(request.getPaymentMethod())
             .status(PaymentStatus.PAID)
-            .periodFrom(request.getPeriodFrom())
-            .periodTo(request.getPeriodTo())
+            .periodFrom(periodStart)
+            .periodTo(periodEnd)
             .description(request.getDescription())
             .notes(request.getNotes())
             .receivedBy(receiver)
@@ -107,9 +115,6 @@ public class PaymentService {
             studentGroupRepository.findByStudentIdAndGroupIdAndIsActiveTrue(
                     request.getStudentId(), gid)
                 .ifPresent(sg -> {
-                    if (sg.getNextPaymentDate() != null) {
-                        sg.setNextPaymentDate(sg.getNextPaymentDate().plusDays(30));
-                    }
                     studentGroupRepository.save(sg);
                     payment.setStudentGroup(sg);
                 });
@@ -161,7 +166,66 @@ public class PaymentService {
                 request.getStudentId(), effectiveGroupId, payDate);
         }
 
+        applyStudentPaidState(student);
+        paymentScheduleService.recalculateForStudent(student);
+        studentRepository.save(student);
+
         return toResponse(saved);
+    }
+
+    /** periodStart / periodEnd (periodFrom / periodTo). */
+    private LocalDate[] resolvePaymentPeriod(Student student, PaymentRequest request) {
+        LocalDate periodStart = request.getPeriodFrom();
+        LocalDate periodEnd = request.getPeriodTo();
+
+        if (periodStart == null) {
+            periodStart = student.getNextPaymentDate() != null
+                ? student.getNextPaymentDate()
+                : (student.getPaymentStartDate() != null
+                    ? student.getPaymentStartDate()
+                    : LocalDate.now());
+        }
+
+        if (periodEnd == null) {
+            int months = 1;
+            BigDecimal fee = student.getMonthlyFee();
+            if (fee == null || fee.compareTo(BigDecimal.ZERO) <= 0) {
+                fee = studentGroupRepository.findByStudentIdAndIsActiveTrue(student.getId())
+                    .stream()
+                    .findFirst()
+                    .map(PaymentScheduleService::resolveMonthlyFee)
+                    .orElse(BigDecimal.ZERO);
+            }
+            if (fee != null && fee.compareTo(BigDecimal.ZERO) > 0
+                    && request.getAmount() != null
+                    && request.getAmount().compareTo(fee) > 0) {
+                months = request.getAmount().divide(fee, 0, RoundingMode.DOWN).intValue();
+                if (months < 1) {
+                    months = 1;
+                }
+            }
+            periodEnd = periodStart.plusMonths(months).minusDays(1);
+        }
+
+        return new LocalDate[] { periodStart, periodEnd };
+    }
+
+    private void applyStudentPaidState(Student student) {
+        student.setPaymentStatus(PaymentStatus.PAID);
+
+        if (student.getStatus() == StudentStatus.SUSPENDED
+                || student.getStatus() == StudentStatus.FROZEN) {
+            student.setStatus(StudentStatus.ACTIVE);
+        }
+
+        for (StudentGroup sg : studentGroupRepository.findByStudentIdAndIsActiveTrue(student.getId())) {
+            sg.setSuspendedAt(null);
+            sg.setSuspensionReason(null);
+            sg.setPaymentStatus(PaymentStatus.PAID.name());
+            studentGroupRepository.save(sg);
+        }
+
+        studentRepository.save(student);
     }
 
     @Transactional(readOnly = true)
@@ -274,42 +338,33 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
-    public List<DebtorResponse> getDebtors() {
-        LocalDate today = LocalDate.now();
-        YearMonth ym = YearMonth.from(today);
-        LocalDate monthStart = ym.atDay(1);
-        LocalDate monthEnd = ym.atEndOfMonth();
+    public DebtorsListResponse getDebtors() {
+        return paymentScheduleService.getDebtorsByDate();
+    }
 
-        return studentGroupRepository.findAllActiveEnrollments().stream()
-            .filter(sg -> !"TRIAL".equals(sg.getPaymentStatus()))
-            .filter(sg -> paymentRepository.countPaidForStudentGroupInPeriod(
-                sg.getStudent().getId(), sg.getGroup().getId(), monthStart, monthEnd) == 0)
-            .map(sg -> {
-                BigDecimal monthlyPrice = sg.getMonthlyPriceOverride() != null
-                    ? sg.getMonthlyPriceOverride()
-                    : sg.getGroup().getCourse().getMonthlyPrice();
+    @Transactional(readOnly = true)
+    public ExpectedPaymentsResponse getExpectedPayments(LocalDate from, LocalDate to) {
+        return paymentScheduleService.getExpectedPayments(from, to);
+    }
 
-                BigDecimal discounted = monthlyPrice;
-                if (sg.getDiscountPercentage() != null && sg.getDiscountPercentage().compareTo(BigDecimal.ZERO) > 0) {
-                    discounted = monthlyPrice.subtract(
-                        monthlyPrice.multiply(sg.getDiscountPercentage()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP));
-                }
+    @Transactional(readOnly = true)
+    public Map<String, Object> getDebtorsSummary() {
+        return paymentScheduleService.getDebtorsSummary();
+    }
 
-                LocalDate nextDue = sg.getNextPaymentDate() != null ? sg.getNextPaymentDate() : monthStart;
-                long overdue = ChronoUnit.DAYS.between(nextDue, today);
-
-                return DebtorResponse.builder()
-                    .studentId(sg.getStudent().getId())
-                    .studentName(sg.getStudent().getFirstName() + " " + sg.getStudent().getLastName())
-                    .phone(sg.getStudent().getPhone())
-                    .parentPhone(sg.getStudent().getParentPhone())
-                    .groupId(sg.getGroup().getId())
-                    .groupName(sg.getGroup().getGroupName())
-                    .nextPaymentDate(nextDue)
-                    .daysOverdue(Math.max(0, overdue))
-                    .monthlyAmount(discounted)
-                    .build();
-            })
+    /** Legacy list for Telegram reminders. */
+    @Transactional(readOnly = true)
+    public List<DebtorResponse> getDebtorsLegacy() {
+        return paymentScheduleService.getDebtorsByDate().getStudents().stream()
+            .map(d -> DebtorResponse.builder()
+                .studentId(d.getStudentId())
+                .studentName(d.getFullName())
+                .phone(d.getPhone())
+                .groupName(d.getGroupName())
+                .nextPaymentDate(d.getNextPaymentDate())
+                .daysOverdue(d.getDaysOverdue())
+                .monthlyAmount(d.getAmount())
+                .build())
             .collect(Collectors.toList());
     }
 
@@ -451,80 +506,4 @@ public class PaymentService {
         return result;
     }
 
-    @Transactional(readOnly = true)
-    public Map<String, Object> getDebtorsEnhanced() {
-        List<StudentGroup> activeGroups =
-            studentGroupRepository.findAllActiveEnrollments();
-
-        LocalDate today = LocalDate.now();
-        LocalDate monthStart = today.withDayOfMonth(1);
-
-        List<Map<String, Object>> debtors = new java.util.ArrayList<>();
-        double totalDebt = 0;
-        List<Map<String, Object>> overdueDebtors =
-            new java.util.ArrayList<>();
-
-        for (StudentGroup sg : activeGroups) {
-            if ("TRIAL".equals(sg.getPaymentStatus())) continue;
-
-            boolean hasPaid = paymentRepository
-                .countPaidForStudentGroupInPeriod(
-                    sg.getStudent().getId(),
-                    sg.getGroup().getId(),
-                    monthStart, today) > 0;
-
-            if (!hasPaid) {
-                BigDecimal monthlyPrice = sg.getMonthlyPriceOverride() != null
-                    ? sg.getMonthlyPriceOverride()
-                    : (sg.getGroup().getCourse() != null
-                        ? sg.getGroup().getCourse().getMonthlyPrice()
-                        : BigDecimal.ZERO);
-
-                long daysOverdue = sg.getLastPaymentDate() != null
-                    ? ChronoUnit.DAYS.between(
-                        sg.getLastPaymentDate(), today)
-                    : ChronoUnit.DAYS.between(
-                        sg.getJoinDate() != null
-                            ? sg.getJoinDate() : today, today);
-
-                Map<String, Object> debtor = new LinkedHashMap<>();
-                debtor.put("studentId",
-                    sg.getStudent().getId());
-                debtor.put("studentName",
-                    sg.getStudent().getFirstName() + " " +
-                    sg.getStudent().getLastName());
-                debtor.put("phone", sg.getStudent().getPhone());
-                debtor.put("groupId", sg.getGroup().getId());
-                debtor.put("groupName",
-                    sg.getGroup().getGroupName());
-                debtor.put("monthlyAmount", monthlyPrice);
-                debtor.put("daysOverdue", daysOverdue);
-                debtor.put("paymentStatus",
-                    sg.getPaymentStatus());
-                debtor.put("lastPaymentDate",
-                    sg.getLastPaymentDate());
-
-                totalDebt += monthlyPrice.doubleValue();
-                debtors.add(debtor);
-
-                if (daysOverdue > 7) {
-                    overdueDebtors.add(debtor);
-                }
-            }
-        }
-
-        // Sort by daysOverdue desc
-        debtors.sort((a, b) ->
-            Long.compare((Long) b.get("daysOverdue"),
-                         (Long) a.get("daysOverdue")));
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("totalDebt", totalDebt);
-        result.put("totalDebtors", debtors.size());
-        result.put("overdueCount", overdueDebtors.size());
-        result.put("overdueDebtors", overdueDebtors);
-        result.put("allDebtors", debtors);
-
-        return result;
-    }
 }

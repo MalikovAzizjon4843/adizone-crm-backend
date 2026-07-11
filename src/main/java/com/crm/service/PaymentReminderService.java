@@ -24,7 +24,7 @@ public class PaymentReminderService {
         log.info("To'lov eslatmalari yuborilmoqda...");
 
         try {
-            List<DebtorResponse> debtors = paymentService.getDebtors();
+            List<DebtorResponse> debtors = paymentService.getDebtorsLegacy();
 
             debtors.forEach(d -> {
                 try {

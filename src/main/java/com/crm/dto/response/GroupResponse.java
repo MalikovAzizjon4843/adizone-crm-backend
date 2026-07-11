@@ -3,6 +3,7 @@ package com.crm.dto.response;
 import com.crm.entity.enums.GroupStatus;
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,6 +22,8 @@ public class GroupResponse {
     private Long teacherId;
     private String teacherName;
     private String room;
+    private Long classroomId;
+    private String classroomName;
     private Integer maxStudents;
     private Integer currentStudents;
     private LocalDate startDate;
@@ -31,6 +34,8 @@ public class GroupResponse {
     private List<ScheduleDayResponse> scheduleDays;
     /** Active members; populated only for single-group fetches (e.g. getById). */
     private List<StudentSummary> studentGroups;
+    /** Alias for studentGroups (frontend students[]). */
+    private List<StudentSummary> students;
     private LocalDateTime createdAt;
 
     @Data
@@ -39,10 +44,17 @@ public class GroupResponse {
     @AllArgsConstructor
     public static class StudentSummary {
         private Long studentId;
+        private String fullName;
+        /** Legacy alias of fullName */
         private String studentName;
         private String phone;
-        private String paymentStatus;
+        private LocalDate joinedAt;
+        /** Legacy alias of joinedAt */
         private LocalDate joinDate;
+        private String paymentStatus;
+        private LocalDate paymentStartDate;
+        private LocalDate nextPaymentDate;
+        private BigDecimal monthlyFee;
         private String status;
     }
 

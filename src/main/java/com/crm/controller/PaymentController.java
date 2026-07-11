@@ -69,9 +69,18 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getStudentPayments(studentId)));
     }
 
+    @GetMapping("/expected")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<ExpectedPaymentsResponse>> getExpected(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ResponseEntity.ok(ApiResponse.success(
+            paymentService.getExpectedPayments(from, to)));
+    }
+
     @GetMapping("/debtors")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
-    public ResponseEntity<ApiResponse<List<DebtorResponse>>> getDebtors() {
+    public ResponseEntity<ApiResponse<DebtorsListResponse>> getDebtors() {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getDebtors()));
     }
 
@@ -88,6 +97,6 @@ public class PaymentController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getDebtorsSummary() {
         return ResponseEntity.ok(ApiResponse.success(
-            paymentService.getDebtorsEnhanced()));
+            paymentService.getDebtorsSummary()));
     }
 }

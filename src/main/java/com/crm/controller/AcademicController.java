@@ -9,7 +9,6 @@ import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.DayOfWeek;
 import java.util.List;
 
 @RestController
@@ -142,7 +141,14 @@ public class AcademicController {
     @GetMapping("/api/timetable/by-room")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<RoomTimetableDto> getByRoom(@RequestParam String dayOfWeek) {
-        return ResponseEntity.ok(academicService.getByRoom(DayOfWeek.valueOf(dayOfWeek)));
+        return ResponseEntity.ok(academicService.getByRoom(dayOfWeek));
+    }
+
+    @GetMapping("/api/timetable/grid")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
+    public ResponseEntity<ApiResponse<TimetableGridResponse>> getTimetableGrid(
+            @RequestParam String dayOfWeek) {
+        return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableGrid(dayOfWeek)));
     }
 
     @GetMapping("/api/timetable/{id}")

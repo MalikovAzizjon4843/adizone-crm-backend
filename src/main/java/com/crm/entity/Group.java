@@ -38,6 +38,10 @@ public class Group extends BaseEntity {
     @JoinColumn(name = "teacher_id")
     private Teacher teacher;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "classroom_id")
+    private Classroom classroom;
+
     @Column(length = 100)
     private String room;
 

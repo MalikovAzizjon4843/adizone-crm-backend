@@ -8,6 +8,7 @@ import com.crm.entity.Lead;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
 import com.crm.entity.enums.MarketingSource;
+import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.GroupRepository;
@@ -35,6 +36,7 @@ public class LeadService {
     private final StudentRepository studentRepository;
     private final GroupRepository groupRepository;
     private final StudentGroupRepository studentGroupRepository;
+    private final PaymentScheduleService paymentScheduleService;
 
     @Transactional
     public LeadResponse createLead(LeadRequest request) {
@@ -132,17 +134,27 @@ public class LeadService {
             Group group = groupRepository.findById(groupId).orElse(null);
             if (group != null) {
                 LocalDate today = LocalDate.now();
+                java.math.BigDecimal fee = group.getCourse() != null && group.getCourse().getMonthlyPrice() != null
+                    ? group.getCourse().getMonthlyPrice() : java.math.BigDecimal.ZERO;
+                student.setPaymentStartDate(today);
+                student.setMonthlyFee(fee);
+                student.setPaymentStatus(PaymentStatus.PENDING);
+                student = studentRepository.save(student);
+
                 StudentGroup sg = StudentGroup.builder()
                         .student(student)
                         .group(group)
                         .joinDate(today)
                         .paymentStartDate(today)
-                        .nextPaymentDate(today.plusDays(30))
+                        .nextPaymentDate(today)
+                        .isTrial(false)
                         .isActive(true)
-                        .paymentStatus("TRIAL")
+                        .monthlyPriceOverride(fee)
+                        .paymentStatus("PENDING")
                         .lessonsAttended(0)
                         .build();
                 studentGroupRepository.save(sg);
+                paymentScheduleService.recalculateForStudent(student);
             }
         }
 

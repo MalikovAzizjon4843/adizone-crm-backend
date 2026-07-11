@@ -40,6 +40,10 @@ public class StudentGroup {
     @Column(name = "payment_start_date")
     private LocalDate paymentStartDate;
 
+    /** Admin tanlovi: 1-dars bepul. Default false (to'lovli). */
+    @Column(name = "is_trial")
+    private Boolean isTrial = false;
+
     @Column(name = "is_active")
     private Boolean isActive = true;
 
@@ -66,7 +70,7 @@ public class StudentGroup {
 
     /** TRIAL, PENDING, PAID, OVERDUE, SUSPENDED, ARCHIVED */
     @Column(name = "payment_status", length = 20)
-    private String paymentStatus = "TRIAL";
+    private String paymentStatus = "PENDING";
 
     @Column(name = "suspended_at")
     private LocalDateTime suspendedAt;
@@ -96,8 +100,9 @@ public class StudentGroup {
         updatedAt = LocalDateTime.now();
         if (joinDate == null) joinDate = LocalDate.now();
         if (paymentStartDate == null) paymentStartDate = joinDate;
-        if (nextPaymentDate == null) nextPaymentDate = joinDate.plusDays(30);
-        if (paymentStatus == null) paymentStatus = "TRIAL";
+        if (nextPaymentDate == null) nextPaymentDate = paymentStartDate;
+        if (isTrial == null) isTrial = false;
+        if (paymentStatus == null) paymentStatus = Boolean.TRUE.equals(isTrial) ? "TRIAL" : "PENDING";
         if (lessonsAttended == null) lessonsAttended = 0;
     }
 

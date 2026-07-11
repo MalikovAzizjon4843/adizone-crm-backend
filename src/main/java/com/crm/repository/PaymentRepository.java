@@ -75,6 +75,8 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
 
     Optional<Payment> findFirstByStudent_IdAndPeriodToIsNotNullOrderByPeriodToDesc(Long studentId);
 
+    Optional<Payment> findFirstByStudent_IdOrderByPaymentDateDesc(Long studentId);
+
     Page<Payment> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     @Query("SELECT p FROM Payment p ORDER BY p.createdAt DESC")
