@@ -72,53 +72,34 @@ public class PaymentService {
         long seq = paymentRepository.count() + 1;
         String receipt = "RCP-" + String.format("%05d", seq);
 
-        LocalDate[] period = resolvePaymentPeriod(student, request);
+        // Resolve StudentGroup FIRST — periodStart shundan olinadi
+        StudentGroup enrollment = resolveEnrollment(request.getStudentId(), request.getGroupId());
+        Group group = enrollment != null ? enrollment.getGroup() : null;
+        if (group == null && request.getGroupId() != null) {
+            group = groupRepository.findById(request.getGroupId())
+                .orElseThrow(() -> new ResourceNotFoundException("Group", request.getGroupId()));
+        }
+
+        LocalDate[] period = resolvePaymentPeriod(student, enrollment, request);
         LocalDate periodStart = period[0];
         LocalDate periodEnd = period[1];
 
         Payment payment = Payment.builder()
             .student(student)
+            .group(group)
+            .studentGroup(enrollment)
             .amount(request.getAmount())
             .discountAmount(discount)
             .receiptNumber(receipt)
             .paymentDate(payDate)
             .paymentMethod(request.getPaymentMethod())
             .status(PaymentStatus.PAID)
-            .periodFrom(periodStart)
-            .periodTo(periodEnd)
+            .periodStart(periodStart)
+            .periodEnd(periodEnd)
             .description(request.getDescription())
             .notes(request.getNotes())
             .receivedBy(receiver)
             .build();
-
-        // Auto-set group from student's active enrollment
-        if (payment.getGroup() == null && request.getGroupId() == null) {
-            studentGroupRepository
-                .findByStudentIdAndIsActiveTrue(request.getStudentId())
-                .stream()
-                .findFirst()
-                .ifPresent(sg -> {
-                    payment.setGroup(sg.getGroup());
-                    payment.setStudentGroup(sg);
-                });
-        }
-
-        Long effectiveGroupId = request.getGroupId();
-        if (effectiveGroupId == null && payment.getGroup() != null) {
-            effectiveGroupId = payment.getGroup().getId();
-        } else if (effectiveGroupId != null) {
-            final Long gid = effectiveGroupId;
-            Group group = groupRepository.findById(gid)
-                .orElseThrow(() -> new ResourceNotFoundException("Group", gid));
-            payment.setGroup(group);
-
-            studentGroupRepository.findByStudentIdAndGroupIdAndIsActiveTrue(
-                    request.getStudentId(), gid)
-                .ifPresent(sg -> {
-                    studentGroupRepository.save(sg);
-                    payment.setStudentGroup(sg);
-                });
-        }
 
         Payment saved = paymentRepository.save(payment);
 
@@ -161,44 +142,69 @@ public class PaymentService {
             saved = paymentRepository.save(saved);
         }
 
+        Long effectiveGroupId = group != null ? group.getId() : null;
         if (effectiveGroupId != null) {
             studentPaymentLifecycleService.onPaymentReceived(
                 request.getStudentId(), effectiveGroupId, payDate);
         }
 
         applyStudentPaidState(student);
-        paymentScheduleService.recalculateForStudent(student);
+        paymentRepository.flush();
+        if (enrollment != null) {
+            // reload enrollment after lifecycle may have changed it
+            enrollment = studentGroupRepository.findById(enrollment.getId()).orElse(enrollment);
+            paymentScheduleService.recalculate(enrollment);
+        } else {
+            paymentScheduleService.recalculateForStudent(student);
+        }
         studentRepository.save(student);
 
         return toResponse(saved);
     }
 
-    /** periodStart / periodEnd (periodFrom / periodTo). */
-    private LocalDate[] resolvePaymentPeriod(Student student, PaymentRequest request) {
+    private StudentGroup resolveEnrollment(Long studentId, Long groupId) {
+        if (groupId != null) {
+            return studentGroupRepository
+                .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, groupId)
+                .orElseGet(() -> studentGroupRepository.findByStudentIdAndIsActiveTrue(studentId)
+                    .stream().findFirst().orElse(null));
+        }
+        return studentGroupRepository.findByStudentIdAndIsActiveTrue(studentId)
+            .stream().findFirst().orElse(null);
+    }
+
+    /**
+     * periodStart = sg.nextPaymentDate ?? sg.paymentStartDate ?? sg.joinDate
+     * months = max(1, amount / monthlyFee) when fee &gt; 0
+     * periodEnd = periodStart + months - 1 day
+     */
+    private LocalDate[] resolvePaymentPeriod(Student student, StudentGroup sg, PaymentRequest request) {
         LocalDate periodStart = request.getPeriodFrom();
         LocalDate periodEnd = request.getPeriodTo();
 
         if (periodStart == null) {
-            periodStart = student.getNextPaymentDate() != null
-                ? student.getNextPaymentDate()
-                : (student.getPaymentStartDate() != null
-                    ? student.getPaymentStartDate()
-                    : LocalDate.now());
+            if (sg != null && sg.getNextPaymentDate() != null) {
+                periodStart = sg.getNextPaymentDate();
+            } else if (student.getNextPaymentDate() != null) {
+                periodStart = student.getNextPaymentDate();
+            } else if (sg != null && sg.getPaymentStartDate() != null) {
+                periodStart = sg.getPaymentStartDate();
+            } else if (student.getPaymentStartDate() != null) {
+                periodStart = student.getPaymentStartDate();
+            } else if (sg != null && sg.getJoinDate() != null) {
+                periodStart = sg.getJoinDate();
+            } else {
+                periodStart = LocalDate.now();
+            }
         }
 
         if (periodEnd == null) {
-            int months = 1;
             BigDecimal fee = student.getMonthlyFee();
-            if (fee == null || fee.compareTo(BigDecimal.ZERO) <= 0) {
-                fee = studentGroupRepository.findByStudentIdAndIsActiveTrue(student.getId())
-                    .stream()
-                    .findFirst()
-                    .map(PaymentScheduleService::resolveMonthlyFee)
-                    .orElse(BigDecimal.ZERO);
+            if ((fee == null || fee.compareTo(BigDecimal.ZERO) <= 0) && sg != null) {
+                fee = PaymentScheduleService.resolveMonthlyFee(sg);
             }
-            if (fee != null && fee.compareTo(BigDecimal.ZERO) > 0
-                    && request.getAmount() != null
-                    && request.getAmount().compareTo(fee) > 0) {
+            int months = 1;
+            if (fee != null && fee.compareTo(BigDecimal.ZERO) > 0 && request.getAmount() != null) {
                 months = request.getAmount().divide(fee, 0, RoundingMode.DOWN).intValue();
                 if (months < 1) {
                     months = 1;

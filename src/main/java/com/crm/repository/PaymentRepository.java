@@ -73,9 +73,16 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
             @Param("to") LocalDate to,
             Pageable pageable);
 
-    Optional<Payment> findFirstByStudent_IdAndPeriodToIsNotNullOrderByPeriodToDesc(Long studentId);
+    Optional<Payment> findFirstByStudent_IdAndPeriodEndIsNotNullOrderByPeriodEndDesc(Long studentId);
+
+    Optional<Payment> findFirstByStudentGroup_IdAndPeriodEndIsNotNullOrderByPeriodEndDesc(Long studentGroupId);
+
+    Optional<Payment> findFirstByStudentGroup_IdOrderByPaymentDateDesc(Long studentGroupId);
 
     Optional<Payment> findFirstByStudent_IdOrderByPaymentDateDesc(Long studentId);
+
+    @Query("SELECT p FROM Payment p WHERE p.periodStart IS NULL OR p.periodEnd IS NULL")
+    List<Payment> findWithMissingPeriods();
 
     Page<Payment> findAllByOrderByCreatedAtDesc(Pageable pageable);
 

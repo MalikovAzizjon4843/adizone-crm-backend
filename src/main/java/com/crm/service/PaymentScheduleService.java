@@ -57,6 +57,26 @@ public class PaymentScheduleService {
             .orElse(null);
 
         if (enrollment == null) {
+            // PAID bo'lsa ham guruh yo'q — next ni to'lovdan hisobla
+            Payment last = paymentRepository
+                .findFirstByStudent_IdAndPeriodEndIsNotNullOrderByPeriodEndDesc(student.getId())
+                .or(() -> paymentRepository.findFirstByStudent_IdOrderByPaymentDateDesc(student.getId()))
+                .orElse(null);
+            if (last != null) {
+                LocalDate next = last.getPeriodEnd() != null
+                    ? last.getPeriodEnd().plusDays(1)
+                    : (last.getPaymentDate() != null
+                        ? last.getPaymentDate().plusMonths(1)
+                        : LocalDate.now().plusMonths(1));
+                student.setNextPaymentDate(next);
+                if (student.getPaymentStatus() == null) {
+                    student.setPaymentStatus(PaymentStatus.PAID);
+                }
+                studentRepository.save(student);
+                log.info("Recalc sg=null student={} lastPeriodEnd={} → nextPaymentDate={} status={}",
+                    studentFullName(student), last.getPeriodEnd(), next, student.getPaymentStatus());
+                return next;
+            }
             student.setNextPaymentDate(null);
             student.setMonthlyFee(null);
             if (student.getPaymentStatus() == null) {
@@ -66,36 +86,64 @@ public class PaymentScheduleService {
             return null;
         }
 
+        return recalculate(enrollment);
+    }
+
+    /** StudentGroup asosida nextPaymentDate / status yangilash. */
+    @Transactional
+    public LocalDate recalculate(StudentGroup sg) {
+        if (sg == null) {
+            return null;
+        }
+        Student student = sg.getStudent();
+        if (student == null) {
+            return null;
+        }
+
         if (student.getPaymentStatus() == null) {
             student.setPaymentStatus(PaymentStatus.PENDING);
         }
 
         BigDecimal fee = student.getMonthlyFee() != null
             ? student.getMonthlyFee()
-            : resolveMonthlyFee(enrollment);
+            : resolveMonthlyFee(sg);
         if (fee == null) {
             fee = BigDecimal.ZERO;
         }
         student.setMonthlyFee(fee);
 
-        LocalDate base = resolvePaymentStartDate(student, enrollment);
+        LocalDate base = resolvePaymentStartDate(student, sg);
         if (student.getPaymentStartDate() == null) {
             student.setPaymentStartDate(base);
         }
-        if (enrollment.getPaymentStartDate() == null) {
-            enrollment.setPaymentStartDate(base);
+        if (sg.getPaymentStartDate() == null) {
+            sg.setPaymentStartDate(base);
         }
 
-        LocalDate next = calculateNextPaymentDate(student, enrollment);
-        PaymentStatus status = resolvePaymentStatus(student, enrollment, next);
+        LocalDate lastPeriodEnd = null;
+        LocalDate next = calculateNextPaymentDate(student, sg);
+        // Guard: PAID bo'lsa next hech qachon NULL bo'lmasin
+        if (next == null) {
+            next = base != null ? base : LocalDate.now();
+        }
+
+        Payment lastWithPeriod = findLastPaymentForEnrollment(sg, student.getId());
+        if (lastWithPeriod != null) {
+            lastPeriodEnd = lastWithPeriod.getPeriodEnd();
+        }
+
+        PaymentStatus status = resolvePaymentStatus(student, sg, next);
 
         student.setNextPaymentDate(next);
         student.setPaymentStatus(status);
-        enrollment.setNextPaymentDate(next);
-        enrollment.setNextPaymentDue(next);
-        enrollment.setPaymentStatus(status.name());
-        studentGroupRepository.save(enrollment);
+        sg.setNextPaymentDate(next);
+        sg.setNextPaymentDue(next);
+        sg.setPaymentStatus(status.name());
+        studentGroupRepository.save(sg);
         studentRepository.save(student);
+
+        log.info("Recalc sg={} student={} lastPeriodEnd={} → nextPaymentDate={} status={}",
+            sg.getId(), studentFullName(student), lastPeriodEnd, next, status);
         return next;
     }
 
@@ -116,32 +164,47 @@ public class PaymentScheduleService {
     }
 
     /**
-     * 1) base = paymentStartDate (fallback joinDate)
-     * 2–3) to'lov yo'q → next = base
-     * 4) to'lov bor → periodEnd + 1 kun
+     * Oxirgi to'lov = eng katta periodEnd (shu StudentGroup, yo'qsa student).
+     * periodEnd null → paidDate + 1 oy.
+     * To'lov yo'q → paymentStartDate / joinDate.
      */
     public LocalDate calculateNextPaymentDate(Student student, StudentGroup enrollment) {
         LocalDate base = resolvePaymentStartDate(student, enrollment);
 
-        Payment lastWithPeriod = paymentRepository
-            .findFirstByStudent_IdAndPeriodToIsNotNullOrderByPeriodToDesc(student.getId())
-            .orElse(null);
-
-        if (lastWithPeriod != null && lastWithPeriod.getPeriodTo() != null) {
-            return lastWithPeriod.getPeriodTo().plusDays(1);
-        }
-
-        Payment lastAny = paymentRepository
-            .findFirstByStudent_IdOrderByPaymentDateDesc(student.getId())
-            .orElse(null);
-
-        if (lastAny == null) {
+        Payment last = findLastPaymentForEnrollment(enrollment, student.getId());
+        if (last == null) {
             return base;
         }
 
-        LocalDate payDate = lastAny.getPaymentDate() != null
-            ? lastAny.getPaymentDate() : base;
-        return addMonthsKeepingDay(payDate, 1, base.getDayOfMonth());
+        if (last.getPeriodEnd() != null) {
+            return last.getPeriodEnd().plusDays(1);
+        }
+
+        LocalDate payDate = last.getPaymentDate() != null
+            ? last.getPaymentDate()
+            : (last.getCreatedAt() != null ? last.getCreatedAt().toLocalDate() : base);
+        return payDate.plusMonths(1);
+    }
+
+    private Payment findLastPaymentForEnrollment(StudentGroup enrollment, Long studentId) {
+        if (enrollment != null && enrollment.getId() != null) {
+            Payment bySg = paymentRepository
+                .findFirstByStudentGroup_IdAndPeriodEndIsNotNullOrderByPeriodEndDesc(enrollment.getId())
+                .orElse(null);
+            if (bySg != null) {
+                return bySg;
+            }
+            Payment anySg = paymentRepository
+                .findFirstByStudentGroup_IdOrderByPaymentDateDesc(enrollment.getId())
+                .orElse(null);
+            if (anySg != null) {
+                return anySg;
+            }
+        }
+        return paymentRepository
+            .findFirstByStudent_IdAndPeriodEndIsNotNullOrderByPeriodEndDesc(studentId)
+            .or(() -> paymentRepository.findFirstByStudent_IdOrderByPaymentDateDesc(studentId))
+            .orElse(null);
     }
 
     /** Legacy signature — prefers paymentStartDate over joinDate. */
@@ -161,6 +224,12 @@ public class PaymentScheduleService {
             return base != null ? base : LocalDate.now();
         }
         return calculateNextPaymentDate(student, enrollment);
+    }
+
+    private static String studentFullName(Student student) {
+        return (student.getFirstName() != null ? student.getFirstName() : "")
+            + " "
+            + (student.getLastName() != null ? student.getLastName() : "");
     }
 
     public PaymentStatus resolvePaymentStatus(Student student, StudentGroup enrollment, LocalDate nextPaymentDate) {
@@ -414,6 +483,68 @@ public class PaymentScheduleService {
     }
 
     @Transactional
+    public Map<String, Integer> fixPaymentPeriods() {
+        List<Payment> missing = paymentRepository.findWithMissingPeriods();
+        int paymentsFixed = 0;
+
+        for (Payment p : missing) {
+            LocalDate periodStart = p.getPeriodStart();
+            LocalDate periodEnd = p.getPeriodEnd();
+
+            if (periodStart == null) {
+                periodStart = p.getPaymentDate() != null
+                    ? p.getPaymentDate()
+                    : (p.getCreatedAt() != null
+                        ? p.getCreatedAt().toLocalDate()
+                        : LocalDate.now());
+            }
+
+            if (periodEnd == null) {
+                BigDecimal fee = BigDecimal.ZERO;
+                StudentGroup sg = p.getStudentGroup();
+                if (sg == null && p.getStudent() != null) {
+                    sg = studentGroupRepository.findByStudentIdAndIsActiveTrue(p.getStudent().getId())
+                        .stream().findFirst().orElse(null);
+                }
+                if (sg != null) {
+                    fee = resolveMonthlyFee(sg);
+                } else if (p.getStudent() != null && p.getStudent().getMonthlyFee() != null) {
+                    fee = p.getStudent().getMonthlyFee();
+                }
+
+                int months = 1;
+                if (fee != null && fee.compareTo(BigDecimal.ZERO) > 0 && p.getAmount() != null) {
+                    months = p.getAmount().divide(fee, 0, java.math.RoundingMode.DOWN).intValue();
+                    if (months < 1) {
+                        months = 1;
+                    }
+                }
+                periodEnd = periodStart.plusMonths(months).minusDays(1);
+            }
+
+            p.setPeriodStart(periodStart);
+            p.setPeriodEnd(periodEnd);
+            paymentRepository.save(p);
+            paymentsFixed++;
+        }
+
+        int groupsRecalculated = 0;
+        List<StudentGroup> enrollments = studentGroupRepository.findAllActiveEnrollments();
+        for (StudentGroup sg : enrollments) {
+            if (sg.getStudent() == null) {
+                continue;
+            }
+            recalculate(sg);
+            groupsRecalculated++;
+        }
+
+        return Map.of(
+            "paymentsFixed", paymentsFixed,
+            "groupsRecalculated", groupsRecalculated
+        );
+    }
+
+    @Transactional
     public Map<String, Integer> recalculateAllActiveStudents() {
         int updated = 0;
         int skipped = 0;
@@ -446,7 +577,7 @@ public class PaymentScheduleService {
             if (student.getPaymentStartDate() == null) {
                 student.setPaymentStartDate(resolvePaymentStartDate(student, sg));
             }
-            recalculateForStudent(student);
+            recalculate(sg);
             updated++;
         }
         return Map.of(

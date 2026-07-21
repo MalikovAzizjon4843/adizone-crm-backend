@@ -57,31 +57,13 @@ public class Payment {
     @Enumerated(EnumType.STRING)
     private PaymentStatus status = PaymentStatus.PAID;
 
+    /** To'lov davri boshi (DB: period_from). */
     @Column(name = "period_from")
-    private LocalDate periodFrom;
+    private LocalDate periodStart;
 
+    /** To'lov davri oxiri (DB: period_to). */
     @Column(name = "period_to")
-    private LocalDate periodTo;
-
-    /** Alias: periodStart = periodFrom (to'lov davri boshi). */
-    @Transient
-    public LocalDate getPeriodStart() {
-        return periodFrom;
-    }
-
-    public void setPeriodStart(LocalDate periodStart) {
-        this.periodFrom = periodStart;
-    }
-
-    /** Alias: periodEnd = periodTo (to'lov davri oxiri). */
-    @Transient
-    public LocalDate getPeriodEnd() {
-        return periodTo;
-    }
-
-    public void setPeriodEnd(LocalDate periodEnd) {
-        this.periodTo = periodEnd;
-    }
+    private LocalDate periodEnd;
 
     @Column(length = 500)
     private String description;
@@ -107,6 +89,26 @@ public class Payment {
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    /** API compatibility alias. */
+    @Transient
+    public LocalDate getPeriodFrom() {
+        return periodStart;
+    }
+
+    public void setPeriodFrom(LocalDate periodFrom) {
+        this.periodStart = periodFrom;
+    }
+
+    /** API compatibility alias. */
+    @Transient
+    public LocalDate getPeriodTo() {
+        return periodEnd;
+    }
+
+    public void setPeriodTo(LocalDate periodTo) {
+        this.periodEnd = periodTo;
+    }
 
     @PrePersist
     protected void onCreate() {

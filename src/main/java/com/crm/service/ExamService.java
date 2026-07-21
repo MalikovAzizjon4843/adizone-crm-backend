@@ -130,11 +130,11 @@ public class ExamService {
         result.put("examName", exam.getExamName());
 
         Optional<Payment> lastPayment = paymentRepository
-            .findFirstByStudent_IdAndPeriodToIsNotNullOrderByPeriodToDesc(studentId);
+            .findFirstByStudent_IdAndPeriodEndIsNotNullOrderByPeriodEndDesc(studentId);
 
-        if (lastPayment.isPresent() && lastPayment.get().getPeriodTo() != null
+        if (lastPayment.isPresent() && lastPayment.get().getPeriodEnd() != null
             && exam.getExamDate() != null) {
-            LocalDate periodEnd = lastPayment.get().getPeriodTo();
+            LocalDate periodEnd = lastPayment.get().getPeriodEnd();
             result.put("lastPaidUntil", periodEnd);
 
             if (periodEnd.isBefore(exam.getExamDate())) {
