@@ -1,5 +1,7 @@
 package com.crm.entity;
 
+import com.crm.entity.converter.LeadStatusConverter;
+import com.crm.entity.enums.LeadStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
@@ -39,8 +41,9 @@ public class Lead {
     @Column(length = 20)
     private String format;
 
-    @Column(length = 20)
-    private String status = "NEW";
+    @Convert(converter = LeadStatusConverter.class)
+    @Column(length = 30, nullable = false)
+    private LeadStatus status = LeadStatus.NEW;
 
     @Column(length = 30)
     private String source = "WEBSITE";
@@ -59,6 +62,13 @@ public class Lead {
     @JoinColumn(name = "created_by")
     private User createdBy;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assigned_user_id")
+    private User assignedUser;
+
+    @Column(name = "assigned_at")
+    private LocalDateTime assignedAt;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -70,7 +80,7 @@ public class Lead {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
         if (status == null) {
-            status = "NEW";
+            status = LeadStatus.NEW;
         }
         if (source == null) {
             source = "WEBSITE";
