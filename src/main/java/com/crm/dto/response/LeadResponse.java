@@ -1,5 +1,6 @@
 package com.crm.dto.response;
 
+import com.crm.entity.enums.LeadStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -20,12 +21,17 @@ public class LeadResponse {
     private String address;
     private String course;
     private String format;
-    private String status;
+    private LeadStatus status;
     private String source;
     private String notes;
     private Boolean converted;
     private Long studentId;
     private String studentName;
+    private Long assignedUserId;
+    private String assignedUserName;
+    private LocalDateTime assignedAt;
+    private long commentsCount;
+    private String lastCommentText;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

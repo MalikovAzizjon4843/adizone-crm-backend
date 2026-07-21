@@ -2,6 +2,7 @@ package com.crm.controller;
 
 import com.crm.dto.response.ApiResponse;
 import com.crm.service.GroupService;
+import com.crm.service.LeadService;
 import com.crm.service.PaymentScheduleService;
 import com.crm.service.TeacherService;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ public class AdminRepairController {
     private final TeacherService teacherService;
     private final GroupService groupService;
     private final PaymentScheduleService paymentScheduleService;
+    private final LeadService leadService;
 
     @PostMapping("/link-teacher-users")
     public ResponseEntity<ApiResponse<Map<String, Object>>> linkTeacherUsers() {
@@ -42,5 +44,19 @@ public class AdminRepairController {
         return ResponseEntity.ok(ApiResponse.success(
             "To'lov sanalari qayta hisoblandi",
             paymentScheduleService.recalculateAllActiveStudents()));
+    }
+
+    @PostMapping("/fix-payment-periods")
+    public ResponseEntity<ApiResponse<Map<String, Integer>>> fixPaymentPeriods() {
+        return ResponseEntity.ok(ApiResponse.success(
+            "To'lov davrlari tuzatildi",
+            paymentScheduleService.fixPaymentPeriods()));
+    }
+
+    @PostMapping("/migrate-lead-statuses")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> migrateLeadStatuses() {
+        return ResponseEntity.ok(ApiResponse.success(
+            "Lead statuslari yangilandi",
+            leadService.migrateLeadStatuses()));
     }
 }

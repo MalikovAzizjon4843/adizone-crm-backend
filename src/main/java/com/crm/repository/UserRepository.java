@@ -5,6 +5,7 @@ import com.crm.entity.enums.UserRole;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,6 +17,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByEmail(String email);
     List<User> findByIsActiveTrue();
     List<User> findByRole(UserRole role);
+
+    List<User> findByRoleInAndIsActiveTrueOrderByFirstNameAscLastNameAsc(Collection<UserRole> roles);
     List<User> findByFirstNameAndLastNameAndRole(
         String firstName, String lastName, UserRole role);
     Optional<User> findByPhoneAndRole(String phone, UserRole role);
