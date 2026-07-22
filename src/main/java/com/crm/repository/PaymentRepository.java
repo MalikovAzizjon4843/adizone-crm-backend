@@ -34,6 +34,38 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
            "ORDER BY EXTRACT(YEAR FROM p.paymentDate), EXTRACT(MONTH FROM p.paymentDate)")
     List<Object[]> getMonthlyRevenue(@Param("from") LocalDate from);
 
+    @Query(value = """
+        SELECT CAST(p.payment_date AS date) AS bucket_date, COALESCE(SUM(p.amount), 0) AS amount
+        FROM payments p
+        WHERE p.status = 'PAID'
+          AND p.payment_date BETWEEN :from AND :to
+        GROUP BY CAST(p.payment_date AS date)
+        ORDER BY CAST(p.payment_date AS date)
+        """, nativeQuery = true)
+    List<Object[]> getDailyRevenueBuckets(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    @Query(value = """
+        SELECT CAST(DATE_TRUNC('month', p.payment_date) AS date) AS bucket_date,
+               COALESCE(SUM(p.amount), 0) AS amount
+        FROM payments p
+        WHERE p.status = 'PAID'
+          AND p.payment_date BETWEEN :from AND :to
+        GROUP BY DATE_TRUNC('month', p.payment_date)
+        ORDER BY DATE_TRUNC('month', p.payment_date)
+        """, nativeQuery = true)
+    List<Object[]> getMonthlyRevenueBuckets(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    @Query(value = """
+        SELECT CAST(DATE_TRUNC('year', p.payment_date) AS date) AS bucket_date,
+               COALESCE(SUM(p.amount), 0) AS amount
+        FROM payments p
+        WHERE p.status = 'PAID'
+          AND p.payment_date BETWEEN :from AND :to
+        GROUP BY DATE_TRUNC('year', p.payment_date)
+        ORDER BY DATE_TRUNC('year', p.payment_date)
+        """, nativeQuery = true)
+    List<Object[]> getYearlyRevenueBuckets(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
     @Query("SELECT p FROM Payment p WHERE p.paymentDate BETWEEN :from AND :to ORDER BY p.paymentDate DESC")
     List<Payment> findByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);
 

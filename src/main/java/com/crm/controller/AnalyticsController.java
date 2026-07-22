@@ -21,8 +21,16 @@ public class AnalyticsController {
 
     @GetMapping("/revenue")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getRevenue(
-            @RequestParam(defaultValue = "6") int months) {
-        return ResponseEntity.ok(ApiResponse.success(analyticsService.getRevenueAnalytics(months)));
+            @RequestParam(required = false) String period,
+            @RequestParam(required = false) Integer count,
+            @RequestParam(required = false) Integer months) {
+        // Backward compatibility: ?months=6 implies monthly revenue for 6 months.
+        if (months != null && (period == null || period.isBlank()) && count == null) {
+            return ResponseEntity.ok(ApiResponse.success(
+                analyticsService.getRevenueAnalytics("monthly", months)));
+        }
+        return ResponseEntity.ok(ApiResponse.success(
+            analyticsService.getRevenueAnalytics(period, count)));
     }
 
     @GetMapping("/students")

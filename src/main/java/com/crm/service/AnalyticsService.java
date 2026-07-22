@@ -13,6 +13,7 @@ import com.crm.entity.enums.MarketingSource;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -32,6 +33,8 @@ public class AnalyticsService {
     private final PayrollRepository payrollRepository;
     private final NoticeRepository noticeRepository;
     private final CourseRepository courseRepository;
+    private static final DateTimeFormatter MONTH_LABEL = DateTimeFormatter.ofPattern("yyyy-MM");
+    private static final DateTimeFormatter YEAR_LABEL = DateTimeFormatter.ofPattern("yyyy");
 
     @Transactional(readOnly = true)
     public DashboardResponse getDashboard() {
@@ -148,55 +151,121 @@ public class AnalyticsService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getRevenueAnalytics(int months) {
-        months = Math.min(Math.max(months, 1), 36);
-        LocalDate now = LocalDate.now();
-        LocalDate from = now.minusMonths(months - 1L).withDayOfMonth(1);
+        return getRevenueAnalytics("monthly", months);
+    }
 
-        Map<String, BigDecimal> revenueByKey = new HashMap<>();
-        paymentRepository.getMonthlyRevenue(from).forEach(row -> {
-            int m = ((Number) row[0]).intValue();
-            int y = ((Number) row[1]).intValue();
-            BigDecimal sum = (BigDecimal) row[2];
-            revenueByKey.merge(key(y, m), sum, BigDecimal::add);
-        });
+    @Transactional(readOnly = true)
+    public Map<String, Object> getRevenueAnalytics(String period, Integer count) {
+        String normalized = normalizePeriod(period);
+        int safeCount = normalizeCount(normalized, count);
+        LocalDate today = LocalDate.now();
+        LocalDate from = switch (normalized) {
+            case "daily" -> today.minusDays(safeCount - 1L);
+            case "yearly" -> today.minusYears(safeCount - 1L).withDayOfYear(1);
+            default -> today.minusMonths(safeCount - 1L).withDayOfMonth(1);
+        };
+        LocalDate to = today;
 
-        Map<String, BigDecimal> expenseByKey = new HashMap<>();
-        expenseRepository.getMonthlyExpenses(from).forEach(row -> {
-            int m = ((Number) row[0]).intValue();
-            int y = ((Number) row[1]).intValue();
-            BigDecimal sum = (BigDecimal) row[2];
-            expenseByKey.merge(key(y, m), sum, BigDecimal::add);
-        });
+        Map<LocalDate, BigDecimal> amounts = loadRevenueBuckets(normalized, from, to);
+        List<Map<String, Object>> points = new ArrayList<>();
 
-        List<Map<String, Object>> series = new ArrayList<>();
-        YearMonth cursor = YearMonth.from(from);
-        YearMonth end = YearMonth.from(now);
-        while (!cursor.isAfter(end)) {
-            int y = cursor.getYear();
-            int m = cursor.getMonthValue();
-            String k = key(y, m);
-            BigDecimal rev = revenueByKey.getOrDefault(k, BigDecimal.ZERO);
-            BigDecimal exp = expenseByKey.getOrDefault(k, BigDecimal.ZERO);
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("month", m);
-            row.put("year", y);
-            row.put("revenue", rev);
-            row.put("expenses", exp);
-            row.put("profit", rev.subtract(exp));
-            series.add(row);
-            cursor = cursor.plusMonths(1);
+        switch (normalized) {
+            case "daily" -> {
+                LocalDate cursor = from;
+                while (!cursor.isAfter(to)) {
+                    points.add(point(cursor.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                        amounts.getOrDefault(cursor, BigDecimal.ZERO)));
+                    cursor = cursor.plusDays(1);
+                }
+            }
+            case "yearly" -> {
+                LocalDate cursor = from.withDayOfYear(1);
+                LocalDate end = to.withDayOfYear(1);
+                while (!cursor.isAfter(end)) {
+                    points.add(point(cursor.format(YEAR_LABEL),
+                        amounts.getOrDefault(cursor, BigDecimal.ZERO)));
+                    cursor = cursor.plusYears(1);
+                }
+            }
+            default -> {
+                YearMonth cursor = YearMonth.from(from);
+                YearMonth end = YearMonth.from(to);
+                while (!cursor.isAfter(end)) {
+                    LocalDate bucket = cursor.atDay(1);
+                    points.add(point(bucket.format(MONTH_LABEL),
+                        amounts.getOrDefault(bucket, BigDecimal.ZERO)));
+                    cursor = cursor.plusMonths(1);
+                }
+            }
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("monthly", series);
-        result.put("totalRevenue", series.stream()
-            .map(r -> (BigDecimal) r.get("revenue"))
-            .reduce(BigDecimal.ZERO, BigDecimal::add));
+        result.put("period", normalized);
+        result.put("points", points);
         return result;
     }
 
-    private static String key(int year, int month) {
-        return year + "-" + month;
+    private Map<LocalDate, BigDecimal> loadRevenueBuckets(String period, LocalDate from, LocalDate to) {
+        List<Object[]> rows = switch (period) {
+            case "daily" -> paymentRepository.getDailyRevenueBuckets(from, to);
+            case "yearly" -> paymentRepository.getYearlyRevenueBuckets(from, to);
+            default -> paymentRepository.getMonthlyRevenueBuckets(from, to);
+        };
+        Map<LocalDate, BigDecimal> amounts = new HashMap<>();
+        for (Object[] row : rows) {
+            LocalDate bucket = toLocalDate(row[0]);
+            BigDecimal amount = row[1] instanceof BigDecimal bd
+                ? bd
+                : BigDecimal.valueOf(((Number) row[1]).doubleValue());
+            amounts.put(bucket, amount);
+        }
+        return amounts;
+    }
+
+    private static LocalDate toLocalDate(Object value) {
+        if (value instanceof java.sql.Date date) {
+            return date.toLocalDate();
+        }
+        if (value instanceof java.sql.Timestamp ts) {
+            return ts.toLocalDateTime().toLocalDate();
+        }
+        if (value instanceof LocalDate date) {
+            return date;
+        }
+        return LocalDate.parse(String.valueOf(value).substring(0, 10));
+    }
+
+    private static Map<String, Object> point(String label, BigDecimal amount) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("label", label);
+        row.put("amount", amount);
+        return row;
+    }
+
+    private static String normalizePeriod(String period) {
+        if (period == null || period.isBlank()) {
+            return "monthly";
+        }
+        String normalized = period.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "daily", "monthly", "yearly" -> normalized;
+            default -> "monthly";
+        };
+    }
+
+    private static int normalizeCount(String period, Integer count) {
+        int fallback = switch (period) {
+            case "daily" -> 30;
+            case "yearly" -> 3;
+            default -> 6;
+        };
+        int max = switch (period) {
+            case "daily" -> 365;
+            case "yearly" -> 10;
+            default -> 36;
+        };
+        int value = count == null ? fallback : count;
+        return Math.min(Math.max(value, 1), max);
     }
 
     @Transactional(readOnly = true)
