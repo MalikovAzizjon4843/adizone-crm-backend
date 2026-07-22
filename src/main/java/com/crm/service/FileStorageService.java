@@ -56,7 +56,7 @@ public class FileStorageService {
         try (InputStream in = file.getInputStream()) {
             Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
         }
-        return baseUrl + "/api/files/" + filename;
+        return "/api/files/" + filename;
     }
 
     public Path resolveSafePath(String filename) throws IOException {

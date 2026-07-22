@@ -182,7 +182,7 @@ public class UserController {
             String filename = UUID.randomUUID() + "_user_" + id + ".jpg";
             String photoUrl = fileStorageService.saveImage(file, filename);
             user.setPhotoUrl(photoUrl);
-            userRepository.save(user);
+            user = userRepository.saveAndFlush(user);
             return ResponseEntity.ok(ApiResponse.success("Rasm saqlandi", toResponse(user)));
         } catch (Exception e) {
             if (e instanceof BadRequestException) {

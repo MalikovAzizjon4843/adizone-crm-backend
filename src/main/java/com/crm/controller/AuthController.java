@@ -117,6 +117,7 @@ public class AuthController {
     }
 
     @PostMapping("/profile/photo")
+    @org.springframework.transaction.annotation.Transactional
     public ResponseEntity<ApiResponse<UserResponse>> uploadProfilePhoto(
             @RequestParam("file") MultipartFile file,
             @AuthenticationPrincipal UserDetails userDetails) {
@@ -126,14 +127,14 @@ public class AuthController {
             String filename = UUID.randomUUID() + "_profile_" + user.getId() + ".jpg";
             String photoUrl = fileStorageService.saveImage(file, filename);
             user.setPhotoUrl(photoUrl);
-            userRepository.save(user);
+            user = userRepository.saveAndFlush(user);
             return ResponseEntity.ok(ApiResponse.success("Rasm saqlandi",
                     authService.getCurrentUser(user.getUsername())));
         } catch (Exception e) {
             if (e instanceof BadRequestException) {
                 throw (BadRequestException) e;
             }
-            throw new BadRequestException("Rasm yuklashda xatolik");
+            throw new BadRequestException("Rasm yuklashda xatolik: " + e.getMessage());
         }
     }
 
