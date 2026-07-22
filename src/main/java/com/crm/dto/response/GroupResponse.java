@@ -24,6 +24,10 @@ public class GroupResponse {
     private String room;
     private Long classroomId;
     private String classroomName;
+    /** Effektive oylik narx: course.monthlyPrice (Group o'z narxiga ega emas). */
+    private BigDecimal monthlyFee;
+    /** Kurs narxi (ma'lumot / fallback manbasi). */
+    private BigDecimal coursePrice;
     private Integer maxStudents;
     private Integer currentStudents;
     private LocalDate startDate;

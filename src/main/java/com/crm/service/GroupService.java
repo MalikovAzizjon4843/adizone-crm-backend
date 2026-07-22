@@ -31,6 +31,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -56,12 +57,15 @@ public class GroupService {
         List<Group> groups = status != null
             ? groupRepository.findByStatus(status)
             : groupRepository.findAll();
-        return groups.stream().map(g -> toResponse(g, false)).collect(Collectors.toList());
+        Map<Long, Integer> activeCounts = loadActiveStudentCountsByGroup();
+        return groups.stream()
+            .map(g -> toResponse(g, false, activeCounts.getOrDefault(g.getId(), 0)))
+            .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public GroupResponse getGroupById(Long id) {
-        return toResponse(findById(id), true);
+        return toResponse(findById(id), true, null);
     }
 
     @Transactional(readOnly = true)
@@ -116,7 +120,7 @@ public class GroupService {
             saveScheduleDays(saved, resolved);
         }
 
-        return toResponse(groupRepository.findById(saved.getId()).orElse(saved), false);
+        return toResponse(groupRepository.findById(saved.getId()).orElse(saved), false, null);
     }
 
     @Transactional
@@ -150,7 +154,7 @@ public class GroupService {
             }
         }
 
-        return toResponse(saved, false);
+        return toResponse(saved, false, null);
     }
 
     /**
@@ -378,7 +382,7 @@ public class GroupService {
                 ". Ruxsat etilgan: FORMING, ACTIVE, COMPLETED, CANCELLED");
         }
         group.setStatus(parsed);
-        return toResponse(groupRepository.save(group), false);
+        return toResponse(groupRepository.save(group), false, null);
     }
 
     @Transactional
@@ -441,7 +445,10 @@ public class GroupService {
             .build();
 
         studentGroupRepository.save(sg);
-        paymentScheduleService.recalculateForStudent(student);
+        studentGroupRepository.flush();
+        LocalDate studentNext = paymentScheduleService.recalculateForStudent(student);
+        log.info("addStudentToGroup student={} sg={} paymentStart={} → student.nextPaymentDate={}",
+            student.getId(), sg.getId(), paymentStart, studentNext);
     }
 
     @Transactional
@@ -541,16 +548,28 @@ public class GroupService {
         }
     }
 
-    private GroupResponse toResponse(Group g, boolean includeMembers) {
+    private Map<Long, Integer> loadActiveStudentCountsByGroup() {
+        Map<Long, Integer> counts = new HashMap<>();
+        for (Object[] row : studentGroupRepository.countActiveStudentsGroupedByGroupId()) {
+            Long groupId = row[0] instanceof Number n ? n.longValue() : null;
+            int count = row[1] instanceof Number n ? n.intValue() : 0;
+            if (groupId != null) {
+                counts.put(groupId, count);
+            }
+        }
+        return counts;
+    }
+
+    private GroupResponse toResponse(Group g, boolean includeMembers, Integer currentStudentsOverride) {
         List<GroupScheduleDay> savedDays =
             groupScheduleDayRepository.findByGroup_IdOrderByDayOfWeekAsc(g.getId());
         List<ScheduleResponse> schedules = mapToScheduleResponses(savedDays);
         List<GroupResponse.ScheduleDayResponse> scheduleDays = mapToScheduleDayResponses(savedDays);
 
         List<GroupResponse.StudentSummary> members = null;
-        Integer currentForResponse = g.getCurrentStudents();
+        int currentForResponse;
         if (includeMembers) {
-            List<StudentGroup> activeInGroup = studentGroupRepository.findByGroupIdAndIsActiveTrue(g.getId());
+            List<StudentGroup> activeInGroup = studentGroupRepository.findActiveByGroupId(g.getId());
             currentForResponse = activeInGroup.size();
             members = activeInGroup.stream()
                 .map(sg -> {
@@ -587,6 +606,21 @@ public class GroupService {
                         .build();
                 })
                 .collect(Collectors.toList());
+        } else if (currentStudentsOverride != null) {
+            currentForResponse = currentStudentsOverride;
+        } else {
+            currentForResponse = (int) studentGroupRepository.countByGroupIdAndIsActiveTrue(g.getId());
+        }
+
+        BigDecimal coursePrice = g.getCourse() != null && g.getCourse().getMonthlyPrice() != null
+            ? g.getCourse().getMonthlyPrice()
+            : BigDecimal.ZERO;
+        // Group o'z monthlyFee maydoniga ega emas — narx Course.monthlyPrice da
+        BigDecimal monthlyFee = coursePrice;
+
+        if (coursePrice.compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("Group id={} name='{}' coursePrice=0 — kurs narxi to'ldirilmagan",
+                g.getId(), g.getGroupName());
         }
 
         return GroupResponse.builder()
@@ -601,6 +635,8 @@ public class GroupService {
             .room(g.getRoom())
             .classroomId(g.getClassroom() != null ? g.getClassroom().getId() : null)
             .classroomName(g.getClassroom() != null ? classroomDisplayName(g.getClassroom()) : null)
+            .monthlyFee(monthlyFee)
+            .coursePrice(coursePrice)
             .maxStudents(g.getMaxStudents())
             .currentStudents(currentForResponse)
             .startDate(g.getStartDate())
