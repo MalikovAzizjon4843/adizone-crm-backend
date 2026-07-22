@@ -2,10 +2,12 @@ package com.crm.controller;
 
 import com.crm.dto.request.LeadAssignRequest;
 import com.crm.dto.request.LeadCommentRequest;
+import com.crm.dto.request.LeadConvertRequest;
 import com.crm.dto.request.LeadRequest;
 import com.crm.dto.request.LeadStatusRequest;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.LeadCommentResponse;
+import com.crm.dto.response.LeadConvertResponse;
 import com.crm.dto.response.LeadOperatorResponse;
 import com.crm.dto.response.LeadResponse;
 import com.crm.dto.response.LeadStatsResponse;
@@ -107,11 +109,11 @@ public class LeadController {
 
     @PostMapping("/{id:\\d+}/convert")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<ApiResponse<LeadResponse>> convertToStudent(
+    public ResponseEntity<ApiResponse<LeadConvertResponse>> convertToStudent(
             @PathVariable Long id,
-            @RequestParam(required = false) Long groupId) {
+            @RequestBody(required = false) LeadConvertRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(
                 "O'quvchiga o'tkazildi",
-                leadService.convertToStudent(id, groupId)));
+                leadService.convertToStudent(id, request)));
     }
 }

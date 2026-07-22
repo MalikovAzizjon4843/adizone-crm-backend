@@ -12,6 +12,7 @@ public class LeadRequest {
     @NotBlank(message = "Telefon majburiy")
     private String phone;
 
+    private String parentPhone;
     private String address;
     private String course;
     private String format;

@@ -32,6 +32,9 @@ public class Lead {
     @Column(nullable = false, length = 20)
     private String phone;
 
+    @Column(name = "parent_phone", length = 32)
+    private String parentPhone;
+
     @Column(length = 255)
     private String address;
 

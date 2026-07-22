@@ -15,6 +15,12 @@ import java.util.Map;
 @AllArgsConstructor
 public class LeadStatsResponse {
     private long total;
+    /** Frontend: yangi lidlar */
+    @com.fasterxml.jackson.annotation.JsonProperty("new")
+    private long newCount;
+    /** Frontend: o'quvchiga aylanganlar (status=CONVERTED) */
+    private long converted;
+    private long rejected;
     private Map<LeadStatus, Long> byStatus;
     private List<LeadOperatorStatsResponse> byOperator;
     private long unassigned;

@@ -19,6 +19,8 @@ public interface LeadRepository extends JpaRepository<Lead, Long>, JpaSpecificat
 
     long countByStatus(LeadStatus status);
 
+    long countByConvertedTrue();
+
     long countByAssignedUserIsNull();
 
     @Query("SELECT l.status, COUNT(l) FROM Lead l GROUP BY l.status")

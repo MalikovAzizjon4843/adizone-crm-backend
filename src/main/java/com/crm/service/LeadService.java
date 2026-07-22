@@ -2,18 +2,19 @@ package com.crm.service;
 
 import com.crm.dto.request.LeadAssignRequest;
 import com.crm.dto.request.LeadCommentRequest;
+import com.crm.dto.request.LeadConvertRequest;
 import com.crm.dto.request.LeadRequest;
+import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.response.LeadCommentResponse;
+import com.crm.dto.response.LeadConvertResponse;
 import com.crm.dto.response.LeadOperatorResponse;
 import com.crm.dto.response.LeadOperatorStatsResponse;
 import com.crm.dto.response.LeadResponse;
 import com.crm.dto.response.LeadStatsResponse;
 import com.crm.dto.response.PageResponse;
-import com.crm.entity.Group;
 import com.crm.entity.Lead;
 import com.crm.entity.LeadComment;
 import com.crm.entity.Student;
-import com.crm.entity.StudentGroup;
 import com.crm.entity.User;
 import com.crm.entity.enums.LeadStatus;
 import com.crm.entity.enums.MarketingSource;
@@ -21,14 +22,14 @@ import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
-import com.crm.repository.GroupRepository;
 import com.crm.repository.LeadCommentRepository;
 import com.crm.repository.LeadRepository;
-import com.crm.repository.StudentGroupRepository;
 import com.crm.repository.StudentRepository;
 import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -50,6 +51,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class LeadService {
 
     private static final String PAYMENT_COMMENT_TEXT = "To'lov qabul qilindi";
@@ -57,9 +59,8 @@ public class LeadService {
     private final LeadRepository leadRepository;
     private final LeadCommentRepository leadCommentRepository;
     private final StudentRepository studentRepository;
-    private final GroupRepository groupRepository;
-    private final StudentGroupRepository studentGroupRepository;
-    private final PaymentScheduleService paymentScheduleService;
+    private final StudentService studentService;
+    private final GroupService groupService;
     private final UserRepository userRepository;
 
     @Transactional
@@ -67,6 +68,7 @@ public class LeadService {
         Lead lead = Lead.builder()
                 .fullName(request.getFullName())
                 .phone(request.getPhone())
+                .parentPhone(request.getParentPhone())
                 .address(request.getAddress())
                 .course(request.getCourse())
                 .format(request.getFormat() != null
@@ -187,18 +189,21 @@ public class LeadService {
     }
 
     @Transactional
-    public LeadResponse convertToStudent(Long id) {
-        return convertToStudent(id, null);
-    }
-
-    @Transactional
-    public LeadResponse convertToStudent(Long id, Long groupId) {
+    public LeadConvertResponse convertToStudent(Long id, LeadConvertRequest request) {
         Lead lead = leadRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Lead", id));
 
-        if (Boolean.TRUE.equals(lead.getConverted()) && lead.getStudent() != null) {
-            lead.setStatus(LeadStatus.CONVERTED);
-            return toResponse(leadRepository.save(lead));
+        if (Boolean.TRUE.equals(lead.getConverted())
+                || lead.getStatus() == LeadStatus.CONVERTED
+                || lead.getStudent() != null) {
+            throw new BadRequestException("Bu lid allaqachon o'quvchiga aylantirilgan");
+        }
+
+        LeadConvertRequest body = request != null ? request : new LeadConvertRequest();
+
+        if (studentRepository.findByPhone(lead.getPhone()).isPresent()) {
+            throw new DuplicateResourceException(
+                "Student with phone already exists: " + lead.getPhone());
         }
 
         String fullName = lead.getFullName() != null ? lead.getFullName().trim() : "";
@@ -208,48 +213,49 @@ public class LeadService {
 
         Student student = Student.builder()
                 .firstName(firstName)
-                .lastName(lastName)
+                .lastName(lastName.isBlank() ? "-" : lastName)
                 .phone(lead.getPhone())
+                .address(lead.getAddress())
+                .notes(lead.getNotes())
                 .status(StudentStatus.ACTIVE)
                 .admissionDate(LocalDate.now())
-                .admissionNumber("ADM-" + String.format("%05d",
-                        studentRepository.count() + 1))
+                .admissionNumber(studentService.generateNextAdmissionNumber())
+                .convertedFromLeadId(lead.getId())
                 .marketingSource(parseMarketingSource(lead.getSource()))
+                .paymentStatus(PaymentStatus.PENDING)
                 .build();
         student = studentRepository.save(student);
 
-        if (groupId != null) {
-            Group group = groupRepository.findById(groupId).orElse(null);
-            if (group != null) {
-                LocalDate today = LocalDate.now();
-                java.math.BigDecimal fee = group.getCourse() != null && group.getCourse().getMonthlyPrice() != null
-                    ? group.getCourse().getMonthlyPrice() : java.math.BigDecimal.ZERO;
-                student.setPaymentStartDate(today);
-                student.setMonthlyFee(fee);
-                student.setPaymentStatus(PaymentStatus.PENDING);
-                student = studentRepository.save(student);
+        studentService.syncParentFromPhone(student, lead.getParentPhone(), lead.getAddress());
 
-                StudentGroup sg = StudentGroup.builder()
-                        .student(student)
-                        .group(group)
-                        .joinDate(today)
-                        .paymentStartDate(today)
-                        .nextPaymentDate(today)
-                        .isTrial(false)
-                        .isActive(true)
-                        .monthlyPriceOverride(fee)
-                        .paymentStatus("PENDING")
-                        .lessonsAttended(0)
-                        .build();
-                studentGroupRepository.save(sg);
-                paymentScheduleService.recalculateForStudent(student);
-            }
+        if (body.getGroupId() != null) {
+            StudentGroupRequest groupRequest = new StudentGroupRequest();
+            groupRequest.setStudentId(student.getId());
+            groupRequest.setGroupId(body.getGroupId());
+            groupRequest.setJoinDate(LocalDate.now());
+            groupRequest.setPaymentStartDate(
+                body.getPaymentStartDate() != null ? body.getPaymentStartDate() : LocalDate.now());
+            groupRequest.setMonthlyFee(body.getMonthlyFee());
+            groupRequest.setIsTrial(body.getIsTrial());
+            groupService.addStudentToGroup(groupRequest);
         }
+
+        Long studentId = student.getId();
+        student = studentRepository.findById(studentId)
+            .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
 
         lead.setStudent(student);
         lead.setConverted(true);
         lead.setStatus(LeadStatus.CONVERTED);
-        return toResponse(leadRepository.save(lead));
+        leadRepository.save(lead);
+
+        return LeadConvertResponse.builder()
+            .id(student.getId())
+            .admissionNumber(student.getAdmissionNumber())
+            .paymentStatus(student.getPaymentStatus())
+            .nextPaymentDate(student.getNextPaymentDate())
+            .leadId(lead.getId())
+            .build();
     }
 
     @Transactional(readOnly = true)
@@ -262,8 +268,25 @@ public class LeadService {
             LeadStatus status = row[0] instanceof LeadStatus
                     ? (LeadStatus) row[0]
                     : LeadStatus.fromString(row[0] != null ? row[0].toString() : null);
-            byStatus.put(status, (Long) row[1]);
+            long count = row[1] instanceof Number n ? n.longValue() : 0L;
+            byStatus.merge(status, count, Long::sum);
         });
+
+        long convertedByStatus = leadRepository.countByStatus(LeadStatus.CONVERTED);
+        long convertedByFlag = leadRepository.countByConvertedTrue();
+        // Yagona manba: status=CONVERTED (convert oqimi ikkalasini ham yozadi)
+        long converted = convertedByStatus;
+        byStatus.put(LeadStatus.CONVERTED, converted);
+
+        long newCount = byStatus.getOrDefault(LeadStatus.NEW, 0L);
+        long rejected = byStatus.getOrDefault(LeadStatus.REJECTED, 0L);
+
+        log.info("Lead stats: CONVERTED(status)={}, converted(flag)={}, NEW={}, REJECTED={}, total={}",
+            convertedByStatus, convertedByFlag, newCount, rejected, leadRepository.count());
+        if (convertedByStatus != convertedByFlag) {
+            log.warn("Lead converted mismatch: status={} vs flag={} — convert oqimi ikkalasini sync qilishi kerak",
+                convertedByStatus, convertedByFlag);
+        }
 
         List<LeadOperatorStatsResponse> byOperator = leadRepository.countByOperatorGrouped().stream()
                 .map(row -> LeadOperatorStatsResponse.builder()
@@ -276,6 +299,9 @@ public class LeadService {
 
         return LeadStatsResponse.builder()
                 .total(leadRepository.count())
+                .newCount(newCount)
+                .converted(converted)
+                .rejected(rejected)
                 .byStatus(byStatus)
                 .byOperator(byOperator)
                 .unassigned(leadRepository.countByAssignedUserIsNull())
@@ -429,6 +455,7 @@ public class LeadService {
                 .uuid(lead.getUuid())
                 .fullName(lead.getFullName())
                 .phone(lead.getPhone())
+                .parentPhone(lead.getParentPhone())
                 .address(lead.getAddress())
                 .course(lead.getCourse())
                 .format(lead.getFormat())

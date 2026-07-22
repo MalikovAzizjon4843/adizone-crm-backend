@@ -18,6 +18,7 @@ public class LeadResponse {
     private UUID uuid;
     private String fullName;
     private String phone;
+    private String parentPhone;
     private String address;
     private String course;
     private String format;

@@ -75,6 +75,9 @@ public class Student extends BaseEntity {
     @Column(name = "admission_date")
     private LocalDate admissionDate;
 
+    @Column(name = "converted_from_lead_id")
+    private Long convertedFromLeadId;
+
     /** To'lov hisoblash boshlanish sanasi (nextPaymentDate shundan). */
     @Column(name = "payment_start_date")
     private LocalDate paymentStartDate;
