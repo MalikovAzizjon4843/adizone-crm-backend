@@ -12,7 +12,6 @@ import com.crm.entity.enums.CashPaymentMethod;
 import com.crm.entity.enums.IncomeCategory;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.PaymentStatus;
-import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
@@ -48,7 +47,6 @@ public class PaymentService {
     private final StudentGroupRepository studentGroupRepository;
     private final IncomeRepository incomeRepository;
     private final UserRepository userRepository;
-    private final StudentPaymentLifecycleService studentPaymentLifecycleService;
     private final CashRegisterService cashRegisterService;
     private final BonusPenaltyService bonusPenaltyService;
     private final PaymentScheduleService paymentScheduleService;
@@ -142,22 +140,8 @@ public class PaymentService {
             saved = paymentRepository.save(saved);
         }
 
-        Long effectiveGroupId = group != null ? group.getId() : null;
-        if (effectiveGroupId != null) {
-            studentPaymentLifecycleService.onPaymentReceived(
-                request.getStudentId(), effectiveGroupId, payDate);
-        }
-
-        applyStudentPaidState(student);
         paymentRepository.flush();
-        if (enrollment != null) {
-            // reload enrollment after lifecycle may have changed it
-            enrollment = studentGroupRepository.findById(enrollment.getId()).orElse(enrollment);
-            paymentScheduleService.recalculate(enrollment);
-        } else {
-            paymentScheduleService.recalculateForStudent(student);
-        }
-        studentRepository.save(student);
+        paymentScheduleService.recalculateForStudent(student);
 
         return toResponse(saved);
     }
@@ -166,10 +150,10 @@ public class PaymentService {
         if (groupId != null) {
             return studentGroupRepository
                 .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, groupId)
-                .orElseGet(() -> studentGroupRepository.findByStudentIdAndIsActiveTrue(studentId)
+                .orElseGet(() -> studentGroupRepository.findActiveByStudentId(studentId)
                     .stream().findFirst().orElse(null));
         }
-        return studentGroupRepository.findByStudentIdAndIsActiveTrue(studentId)
+        return studentGroupRepository.findActiveByStudentId(studentId)
             .stream().findFirst().orElse(null);
     }
 
@@ -214,24 +198,6 @@ public class PaymentService {
         }
 
         return new LocalDate[] { periodStart, periodEnd };
-    }
-
-    private void applyStudentPaidState(Student student) {
-        student.setPaymentStatus(PaymentStatus.PAID);
-
-        if (student.getStatus() == StudentStatus.SUSPENDED
-                || student.getStatus() == StudentStatus.FROZEN) {
-            student.setStatus(StudentStatus.ACTIVE);
-        }
-
-        for (StudentGroup sg : studentGroupRepository.findByStudentIdAndIsActiveTrue(student.getId())) {
-            sg.setSuspendedAt(null);
-            sg.setSuspensionReason(null);
-            sg.setPaymentStatus(PaymentStatus.PAID.name());
-            studentGroupRepository.save(sg);
-        }
-
-        studentRepository.save(student);
     }
 
     @Transactional(readOnly = true)

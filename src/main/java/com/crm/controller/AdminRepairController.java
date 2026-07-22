@@ -40,7 +40,7 @@ public class AdminRepairController {
     }
 
     @PostMapping("/recalculate-payment-dates")
-    public ResponseEntity<ApiResponse<Map<String, Integer>>> recalculatePaymentDates() {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> recalculatePaymentDates() {
         return ResponseEntity.ok(ApiResponse.success(
             "To'lov sanalari qayta hisoblandi",
             paymentScheduleService.recalculateAllActiveStudents()));
