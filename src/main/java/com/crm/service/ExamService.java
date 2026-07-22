@@ -141,7 +141,7 @@ public class ExamService {
                 long days = ChronoUnit.DAYS.between(periodEnd, exam.getExamDate());
                 result.put("unpaidDays", days);
 
-                BigDecimal monthlyPrice = studentGroupRepository.findByStudentIdAndIsActiveTrue(studentId).stream()
+                BigDecimal monthlyPrice = studentGroupRepository.findActiveByStudentId(studentId).stream()
                     .findFirst()
                     .map(sg -> sg.getMonthlyPriceOverride() != null
                         ? sg.getMonthlyPriceOverride()
@@ -184,7 +184,7 @@ public class ExamService {
         if (presentDays < MIN_PRESENT_DAYS_FOR_EXAM) {
             return false;
         }
-        List<StudentGroup> active = studentGroupRepository.findByStudentIdAndIsActiveTrue(studentId);
+        List<StudentGroup> active = studentGroupRepository.findActiveByStudentId(studentId);
         if (active.isEmpty()) {
             return false;
         }

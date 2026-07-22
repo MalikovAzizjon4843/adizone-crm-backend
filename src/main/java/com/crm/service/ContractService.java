@@ -221,7 +221,7 @@ public class ContractService {
 
     private StudentGroup resolveActiveEnrollment(Long studentId) {
         try {
-            return studentGroupRepository.findByStudentIdAndIsActiveTrue(studentId).stream()
+            return studentGroupRepository.findActiveByStudentId(studentId).stream()
                 .findFirst()
                 .orElse(null);
         } catch (Exception e) {
