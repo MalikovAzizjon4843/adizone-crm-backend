@@ -66,4 +66,8 @@ public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpec
     List<Student> findArchivedOrFrozenWithBalanceSignals(@Param("today") LocalDate today);
 
     List<Student> findByStatusIn(List<StudentStatus> statuses);
+
+    @Query(value = "SELECT admission_number FROM students WHERE admission_number LIKE '0-%' "
+           + "ORDER BY admission_number DESC LIMIT 1", nativeQuery = true)
+    Optional<String> findLatestAutoAdmissionNumber();
 }

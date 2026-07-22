@@ -38,7 +38,7 @@ public class ParentService {
 
     @Transactional(readOnly = true)
     public ParentResponse getParentById(Long id) {
-        return toResponse(findById(id), true);
+        return toResponse(findById(id));
     }
 
     @Transactional
@@ -58,7 +58,7 @@ public class ParentService {
                 request.getRelation() != null ? request.getRelation() : parent.getRelation(), true);
         }
 
-        return toResponse(parent, false);
+        return toResponse(parent);
     }
 
     @Transactional
@@ -80,7 +80,7 @@ public class ParentService {
             }
         }
 
-        return toResponse(parent, false);
+        return toResponse(parent);
     }
 
     @Transactional
@@ -93,7 +93,7 @@ public class ParentService {
     @Transactional(readOnly = true)
     public List<ParentResponse> getParentsByStudent(Long studentId) {
         return studentParentRepository.findByStudentId(studentId).stream()
-            .map(sp -> toResponse(sp.getParent(), false))
+            .map(sp -> toResponse(sp.getParent()))
             .collect(Collectors.toList());
     }
 
@@ -138,20 +138,17 @@ public class ParentService {
 
     private PageResponse<ParentResponse> toPageResponse(Page<Parent> p, int page, int size) {
         return PageResponse.<ParentResponse>builder()
-            .content(p.getContent().stream().map(par -> toResponse(par, false)).collect(Collectors.toList()))
+            .content(p.getContent().stream().map(par -> toResponse(par)).collect(Collectors.toList()))
             .pageNumber(page).pageSize(size)
             .totalElements(p.getTotalElements()).totalPages(p.getTotalPages()).last(p.isLast())
             .build();
     }
 
-    private ParentResponse toResponse(Parent p, boolean includeStudents) {
-        List<ParentResponse.LinkedStudentResponse> linkedStudents = null;
-        Long studentId = null;
-        String studentName = null;
-
-        if (includeStudents) {
-            linkedStudents = studentParentRepository.findByParentId(p.getId()).stream()
-                .sorted(Comparator.comparing(StudentParent::getIsPrimary, Comparator.nullsLast(Comparator.reverseOrder())))
+    private ParentResponse toResponse(Parent p) {
+        List<ParentResponse.LinkedStudentResponse> linkedStudents =
+            studentParentRepository.findByParentId(p.getId()).stream()
+                .sorted(Comparator.comparing(StudentParent::getIsPrimary,
+                    Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(sp -> ParentResponse.LinkedStudentResponse.builder()
                     .studentId(sp.getStudent().getId())
                     .firstName(sp.getStudent().getFirstName())
@@ -161,11 +158,13 @@ public class ParentService {
                     .isPrimary(sp.getIsPrimary())
                     .build())
                 .collect(Collectors.toList());
-            if (!linkedStudents.isEmpty()) {
-                ParentResponse.LinkedStudentResponse first = linkedStudents.get(0);
-                studentId = first.getStudentId();
-                studentName = first.getFirstName() + " " + first.getLastName();
-            }
+
+        Long studentId = null;
+        String studentName = null;
+        if (!linkedStudents.isEmpty()) {
+            ParentResponse.LinkedStudentResponse first = linkedStudents.get(0);
+            studentId = first.getStudentId();
+            studentName = first.getFirstName() + " " + first.getLastName();
         }
 
         return ParentResponse.builder()
@@ -177,7 +176,7 @@ public class ParentService {
             .studentId(studentId)
             .studentName(studentName)
             .isActive(p.getIsActive())
-            .linkedStudents(linkedStudents)
+            .linkedStudents(linkedStudents.isEmpty() ? null : linkedStudents)
             .createdAt(p.getCreatedAt())
             .build();
     }

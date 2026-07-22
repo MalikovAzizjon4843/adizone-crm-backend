@@ -1,13 +1,16 @@
 package com.crm.service;
 
+import com.crm.dto.request.StudentParentRequest;
 import com.crm.dto.request.StudentRequest;
 import com.crm.dto.request.TransferGroupRequest;
 import com.crm.dto.response.*;
 import com.crm.entity.Course;
 import com.crm.entity.Group;
+import com.crm.entity.Parent;
 import com.crm.entity.Payment;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
+import com.crm.entity.StudentParent;
 import com.crm.entity.StudentStatusHistory;
 import com.crm.entity.enums.AttendanceStatus;
 import com.crm.entity.enums.MarketingSource;
@@ -36,6 +39,7 @@ public class StudentService {
 
     private final StudentRepository studentRepository;
     private final StudentParentRepository studentParentRepository;
+    private final ParentRepository parentRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final GroupRepository groupRepository;
     private final PaymentRepository paymentRepository;
@@ -101,16 +105,12 @@ public class StudentService {
             throw new DuplicateResourceException("Student with phone already exists: " + request.getPhone());
         }
 
-        Student student = buildFromRequest(new Student(), request);
+        Student student = buildFromRequest(new Student(), request, true);
 
-        // Auto-generate admission number if not provided:
-        if (request.getAdmissionNumber() == null || 
-            request.getAdmissionNumber().isBlank()) {
-            String admNum = "ADM-" + String.format("%05d",
-                studentRepository.count() + 1);
-            student.setAdmissionNumber(admNum);
+        if (request.getAdmissionNumber() == null || request.getAdmissionNumber().isBlank()) {
+            student.setAdmissionNumber(generateNextAdmissionNumber());
         } else {
-            student.setAdmissionNumber(request.getAdmissionNumber());
+            student.setAdmissionNumber(request.getAdmissionNumber().trim());
         }
 
         // Set admission date if not provided:
@@ -135,11 +135,12 @@ public class StudentService {
         }
 
         Student saved = studentRepository.save(student);
+        syncParents(saved, request.getParents(), request.getParentPhone());
         if (request.getGroupId() != null) {
             addStudentToGroupIfNeeded(saved, request.getGroupId());
         }
 
-        return toResponse(saved);
+        return toResponse(findById(saved.getId()));
     }
 
     @Transactional
@@ -150,7 +151,7 @@ public class StudentService {
             .filter(s -> !s.getId().equals(id))
             .ifPresent(s -> { throw new DuplicateResourceException("Phone already used by another student"); });
 
-        buildFromRequest(student, request);
+        buildFromRequest(student, request, false);
 
         if (request.getReferralStudentId() != null) {
             Student referral = findById(request.getReferralStudentId());
@@ -159,11 +160,15 @@ public class StudentService {
             student.setReferralStudent(null);
         }
 
+        if (request.getParents() != null || (request.getParentPhone() != null && !request.getParentPhone().isBlank())) {
+            syncParents(student, request.getParents(), request.getParentPhone());
+        }
+
         if (request.getGroupId() != null) {
             Group target = groupRepository.findById(request.getGroupId())
                 .orElse(null);
             if (target != null) {
-                for (StudentGroup sg : studentGroupRepository.findByStudentIdAndIsActiveTrue(student.getId())) {
+                for (StudentGroup sg : studentGroupRepository.findActiveByStudentId(student.getId())) {
                     if (!sg.getGroup().getId().equals(target.getId())) {
                         sg.setIsActive(false);
                         sg.setLeaveDate(LocalDate.now());
@@ -174,7 +179,117 @@ public class StudentService {
             }
         }
 
-        return toResponse(studentRepository.save(student));
+        studentRepository.save(student);
+        return toResponse(findById(student.getId()));
+    }
+
+    public String generateNextAdmissionNumber() {
+        return generateAdmissionNumber();
+    }
+
+    public void syncParentFromPhone(Student student, String parentPhone, String address) {
+        if (parentPhone == null || parentPhone.isBlank()) {
+            return;
+        }
+        StudentParentRequest parent = new StudentParentRequest();
+        parent.setPhone(parentPhone.trim());
+        parent.setAddress(address);
+        parent.setRelation("OTHER");
+        parent.setIsPrimary(true);
+        syncParents(student, List.of(parent), null);
+    }
+
+    private String generateAdmissionNumber() {
+        int next = 1;
+        Optional<String> latest = studentRepository.findLatestAutoAdmissionNumber();
+        if (latest.isPresent()) {
+            String value = latest.get();
+            int dash = value.indexOf('-');
+            if (dash >= 0 && dash < value.length() - 1) {
+                try {
+                    next = Integer.parseInt(value.substring(dash + 1)) + 1;
+                } catch (NumberFormatException ignored) {
+                    next = (int) studentRepository.count() + 1;
+                }
+            }
+        }
+        return String.format("0-%06d", next);
+    }
+
+    private void syncParents(Student student, List<StudentParentRequest> parents, String legacyParentPhone) {
+        List<StudentParentRequest> items = new ArrayList<>();
+        if (parents != null) {
+            items.addAll(parents);
+        }
+        if (items.isEmpty() && legacyParentPhone != null && !legacyParentPhone.isBlank()) {
+            StudentParentRequest legacy = new StudentParentRequest();
+            legacy.setPhone(legacyParentPhone.trim());
+            legacy.setRelation("OTHER");
+            legacy.setIsPrimary(true);
+            items.add(legacy);
+        }
+        if (items.isEmpty()) {
+            return;
+        }
+
+        boolean hasPrimary = items.stream().anyMatch(p -> Boolean.TRUE.equals(p.getIsPrimary()));
+        for (int i = 0; i < items.size(); i++) {
+            StudentParentRequest pr = items.get(i);
+            if (pr.getPhone() == null || pr.getPhone().isBlank()) {
+                continue;
+            }
+            String phone = pr.getPhone().trim();
+            String fullName = resolveParentFullName(pr);
+            if (fullName.isBlank()) {
+                fullName = "Ota-ona";
+            }
+            String relation = pr.getRelation() != null && !pr.getRelation().isBlank()
+                ? pr.getRelation().trim().toUpperCase(Locale.ROOT) : "OTHER";
+            boolean isPrimary = Boolean.TRUE.equals(pr.getIsPrimary())
+                || (!hasPrimary && i == 0);
+
+            Parent parent = parentRepository.findByPhone(phone).orElse(null);
+            if (parent == null) {
+                parent = Parent.builder()
+                    .fullName(fullName)
+                    .phone(phone)
+                    .address(pr.getAddress())
+                    .relation(relation)
+                    .isActive(true)
+                    .build();
+            } else {
+                parent.setFullName(fullName);
+                if (pr.getAddress() != null && !pr.getAddress().isBlank()) {
+                    parent.setAddress(pr.getAddress());
+                }
+                parent.setRelation(relation);
+                parent.setIsActive(true);
+            }
+            parent = parentRepository.save(parent);
+
+            if (!studentParentRepository.existsByStudentIdAndParentId(student.getId(), parent.getId())) {
+                studentParentRepository.save(StudentParent.builder()
+                    .student(student)
+                    .parent(parent)
+                    .relation(relation)
+                    .isPrimary(isPrimary)
+                    .build());
+            }
+
+            if (isPrimary || student.getParentPhone() == null || student.getParentPhone().isBlank()) {
+                student.setParentPhone(phone);
+            }
+        }
+        studentRepository.save(student);
+    }
+
+    private static String resolveParentFullName(StudentParentRequest pr) {
+        if (pr.getFullName() != null && !pr.getFullName().isBlank()) {
+            return pr.getFullName().trim();
+        }
+        String first = pr.getFirstName() != null ? pr.getFirstName().trim() : "";
+        String last = pr.getLastName() != null ? pr.getLastName().trim() : "";
+        return (first + " " + last).trim();
     }
 
     @Transactional
@@ -236,6 +351,7 @@ public class StudentService {
             .lessonsAttended(0)
             .build();
         studentGroupRepository.save(newEnrollment);
+        studentGroupRepository.flush();
         paymentScheduleService.recalculateForStudent(student);
 
         String previousStatus = student.getStatus() != null ? student.getStatus().name() : "ACTIVE";
@@ -248,7 +364,7 @@ public class StudentService {
         history.setChangedAt(LocalDateTime.now());
         studentStatusHistoryRepository.save(history);
 
-        return toDetailResponse(student);
+        return toDetailResponse(findById(student.getId()));
     }
 
     @Transactional
@@ -285,7 +401,9 @@ public class StudentService {
     @Transactional
     public StudentResponse updatePhoto(Long id, String photoUrl) {
         Student student = findById(id);
-        student.setPhotoUrl(photoUrl);
+        if (photoUrl != null && !photoUrl.isBlank()) {
+            student.setPhotoUrl(photoUrl.trim());
+        }
         return toResponse(studentRepository.save(student));
     }
 
@@ -335,7 +453,7 @@ public class StudentService {
             .orElseThrow(() -> new ResourceNotFoundException("Student", id));
     }
 
-    private Student buildFromRequest(Student s, StudentRequest req) {
+    private Student buildFromRequest(Student s, StudentRequest req, boolean isCreate) {
         s.setFirstName(req.getFirstName());
         s.setLastName(req.getLastName());
         s.setPhone(req.getPhone());
@@ -361,14 +479,20 @@ public class StudentService {
         
         s.setNotes(req.getNotes());
         s.setAddress(req.getAddress());
-        s.setPhotoUrl(req.getPhotoUrl());
-        s.setAdmissionNumber(req.getAdmissionNumber());
-        s.setAdmissionDate(req.getAdmissionDate());
+        if (isCreate || (req.getPhotoUrl() != null && !req.getPhotoUrl().isBlank())) {
+            s.setPhotoUrl(req.getPhotoUrl());
+        }
+        if (isCreate || (req.getAdmissionNumber() != null && !req.getAdmissionNumber().isBlank())) {
+            s.setAdmissionNumber(req.getAdmissionNumber());
+        }
+        if (req.getAdmissionDate() != null) {
+            s.setAdmissionDate(req.getAdmissionDate());
+        }
         return s;
     }
 
     private StudentResponse toResponse(Student s) {
-        StudentGroup current = studentGroupRepository.findByStudentIdAndIsActiveTrue(s.getId())
+        StudentGroup current = studentGroupRepository.findActiveByStudentId(s.getId())
             .stream()
             .max(Comparator.comparing(StudentGroup::getJoinDate,
                 Comparator.nullsLast(Comparator.naturalOrder())))
@@ -450,16 +574,17 @@ public class StudentService {
             .lessonsAttended(0)
             .build();
         studentGroupRepository.save(sg);
+        studentGroupRepository.flush();
         paymentScheduleService.recalculateForStudent(student);
     }
 
     private StudentDetailResponse toDetailResponse(Student s) {
         List<StudentDetailResponse.GroupSummary> activeGroups = studentGroupRepository
-            .findByStudentIdAndIsActiveTrue(s.getId()).stream()
+            .findActiveByStudentId(s.getId()).stream()
             .map(this::toGroupSummary)
             .collect(Collectors.toList());
 
-        StudentGroup current = studentGroupRepository.findByStudentIdAndIsActiveTrue(s.getId())
+        StudentGroup current = studentGroupRepository.findActiveByStudentId(s.getId())
             .stream()
             .max(Comparator.comparing(StudentGroup::getJoinDate,
                 Comparator.nullsLast(Comparator.naturalOrder())))

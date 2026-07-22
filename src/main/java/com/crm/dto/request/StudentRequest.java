@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.util.List;
 
 /**
  * Student profile for a language / course center (not a K–12 school).
@@ -41,4 +42,7 @@ public class StudentRequest {
     private String gender;
     private Long referralStudentId;
     private String photoUrl;
+
+    /** Ota-onalar — StudentParent orqali bog'lanadi. */
+    private List<StudentParentRequest> parents;
 }
