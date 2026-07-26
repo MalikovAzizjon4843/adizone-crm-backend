@@ -30,6 +30,8 @@ public class AttendanceService {
     private final TelegramService telegramService;
     private final ParentRepository parentRepository;
     private final StudentPaymentLifecycleService studentPaymentLifecycleService;
+    private final TeacherRepository teacherRepository;
+    private final AttendanceUnlockRequestRepository attendanceUnlockRequestRepository;
 
     @Transactional
     public List<AttendanceResponse> markAttendance(AttendanceRequest request) {
@@ -39,9 +41,38 @@ public class AttendanceService {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         User marker = userRepository.findByUsername(username).orElse(null);
 
+        // Task 2: Time check
+        LocalDate date = request.getDate();
+        LocalDate today = LocalDate.now();
+        boolean isAdmin = marker != null && (marker.getRole() == com.crm.entity.enums.UserRole.ADMIN 
+                                           || marker.getRole() == com.crm.entity.enums.UserRole.SUPER_ADMIN);
+
+        if (!isAdmin && date != null && date.isBefore(today)) {
+            Teacher teacher = teacherRepository.findByUser_Id(marker.getId())
+                .orElseThrow(() -> new com.crm.exception.ForbiddenException("Faqat o'qituvchilar davomat kirita oladi. Profil topilmadi."));
+
+            boolean hasUnlock = attendanceUnlockRequestRepository.existsByTeacherIdAndGroupIdAndAttendanceDateAndStatus(
+                teacher.getId(), request.getGroupId(), date, com.crm.entity.enums.UnlockRequestStatus.APPROVED
+            );
+
+            if (!hasUnlock) {
+                throw new com.crm.exception.ForbiddenException("Bu kun uchun ruxsat kerak. Admindan so'rang.");
+            }
+        }
+
         List<AttendanceResponse> results = new ArrayList<>();
 
         for (AttendanceRequest.StudentAttendanceItem item : request.getAttendances()) {
+            // Task 4: notes check
+            AttendanceStatus itemStatus = item.getStatus() != null ? item.getStatus() : AttendanceStatus.PRESENT;
+            if (itemStatus == AttendanceStatus.ABSENT || itemStatus == AttendanceStatus.EXCUSED || itemStatus == AttendanceStatus.LATE) {
+                boolean hasNote = (item.getNotes() != null && !item.getNotes().isBlank()) || 
+                                  (item.getExcuseReason() != null && !item.getExcuseReason().isBlank());
+                if (!hasNote) {
+                    throw new com.crm.exception.BadRequestException("Sabab kiritilishi shart");
+                }
+            }
+
             Student student = studentRepository.findById(item.getStudentId())
                 .orElseThrow(() -> new ResourceNotFoundException("Student", item.getStudentId()));
 

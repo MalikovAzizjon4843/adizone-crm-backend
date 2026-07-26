@@ -15,4 +15,6 @@ public interface BonusPenaltyRepository extends JpaRepository<BonusPenalty, Long
     List<BonusPenalty> findByTeacherIdAndStatus(Long teacherId, BonusPenaltyStatus status);
 
     List<BonusPenalty> findByStudentIdAndStatus(Long studentId, BonusPenaltyStatus status);
+
+    List<BonusPenalty> findByTeacherIdOrderByEffectiveDateDesc(Long teacherId);
 }

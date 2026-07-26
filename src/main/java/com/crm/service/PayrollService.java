@@ -13,6 +13,9 @@ import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.PayrollRepository;
 import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
+import com.crm.repository.CashTransactionRepository;
+import com.crm.entity.CashTransaction;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -34,6 +37,7 @@ public class PayrollService {
     private final UserRepository userRepository;
     private final CashRegisterService cashRegisterService;
     private final BonusPenaltyService bonusPenaltyService;
+    private final CashTransactionRepository cashTransactionRepository;
 
     @Transactional(readOnly = true)
     public PageResponse<PayrollResponse> getAllPayroll(int page, int size, String status) {
@@ -88,11 +92,85 @@ public class PayrollService {
 
     @Transactional
     public PayrollResponse updatePayroll(Long id, PayrollRequest request) {
-        Payroll payroll = findById(id);
+        Payroll payroll;
+        boolean isNew = false;
+        try {
+            payroll = findById(id);
+        } catch (ResourceNotFoundException e) {
+            payroll = new Payroll();
+            isNew = true;
+        }
+
         Teacher teacher = teacherRepository.findById(request.getTeacherId())
             .orElseThrow(() -> new ResourceNotFoundException("Teacher", request.getTeacherId()));
+
+        if (isNew) {
+            if (payrollRepository.findByTeacherIdAndMonthAndYear(
+                    request.getTeacherId(), request.getMonth(), request.getYear()).isPresent()) {
+                throw new DuplicateResourceException(
+                    "Payroll already exists for this teacher for " + request.getMonth() + "/" + request.getYear());
+            }
+        }
+
+        String oldStatus = payroll.getStatus();
+        BigDecimal oldNetSalary = payroll.getNetSalary() != null ? payroll.getNetSalary() : BigDecimal.ZERO;
+
         buildPayroll(payroll, request, teacher);
-        return toResponse(payrollRepository.save(payroll));
+
+        BigDecimal basic = request.getBasicSalary() != null ? request.getBasicSalary() : BigDecimal.ZERO;
+        BigDecimal allowances = request.getAllowances() != null ? request.getAllowances() : BigDecimal.ZERO;
+        BigDecimal newNetSalaryBeforeAdjustment = basic.add(allowances);
+
+        if (isNew) {
+            payroll.setNetSalary(newNetSalaryBeforeAdjustment);
+            Payroll saved = payrollRepository.save(payroll);
+            LocalDate periodEnd = YearMonth.of(saved.getYear(), saved.getMonth()).atEndOfMonth();
+            BigDecimal adjustment = bonusPenaltyService.applyPendingForTeacher(
+                teacher.getId(), saved.getId(), periodEnd);
+            saved.setBonusPenaltyAdjustment(adjustment);
+            saved.setNetSalary(newNetSalaryBeforeAdjustment.add(adjustment));
+            return toResponse(payrollRepository.save(saved));
+        } else {
+            BigDecimal adjustment = payroll.getBonusPenaltyAdjustment() != null
+                ? payroll.getBonusPenaltyAdjustment() : BigDecimal.ZERO;
+            BigDecimal finalNetSalary = newNetSalaryBeforeAdjustment.add(adjustment);
+            payroll.setNetSalary(finalNetSalary);
+
+            if ("PAID".equalsIgnoreCase(oldStatus) && finalNetSalary.compareTo(oldNetSalary) != 0) {
+                if (payroll.getCashRegister() != null) {
+                    String notePattern = "%Oylik to'lovi (" + payroll.getMonth() + "/" + payroll.getYear() + ")%";
+                    List<CashTransaction> txs = cashTransactionRepository.findPayrollTransactions(
+                        payroll.getTeacher().getId(),
+                        payroll.getCashRegister().getId(),
+                        notePattern
+                    );
+                    if (!txs.isEmpty()) {
+                        for (CashTransaction tx : txs) {
+                            cashRegisterService.deleteExpense(tx.getId());
+                        }
+                    }
+
+                    CashPaymentMethod cashMethod = resolveCashPaymentMethod(payroll.getPaymentMethod(), null);
+                    String teacherName = teacher.getFirstName() + " " + teacher.getLastName();
+
+                    var cashTx = cashRegisterService.recordExpense(
+                        payroll.getCashRegister().getId(),
+                        finalNetSalary,
+                        cashMethod,
+                        "Oylik: " + teacherName,
+                        "Oylik to'lovi (" + payroll.getMonth() + "/" + payroll.getYear() + ")",
+                        payroll.getPaymentDate() != null ? payroll.getPaymentDate() : LocalDate.now(),
+                        currentUser(),
+                        null,
+                        teacher,
+                        null,
+                        null);
+
+                    payroll.setCashRegister(cashTx.getCashRegister());
+                }
+            }
+            return toResponse(payrollRepository.save(payroll));
+        }
     }
 
     @Transactional
@@ -113,7 +191,7 @@ public class PayrollService {
         Payroll saved = payrollRepository.save(payroll);
 
         if (payDto != null && payDto.getCashRegisterId() != null) {
-            CashPaymentMethod cashMethod = resolveCashPaymentMethod(payDto.getPaymentMethodForCash());
+            CashPaymentMethod cashMethod = resolveCashPaymentMethod(saved.getPaymentMethod(), payDto.getPaymentMethodForCash());
             Teacher teacher = saved.getTeacher();
             String teacherName = teacher != null
                 ? teacher.getFirstName() + " " + teacher.getLastName() : "";
@@ -141,10 +219,26 @@ public class PayrollService {
         return userRepository.findByUsername(username).orElse(null);
     }
 
-    private static CashPaymentMethod resolveCashPaymentMethod(String paymentMethodForCash) {
-        if (paymentMethodForCash != null
-                && "PLASTIC".equalsIgnoreCase(paymentMethodForCash.trim())) {
-            return CashPaymentMethod.PLASTIC;
+    private static CashPaymentMethod resolveCashPaymentMethod(String paymentMethod, String paymentMethodForCash) {
+        if ("CASH_AND_CARD".equalsIgnoreCase(paymentMethod) || "CASH_AND_CARD".equalsIgnoreCase(paymentMethodForCash)) {
+            return CashPaymentMethod.CASH_AND_CARD;
+        }
+        if (paymentMethodForCash != null) {
+            try {
+                return CashPaymentMethod.valueOf(paymentMethodForCash.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                // fallback
+            }
+        }
+        if (paymentMethod != null) {
+            try {
+                return CashPaymentMethod.valueOf(paymentMethod.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                // fallback
+            }
+            if ("BANK_TRANSFER".equalsIgnoreCase(paymentMethod.trim()) || "BANK".equalsIgnoreCase(paymentMethod.trim())) {
+                return CashPaymentMethod.ONLINE;
+            }
         }
         return CashPaymentMethod.CASH;
     }
@@ -160,14 +254,10 @@ public class PayrollService {
         p.setYear(req.getYear());
         p.setBasicSalary(req.getBasicSalary());
         p.setAllowances(req.getAllowances() != null ? req.getAllowances() : java.math.BigDecimal.ZERO);
-        p.setDeductions(req.getDeductions() != null ? req.getDeductions() : java.math.BigDecimal.ZERO);
-        java.math.BigDecimal net = req.getNetSalary();
-        if (net == null && req.getBasicSalary() != null) {
-            net = req.getBasicSalary()
-                .add(p.getAllowances() != null ? p.getAllowances() : java.math.BigDecimal.ZERO)
-                .subtract(p.getDeductions() != null ? p.getDeductions() : java.math.BigDecimal.ZERO);
-        }
-        p.setNetSalary(net);
+        p.setDeductions(java.math.BigDecimal.ZERO);
+        java.math.BigDecimal basic = req.getBasicSalary() != null ? req.getBasicSalary() : java.math.BigDecimal.ZERO;
+        java.math.BigDecimal allowances = p.getAllowances();
+        p.setNetSalary(basic.add(allowances));
         p.setPaymentDate(req.getPaymentDate());
         p.setPaymentMethod(req.getPaymentMethod() != null ? req.getPaymentMethod() : "BANK_TRANSFER");
         p.setStatus(req.getStatus() != null ? req.getStatus() : "PENDING");

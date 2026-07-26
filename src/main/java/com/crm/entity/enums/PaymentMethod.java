@@ -1,3 +1,4 @@
 package com.crm.entity.enums;
-public enum PaymentMethod { CASH, CLICK, PAYME, UZUM, TERMINAL, BANK, OTHER }
+public enum PaymentMethod { CASH, CLICK, PAYME, UZUM, TERMINAL, BANK, OTHER, CASH_AND_CARD }
+
 

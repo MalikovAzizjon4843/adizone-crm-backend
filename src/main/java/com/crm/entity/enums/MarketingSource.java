@@ -1,2 +1,16 @@
 package com.crm.entity.enums;
-public enum MarketingSource { INSTAGRAM, TELEGRAM, YOUTUBE, REFERRAL, WALK_IN, OFFLINE, OTHER }
+
+public enum MarketingSource {
+    INSTAGRAM,
+    TELEGRAM,
+    YOUTUBE,
+    FACEBOOK,
+    TARGET,
+    SELF_CALL,
+    FORMER_STUDENT,
+    REFERRAL,
+    WALK_IN,
+    OFFLINE,
+    LEAD,
+    OTHER
+}

@@ -45,9 +45,34 @@ public class LeadController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) Long assignedUserId,
-            @RequestParam(required = false) Boolean unassigned) {
+            @RequestParam(required = false) Boolean unassigned,
+            @RequestParam(required = false) String fromDate,
+            @RequestParam(required = false) String toDate) {
         return ResponseEntity.ok(ApiResponse.success(
-                leadService.getAll(page, size, status, search, assignedUserId, unassigned)));
+                leadService.getAll(page, size, status, search, assignedUserId, unassigned, fromDate, toDate)));
+    }
+
+    @GetMapping("/export")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<byte[]> exportLeads(
+            @RequestParam(required = false) String fromDate,
+            @RequestParam(required = false) String toDate,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Long operatorId) {
+        byte[] xlsx = leadService.exportLeadsXlsx(fromDate, toDate, status, operatorId);
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+
+        String filename = "lidlar";
+        if (fromDate != null && fromDate.length() >= 7) {
+            filename += "_" + fromDate.substring(0, 7);
+        } else {
+            filename += "_" + java.time.LocalDate.now().toString().substring(0, 7);
+        }
+        filename += ".xlsx";
+
+        headers.setContentDispositionFormData("attachment", filename);
+        return ResponseEntity.ok().headers(headers).body(xlsx);
     }
 
     @GetMapping("/stats")

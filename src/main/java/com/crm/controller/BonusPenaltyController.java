@@ -18,6 +18,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/bonus-penalties")
@@ -104,6 +105,11 @@ public class BonusPenaltyController {
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
         bonusPenaltyService.delete(id);
         return ResponseEntity.ok(ApiResponse.success("Yozuv o'chirildi", null));
+    }
+
+    @GetMapping("/teacher/{teacherId}")
+    public ResponseEntity<ApiResponse<List<BonusPenaltyDto>>> getByTeacher(@PathVariable Long teacherId) {
+        return ResponseEntity.ok(ApiResponse.success(bonusPenaltyService.getByTeacher(teacherId)));
     }
 
     private static LocalDate parseOptionalDate(String value) {

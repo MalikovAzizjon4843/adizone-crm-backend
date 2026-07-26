@@ -3,11 +3,14 @@ package com.crm.controller;
 import com.crm.dto.request.GroupRequest;
 import com.crm.dto.request.RemoveStudentRequest;
 import com.crm.dto.request.StudentGroupRequest;
+import com.crm.dto.request.StudentCreateAndAddRequest;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.GroupResponse;
 import com.crm.dto.response.SuspendedStudentResponse;
+import com.crm.dto.response.StudentResponse;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.service.GroupService;
+import com.crm.service.StudentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.*;
@@ -22,6 +25,7 @@ import java.util.List;
 public class GroupController {
 
     private final GroupService groupService;
+    private final StudentService studentService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','TEACHER')")
@@ -108,5 +112,15 @@ public class GroupController {
             request.getReason(), request.getNotes());
         return ResponseEntity.ok(
             ApiResponse.success("O'quvchi guruhdan chiqarildi", "OK"));
+    }
+
+    @PostMapping("/{groupId}/students/create-and-add")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<StudentResponse>> createAndAddStudent(
+            @PathVariable Long groupId,
+            @Valid @RequestBody StudentCreateAndAddRequest request) {
+        StudentResponse response = studentService.createAndAddStudentToGroup(groupId, request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success("O'quvchi yaratildi va guruhga qo'shildi", response));
     }
 }

@@ -41,6 +41,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -87,11 +89,12 @@ public class LeadService {
     @Transactional(readOnly = true)
     public PageResponse<LeadResponse> getAll(
             int page, int size, String status, String search,
-            Long assignedUserId, Boolean unassigned) {
+            Long assignedUserId, Boolean unassigned,
+            String fromDate, String toDate) {
         int safeSize = Math.min(Math.max(size, 1), 100);
         int safePage = Math.max(page, 0);
         Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by("createdAt").descending());
-        Specification<Lead> spec = buildLeadSpec(status, search, assignedUserId, unassigned);
+        Specification<Lead> spec = buildLeadSpec(status, search, assignedUserId, unassigned, fromDate, toDate);
         Page<Lead> leads = leadRepository.findAll(spec, pageable);
         return toPageResponse(leads);
     }
@@ -325,12 +328,22 @@ public class LeadService {
     }
 
     private Specification<Lead> buildLeadSpec(
-            String status, String search, Long assignedUserId, Boolean unassigned) {
+            String status, String search, Long assignedUserId, Boolean unassigned,
+            String fromDate, String toDate) {
         Specification<Lead> spec = Specification.where(null);
 
         if (status != null && !status.isBlank()) {
-            LeadStatus leadStatus = parseStatus(status);
-            spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), leadStatus));
+            if (status.contains(",")) {
+                List<LeadStatus> statuses = Arrays.stream(status.split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .map(this::parseStatus)
+                        .toList();
+                spec = spec.and((root, query, cb) -> root.get("status").in(statuses));
+            } else {
+                LeadStatus leadStatus = parseStatus(status);
+                spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), leadStatus));
+            }
         }
         if (assignedUserId != null) {
             spec = spec.and((root, query, cb) ->
@@ -345,6 +358,16 @@ public class LeadService {
             spec = spec.and((root, query, cb) -> cb.or(
                     cb.like(cb.lower(root.get("fullName")), term),
                     cb.like(root.get("phone"), phoneTerm)));
+        }
+        if (fromDate != null && !fromDate.isBlank()) {
+            LocalDate start = LocalDate.parse(fromDate.trim());
+            spec = spec.and((root, query, cb) -> cb.greaterThanOrEqualTo(
+                    root.get("createdAt"), start.atStartOfDay()));
+        }
+        if (toDate != null && !toDate.isBlank()) {
+            LocalDate end = LocalDate.parse(toDate.trim());
+            spec = spec.and((root, query, cb) -> cb.lessThanOrEqualTo(
+                    root.get("createdAt"), end.atTime(23, 59, 59, 999999999)));
         }
         return spec;
     }
@@ -492,5 +515,138 @@ public class LeadService {
         return ((user.getFirstName() != null ? user.getFirstName() : "")
                 + " "
                 + (user.getLastName() != null ? user.getLastName() : "")).trim();
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] exportLeadsXlsx(String fromDate, String toDate, String status, Long operatorId) {
+        Specification<Lead> spec = buildLeadSpec(status, null, operatorId, null, fromDate, toDate);
+        List<Lead> leads = leadRepository.findAll(spec, Sort.by("createdAt").descending());
+
+        List<Long> leadIds = leads.stream().map(Lead::getId).toList();
+        Map<Long, Long> commentCounts = loadCommentCounts(leadIds);
+
+        try (Workbook workbook = new XSSFWorkbook();
+             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+
+            Sheet sheet = workbook.createSheet("Lidlar");
+
+            Font headerFont = workbook.createFont();
+            headerFont.setBold(true);
+            headerFont.setColor(IndexedColors.WHITE.getIndex());
+
+            CellStyle headerStyle = workbook.createCellStyle();
+            headerStyle.setFont(headerFont);
+            headerStyle.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
+            headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            headerStyle.setAlignment(HorizontalAlignment.CENTER);
+            headerStyle.setBorderBottom(BorderStyle.THIN);
+            headerStyle.setBorderTop(BorderStyle.THIN);
+            headerStyle.setBorderLeft(BorderStyle.THIN);
+            headerStyle.setBorderRight(BorderStyle.THIN);
+
+            CellStyle bodyStyle = workbook.createCellStyle();
+            bodyStyle.setBorderBottom(BorderStyle.THIN);
+            bodyStyle.setBorderTop(BorderStyle.THIN);
+            bodyStyle.setBorderLeft(BorderStyle.THIN);
+            bodyStyle.setBorderRight(BorderStyle.THIN);
+
+            CellStyle centerStyle = workbook.createCellStyle();
+            centerStyle.cloneStyleFrom(bodyStyle);
+            centerStyle.setAlignment(HorizontalAlignment.CENTER);
+
+            String[] headers = {"№", "Ism", "Telefon", "Manba", "Operator", "Holat", "Izohlar soni", "Sana"};
+            Row headerRow = sheet.createRow(0);
+            for (int i = 0; i < headers.length; i++) {
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(headers[i]);
+                cell.setCellStyle(headerStyle);
+            }
+
+            java.time.format.DateTimeFormatter dateFormatter = java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy");
+
+            int rowIdx = 1;
+            for (Lead lead : leads) {
+                Row row = sheet.createRow(rowIdx);
+
+                Cell cell0 = row.createCell(0);
+                cell0.setCellValue(rowIdx);
+                cell0.setCellStyle(centerStyle);
+
+                Cell cell1 = row.createCell(1);
+                cell1.setCellValue(lead.getFullName() != null ? lead.getFullName() : "");
+                cell1.setCellStyle(bodyStyle);
+
+                Cell cell2 = row.createCell(2);
+                cell2.setCellValue(lead.getPhone() != null ? lead.getPhone() : "");
+                cell2.setCellStyle(bodyStyle);
+
+                Cell cell3 = row.createCell(3);
+                cell3.setCellValue(translateSource(lead.getSource()));
+                cell3.setCellStyle(bodyStyle);
+
+                Cell cell4 = row.createCell(4);
+                cell4.setCellValue(lead.getAssignedUser() != null ? formatUserName(lead.getAssignedUser()) : "-");
+                cell4.setCellStyle(bodyStyle);
+
+                Cell cell5 = row.createCell(5);
+                cell5.setCellValue(translateStatus(lead.getStatus()));
+                cell5.setCellStyle(bodyStyle);
+
+                Cell cell6 = row.createCell(6);
+                cell6.setCellValue(commentCounts.getOrDefault(lead.getId(), 0L).intValue());
+                cell6.setCellStyle(centerStyle);
+
+                Cell cell7 = row.createCell(7);
+                cell7.setCellValue(lead.getCreatedAt() != null ? lead.getCreatedAt().format(dateFormatter) : "");
+                cell7.setCellStyle(centerStyle);
+
+                rowIdx++;
+            }
+
+            for (int i = 0; i < headers.length; i++) {
+                sheet.autoSizeColumn(i);
+            }
+
+            workbook.write(out);
+            return out.toByteArray();
+
+        } catch (Exception e) {
+            throw new RuntimeException("Excel fayl yaratishda xatolik", e);
+        }
+    }
+
+    private String translateSource(String source) {
+        if (source == null || source.isBlank()) {
+            return "Boshqa";
+        }
+        return switch (source.trim().toUpperCase()) {
+            case "TELEGRAM" -> "Telegram";
+            case "INSTAGRAM" -> "Instagram";
+            case "YOUTUBE" -> "YouTube";
+            case "REFERRAL" -> "Tavsiya";
+            case "WALK_IN" -> "Kelib ko'rgan";
+            case "OFFLINE" -> "Oflayn reklama";
+            case "WEBSITE" -> "Veb-sayt";
+            default -> source;
+        };
+    }
+
+    private String translateStatus(LeadStatus status) {
+        if (status == null) {
+            return "Yangi";
+        }
+        return switch (status) {
+            case NEW -> "Yangi";
+            case DAY_1_WORKED -> "1-kun bog'lanildi";
+            case DAY_2_WORKED -> "2-kun bog'lanildi";
+            case DAY_3_WORKED -> "3-kun bog'lanildi";
+            case DAY_4_WORKED -> "4-kun bog'lanildi";
+            case ONLINE_ENROLLED -> "Onlayn guruhga yozildi";
+            case OFFLINE_ENROLLED -> "Oflayn guruhga yozildi";
+            case ONLINE_PAID -> "Onlayn to'lov qildi";
+            case OFFLINE_PAID -> "Oflayn to'lov qildi";
+            case CONVERTED -> "O'quvchiga aylandi";
+            case REJECTED -> "Rad etildi";
+        };
     }
 }

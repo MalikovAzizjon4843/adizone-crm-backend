@@ -3,6 +3,7 @@ package com.crm.service;
 import com.crm.dto.request.StudentParentRequest;
 import com.crm.dto.request.StudentRequest;
 import com.crm.dto.request.TransferGroupRequest;
+import com.crm.dto.request.StudentCreateAndAddRequest;
 import com.crm.dto.response.*;
 import com.crm.entity.Course;
 import com.crm.entity.Group;
@@ -365,6 +366,69 @@ public class StudentService {
         studentStatusHistoryRepository.save(history);
 
         return toDetailResponse(findById(student.getId()));
+    }
+
+    @Transactional
+    public StudentResponse createAndAddStudentToGroup(Long groupId, StudentCreateAndAddRequest req) {
+        Group group = groupRepository.findById(groupId)
+            .orElseThrow(() -> new ResourceNotFoundException("Group", groupId));
+
+        long current = studentGroupRepository.countByGroupIdAndIsActiveTrue(groupId);
+        if (group.getMaxStudents() != null && current >= group.getMaxStudents()) {
+            throw new BadRequestException("Guruh to'lgan! Max: " + group.getMaxStudents());
+        }
+
+        if (studentRepository.findByPhone(req.getPhone()).isPresent()) {
+            throw new DuplicateResourceException("Student with phone already exists: " + req.getPhone());
+        }
+
+        Student student = new Student();
+        student.setFirstName(req.getFirstName().trim());
+        student.setLastName(req.getLastName().trim());
+        student.setPhone(req.getPhone().trim());
+        student.setGender(req.getGender());
+        student.setAdmissionNumber(generateNextAdmissionNumber());
+        student.setAdmissionDate(LocalDate.now());
+        student.setStatus(StudentStatus.ACTIVE);
+        student.setPaymentStatus(PaymentStatus.PENDING);
+        student.setPaymentStartDate(req.getPaymentStartDate());
+        student.setMonthlyFee(req.getMonthlyFee());
+
+        if (req.getMarketingSource() != null && !req.getMarketingSource().isBlank()) {
+            try {
+                student.setMarketingSource(MarketingSource.valueOf(req.getMarketingSource().toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                student.setMarketingSource(MarketingSource.OTHER);
+            }
+        } else {
+            student.setMarketingSource(MarketingSource.OTHER);
+        }
+
+        student = studentRepository.save(student);
+
+        if (req.getParentPhone() != null && !req.getParentPhone().isBlank()) {
+            syncParentFromPhone(student, req.getParentPhone(), student.getAddress());
+        }
+
+        StudentGroup sg = StudentGroup.builder()
+            .student(student)
+            .group(group)
+            .joinDate(LocalDate.now())
+            .paymentStartDate(req.getPaymentStartDate())
+            .nextPaymentDate(req.getPaymentStartDate())
+            .isTrial(Boolean.TRUE.equals(req.getIsTrial()))
+            .isActive(true)
+            .monthlyPriceOverride(req.getMonthlyFee())
+            .paymentStatus(Boolean.TRUE.equals(req.getIsTrial()) ? "TRIAL" : "PENDING")
+            .lessonsAttended(0)
+            .build();
+        studentGroupRepository.save(sg);
+        studentGroupRepository.flush();
+
+        paymentScheduleService.recalculateForStudent(student);
+
+        student = findById(student.getId());
+        return toResponse(student);
     }
 
     @Transactional

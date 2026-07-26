@@ -337,6 +337,26 @@ public class CashRegisterService {
     }
 
     @Transactional
+    public void deleteExpense(Long transactionId) {
+        CashTransaction tx = cashTransactionRepository.findById(transactionId)
+            .orElseThrow(() -> new ResourceNotFoundException("CashTransaction", transactionId));
+
+        CashRegister register = tx.getCashRegister();
+        CashPaymentMethod method = tx.getPaymentMethod();
+        BigDecimal amount = tx.getAmount();
+
+        if (method == CashPaymentMethod.PLASTIC) {
+            register.setPlasticBalance(register.getPlasticBalance().add(amount));
+        } else {
+            register.setCashBalance(register.getCashBalance().add(amount));
+        }
+        register.setBalance(register.getPlasticBalance().add(register.getCashBalance()));
+        cashRegisterRepository.save(register);
+
+        cashTransactionRepository.delete(tx);
+    }
+
+    @Transactional
     public List<CashTransactionDto> transfer(TransferDto dto) {
         if (dto.getFromCashRegisterId() == null || dto.getToCashRegisterId() == null) {
             throw new BadRequestException("Manba va maqsad kassalari ko'rsatilishi shart");

@@ -3,5 +3,6 @@ package com.crm.entity.enums;
 public enum CashPaymentMethod {
     CASH,
     PLASTIC,
-    ONLINE
+    ONLINE,
+    CASH_AND_CARD
 }

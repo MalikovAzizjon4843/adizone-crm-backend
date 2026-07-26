@@ -400,4 +400,12 @@ public class BonusPenaltyService {
         }
         return kind == BonusPenaltyKind.PENALTY ? amount.negate() : amount;
     }
+
+    @Transactional(readOnly = true)
+    public List<BonusPenaltyDto> getByTeacher(Long teacherId) {
+        return bonusPenaltyRepository.findByTeacherIdOrderByEffectiveDateDesc(teacherId)
+            .stream()
+            .map(this::toDto)
+            .toList();
+    }
 }
