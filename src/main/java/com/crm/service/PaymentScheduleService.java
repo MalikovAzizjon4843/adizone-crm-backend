@@ -1,5 +1,6 @@
 package com.crm.service;
 
+import com.crm.config.PaymentScheduleConfig;
 import com.crm.dto.response.DebtorsListResponse;
 import com.crm.dto.response.ExpectedPaymentsResponse;
 import com.crm.entity.Group;
@@ -432,9 +433,9 @@ public class PaymentScheduleService {
 
     @Transactional(readOnly = true)
     public ExpectedPaymentsResponse getExpectedPayments(LocalDate from, LocalDate to) {
-        LocalDate start = from != null ? from : LocalDate.now().withDayOfMonth(1);
-        LocalDate end = to != null ? to : YearMonth.from(LocalDate.now()).atEndOfMonth();
         LocalDate today = LocalDate.now();
+        LocalDate start = from != null ? from : PaymentScheduleConfig.defaultExpectedPaymentsFrom(today);
+        LocalDate end = to != null ? to : PaymentScheduleConfig.defaultExpectedPaymentsTo(today);
 
         Specification<Student> spec = (root, query, cb) -> {
             query.distinct(true);
@@ -444,8 +445,10 @@ public class PaymentScheduleService {
                 cb.isNull(sgJoin.get("leaveDate")),
                 cb.equal(root.get("status"), StudentStatus.ACTIVE),
                 cb.isNotNull(root.get("nextPaymentDate")),
-                cb.greaterThanOrEqualTo(root.get("nextPaymentDate"), start),
-                cb.lessThanOrEqualTo(root.get("nextPaymentDate"), end)
+                cb.notEqual(root.get("paymentStatus"), PaymentStatus.TRIAL),
+                cb.greaterThan(root.get("nextPaymentDate"), today),
+                cb.lessThanOrEqualTo(root.get("nextPaymentDate"), end),
+                cb.greaterThanOrEqualTo(root.get("nextPaymentDate"), start)
             );
         };
 
@@ -457,14 +460,17 @@ public class PaymentScheduleService {
             StudentGroup sg = studentGroupRepository.findActiveByStudentId(s.getId())
                 .stream().findFirst().orElse(null);
             LocalDate due = s.getNextPaymentDate();
-            if (due == null) {
+            if (due == null || !due.isAfter(today) || due.isAfter(end) || due.isBefore(start)) {
+                continue;
+            }
+            if (s.getPaymentStatus() == PaymentStatus.TRIAL) {
                 continue;
             }
             BigDecimal amount = s.getMonthlyFee() != null
                 ? s.getMonthlyFee()
                 : (sg != null ? resolveMonthlyFee(sg) : BigDecimal.ZERO);
             long daysUntil = ChronoUnit.DAYS.between(today, due);
-            String status = daysUntil < 0 ? "OVERDUE" : "PENDING";
+            String status = "PENDING";
 
             ExpectedPaymentsResponse.ExpectedStudent row =
                 ExpectedPaymentsResponse.ExpectedStudent.builder()
@@ -508,6 +514,8 @@ public class PaymentScheduleService {
     @Transactional(readOnly = true)
     public DebtorsListResponse getDebtorsByDate() {
         LocalDate today = LocalDate.now();
+        List<PaymentStatus> debtorStatuses = List.of(
+            PaymentStatus.PENDING, PaymentStatus.OVERDUE, PaymentStatus.SUSPENDED);
 
         Specification<Student> spec = (root, query, cb) -> {
             query.distinct(true);
@@ -517,7 +525,8 @@ public class PaymentScheduleService {
                 cb.isNull(sgJoin.get("leaveDate")),
                 cb.equal(root.get("status"), StudentStatus.ACTIVE),
                 cb.isNotNull(root.get("nextPaymentDate")),
-                cb.lessThan(root.get("nextPaymentDate"), today)
+                cb.lessThanOrEqualTo(root.get("nextPaymentDate"), today),
+                root.get("paymentStatus").in(debtorStatuses)
             );
         };
 
@@ -530,11 +539,15 @@ public class PaymentScheduleService {
             StudentGroup sg = studentGroupRepository.findActiveByStudentId(s.getId())
                 .stream().findFirst().orElse(null);
             LocalDate due = s.getNextPaymentDate();
-            if (due == null) {
+            if (due == null || due.isAfter(today)) {
+                continue;
+            }
+            if (s.getPaymentStatus() == PaymentStatus.TRIAL
+                || s.getPaymentStatus() == PaymentStatus.PAID) {
                 continue;
             }
             long daysOverdue = ChronoUnit.DAYS.between(due, today);
-            if (daysOverdue < 1) {
+            if (daysOverdue < 0) {
                 continue;
             }
             if (daysOverdue >= 7) {

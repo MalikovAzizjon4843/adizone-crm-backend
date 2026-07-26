@@ -378,6 +378,9 @@ public class PaymentService {
         }
         PaymentMethod pm = request.getPaymentMethod() != null
             ? request.getPaymentMethod() : PaymentMethod.CASH;
+        if (pm == PaymentMethod.CASH_AND_CARD) {
+            return CashPaymentMethod.CASH_AND_CARD;
+        }
         return pm == PaymentMethod.CASH ? CashPaymentMethod.CASH : CashPaymentMethod.PLASTIC;
     }
 
