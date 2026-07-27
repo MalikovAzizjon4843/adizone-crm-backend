@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "exam_results",
@@ -32,6 +33,17 @@ public class ExamResult extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String remarks;
 
+    /** score >= exam.passMarks */
     @Column(name = "is_passed")
     private Boolean isPassed;
+
+    @Column(name = "edit_note", columnDefinition = "TEXT")
+    private String editNote;
+
+    @Column(name = "edited_at")
+    private LocalDateTime editedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "edited_by")
+    private User editedBy;
 }

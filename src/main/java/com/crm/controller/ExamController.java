@@ -94,10 +94,21 @@ public class ExamController {
             .body(ApiResponse.success("Result added", examService.addResult(id, request)));
     }
 
-    @PutMapping("/results/{resultId}")
+    @PutMapping("/{examId}/results/{resultId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<ExamResultResponse>> updateResult(
-            @PathVariable Long resultId, @Valid @RequestBody ExamResultRequest request) {
+            @PathVariable Long examId,
+            @PathVariable Long resultId,
+            @RequestBody ExamResultRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Result updated",
+            examService.updateResult(examId, resultId, request)));
+    }
+
+    /** @deprecated use PUT /{examId}/results/{resultId} */
+    @PutMapping("/results/{resultId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
+    public ResponseEntity<ApiResponse<ExamResultResponse>> updateResultLegacy(
+            @PathVariable Long resultId, @RequestBody ExamResultRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Result updated", examService.updateResult(resultId, request)));
     }
 
