@@ -8,7 +8,6 @@ import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,30 +25,28 @@ public class AttendanceService {
     private final StudentRepository studentRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final GroupRepository groupRepository;
-    private final UserRepository userRepository;
     private final TelegramService telegramService;
     private final ParentRepository parentRepository;
     private final StudentPaymentLifecycleService studentPaymentLifecycleService;
-    private final TeacherRepository teacherRepository;
     private final AttendanceUnlockRequestRepository attendanceUnlockRequestRepository;
+    private final TeacherAccessService teacherAccessService;
+    private final BalanceTransactionService balanceTransactionService;
 
     @Transactional
     public List<AttendanceResponse> markAttendance(AttendanceRequest request) {
         Group group = groupRepository.findById(request.getGroupId())
             .orElseThrow(() -> new ResourceNotFoundException("Group", request.getGroupId()));
 
-        String username = SecurityContextHolder.getContext().getAuthentication().getName();
-        User marker = userRepository.findByUsername(username).orElse(null);
+        teacherAccessService.assertOwnsGroup(group);
 
-        // Task 2: Time check
+        User marker = teacherAccessService.getCurrentUserOrThrow();
+
         LocalDate date = request.getDate();
         LocalDate today = LocalDate.now();
-        boolean isAdmin = marker != null && (marker.getRole() == com.crm.entity.enums.UserRole.ADMIN 
-                                           || marker.getRole() == com.crm.entity.enums.UserRole.SUPER_ADMIN);
+        boolean isAdmin = teacherAccessService.isCurrentUserAdmin();
 
         if (!isAdmin && date != null && date.isBefore(today)) {
-            Teacher teacher = teacherRepository.findByUser_Id(marker.getId())
-                .orElseThrow(() -> new com.crm.exception.ForbiddenException("Faqat o'qituvchilar davomat kirita oladi. Profil topilmadi."));
+            Teacher teacher = teacherAccessService.getCurrentTeacherOrThrow();
 
             boolean hasUnlock = attendanceUnlockRequestRepository.existsByTeacherIdAndGroupIdAndAttendanceDateAndStatus(
                 teacher.getId(), request.getGroupId(), date, com.crm.entity.enums.UnlockRequestStatus.APPROVED
@@ -63,10 +60,9 @@ public class AttendanceService {
         List<AttendanceResponse> results = new ArrayList<>();
 
         for (AttendanceRequest.StudentAttendanceItem item : request.getAttendances()) {
-            // Task 4: notes check
             AttendanceStatus itemStatus = item.getStatus() != null ? item.getStatus() : AttendanceStatus.PRESENT;
             if (itemStatus == AttendanceStatus.ABSENT || itemStatus == AttendanceStatus.EXCUSED || itemStatus == AttendanceStatus.LATE) {
-                boolean hasNote = (item.getNotes() != null && !item.getNotes().isBlank()) || 
+                boolean hasNote = (item.getNotes() != null && !item.getNotes().isBlank()) ||
                                   (item.getExcuseReason() != null && !item.getExcuseReason().isBlank());
                 if (!hasNote) {
                     throw new com.crm.exception.BadRequestException("Sabab kiritilishi shart");
@@ -79,17 +75,22 @@ public class AttendanceService {
             Attendance attendance = attendanceRepository
                 .findByStudentIdAndGroupIdAndAttendanceDate(
                     item.getStudentId(), request.getGroupId(), request.getDate())
-                .orElse(Attendance.builder()
+                .orElse(null);
+
+            AttendanceStatus previousStatus = attendance != null ? attendance.getStatus() : null;
+
+            if (attendance == null) {
+                attendance = Attendance.builder()
                     .student(student)
                     .group(group)
                     .attendanceDate(request.getDate())
-                    .build());
+                    .build();
+            }
 
             attendance.setStatus(item.getStatus() != null ? item.getStatus() : AttendanceStatus.PRESENT);
             attendance.setNotes(item.getNotes());
             attendance.setMarkedBy(marker);
 
-            // Handle excused absences
             if (attendance.getStatus() == AttendanceStatus.ABSENT
                     && Boolean.TRUE.equals(item.getExcused())) {
                 attendance.setStatus(AttendanceStatus.EXCUSED);
@@ -103,9 +104,14 @@ public class AttendanceService {
             Attendance saved = attendanceRepository.save(attendance);
             results.add(toResponse(saved));
 
+            applyBalanceForAttendanceChange(student, group, previousStatus, saved);
+
             if (saved.getStatus() == AttendanceStatus.PRESENT || saved.getStatus() == AttendanceStatus.LATE) {
                 studentPaymentLifecycleService.onLessonAttended(
                     item.getStudentId(), request.getGroupId(), request.getDate());
+            } else if (saved.getStatus() == AttendanceStatus.ABSENT) {
+                studentPaymentLifecycleService.onBillableAttendance(
+                    item.getStudentId(), request.getGroupId());
             }
 
             if (saved.getStatus() == AttendanceStatus.ABSENT) {
@@ -139,8 +145,49 @@ public class AttendanceService {
         return results;
     }
 
+    private void applyBalanceForAttendanceChange(
+            Student student, Group group,
+            AttendanceStatus previous, Attendance saved) {
+        StudentGroup sg = studentGroupRepository
+            .findByStudentIdAndGroupIdAndIsActiveTrue(student.getId(), group.getId())
+            .orElse(null);
+        if (sg == null) {
+            return;
+        }
+        java.math.BigDecimal lessonPrice = PaymentScheduleService.resolveLessonPrice(sg);
+        if (lessonPrice.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            return;
+        }
+
+        boolean wasBillable = isBillable(previous);
+        boolean nowBillable = isBillable(saved.getStatus());
+
+        if (!wasBillable && nowBillable) {
+            balanceTransactionService.record(
+                sg,
+                com.crm.entity.enums.BalanceTransactionType.LESSON_CHARGE,
+                lessonPrice.negate(),
+                saved.getId(),
+                "Davomat: " + saved.getStatus() + " (" + saved.getAttendanceDate() + ")");
+        } else if (wasBillable && !nowBillable) {
+            balanceTransactionService.record(
+                sg,
+                com.crm.entity.enums.BalanceTransactionType.LESSON_REFUND,
+                lessonPrice,
+                saved.getId(),
+                "Davomat o'zgardi: " + previous + " → " + saved.getStatus());
+        }
+    }
+
+    private static boolean isBillable(AttendanceStatus status) {
+        return status == AttendanceStatus.PRESENT
+            || status == AttendanceStatus.ABSENT
+            || status == AttendanceStatus.LATE;
+    }
+
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getGroupAttendance(Long groupId, LocalDate date) {
+        teacherAccessService.assertOwnsGroup(groupId);
         LocalDate d = date != null ? date : LocalDate.now();
         List<Attendance> existing = attendanceRepository.findByGroup_IdAndAttendanceDate(groupId, d);
         
@@ -166,6 +213,7 @@ public class AttendanceService {
 
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getStudentAttendance(Long studentId) {
+        teacherAccessService.assertOwnsStudent(studentId);
         return attendanceRepository.findByStudentIdOrderByAttendanceDateDesc(studentId)
             .stream().map(this::toResponse).collect(Collectors.toList());
     }

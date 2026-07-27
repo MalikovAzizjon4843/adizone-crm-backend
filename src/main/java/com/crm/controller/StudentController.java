@@ -1,9 +1,12 @@
 package com.crm.controller;
 
 
+import com.crm.dto.request.BalanceAdjustRequest;
+import com.crm.dto.request.FreezeStudentRequest;
 import com.crm.dto.request.PaymentStartDateRequest;
 import com.crm.dto.request.StudentRequest;
 import com.crm.dto.request.TransferGroupRequest;
+import com.crm.dto.request.UnfreezeStudentRequest;
 import com.crm.dto.response.*;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.BadRequestException;
@@ -52,9 +55,56 @@ public class StudentController {
         return ResponseEntity.ok(ApiResponse.success(studentService.getArchivedStudents()));
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/frozen")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<List<FrozenStudentResponse>>> getFrozenStudents() {
+        return ResponseEntity.ok(ApiResponse.success(studentService.getFrozenStudents()));
+    }
+
+    @GetMapping("/{id:\\d+}")
     public ResponseEntity<ApiResponse<StudentDetailResponse>> getStudentById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(studentService.getStudentById(id)));
+    }
+
+    @PostMapping("/{id:\\d+}/freeze")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<FreezeStudentResponse>> freezeStudent(
+            @PathVariable Long id,
+            @RequestBody(required = false) FreezeStudentRequest request) {
+        if (request == null) {
+            request = new FreezeStudentRequest();
+        }
+        return ResponseEntity.ok(ApiResponse.success("O'quvchi muzlatildi",
+            studentService.freezeStudent(id, request)));
+    }
+
+    @PostMapping("/{id:\\d+}/unfreeze")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<StudentDetailResponse>> unfreezeStudent(
+            @PathVariable Long id,
+            @Valid @RequestBody UnfreezeStudentRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Muzlatishdan chiqarildi",
+            studentService.unfreezeStudent(id, request)));
+    }
+
+    @GetMapping("/{id:\\d+}/balance-history")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<List<BalanceHistoryItemDto>>> getBalanceHistory(
+            @PathVariable Long id,
+            @RequestParam(required = false) Long groupId,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to) {
+        return ResponseEntity.ok(ApiResponse.success(
+            studentService.getBalanceHistory(id, groupId, from, to)));
+    }
+
+    @PostMapping("/{id:\\d+}/balance-adjust")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<BalanceHistoryItemDto>> adjustBalance(
+            @PathVariable Long id,
+            @Valid @RequestBody BalanceAdjustRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Balans tuzatildi",
+            studentService.adjustBalance(id, request)));
     }
 
     @PostMapping

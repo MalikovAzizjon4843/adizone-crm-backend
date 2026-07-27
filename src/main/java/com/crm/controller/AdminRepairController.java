@@ -1,6 +1,7 @@
 package com.crm.controller;
 
 import com.crm.dto.response.ApiResponse;
+import com.crm.service.BalanceTransactionService;
 import com.crm.service.GroupService;
 import com.crm.service.LeadService;
 import com.crm.service.PaymentScheduleService;
@@ -8,6 +9,7 @@ import com.crm.service.TeacherService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,6 +26,7 @@ public class AdminRepairController {
     private final GroupService groupService;
     private final PaymentScheduleService paymentScheduleService;
     private final LeadService leadService;
+    private final BalanceTransactionService balanceTransactionService;
 
     @PostMapping("/link-teacher-users")
     public ResponseEntity<ApiResponse<Map<String, Object>>> linkTeacherUsers() {
@@ -58,5 +61,12 @@ public class AdminRepairController {
         return ResponseEntity.ok(ApiResponse.success(
             "Lead statuslari yangilandi",
             leadService.migrateLeadStatuses()));
+    }
+
+    @GetMapping("/verify-balances")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> verifyBalances() {
+        return ResponseEntity.ok(ApiResponse.success(
+            "Balans tekshiruvi",
+            balanceTransactionService.verifyBalances()));
     }
 }

@@ -12,6 +12,8 @@ import com.crm.entity.enums.CashPaymentMethod;
 import com.crm.entity.enums.IncomeCategory;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.PaymentStatus;
+import com.crm.entity.enums.PaymentType;
+import com.crm.entity.enums.BalanceTransactionType;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
@@ -50,6 +52,7 @@ public class PaymentService {
     private final CashRegisterService cashRegisterService;
     private final BonusPenaltyService bonusPenaltyService;
     private final PaymentScheduleService paymentScheduleService;
+    private final BalanceTransactionService balanceTransactionService;
 
     @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
@@ -70,7 +73,6 @@ public class PaymentService {
         long seq = paymentRepository.count() + 1;
         String receipt = "RCP-" + String.format("%05d", seq);
 
-        // Resolve StudentGroup FIRST — periodStart shundan olinadi
         StudentGroup enrollment = resolveEnrollment(request.getStudentId(), request.getGroupId());
         Group group = enrollment != null ? enrollment.getGroup() : null;
         if (group == null && request.getGroupId() != null) {
@@ -78,7 +80,16 @@ public class PaymentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Group", request.getGroupId()));
         }
 
-        LocalDate[] period = resolvePaymentPeriod(student, enrollment, request);
+        // request.amount = to'liq to'lov qiymati; balansdan yechib, kassaga faqat naqd
+        BigDecimal totalCredit = request.getAmount() != null ? request.getAmount() : BigDecimal.ZERO;
+        BigDecimal availableBalance = student.getBalance() != null ? student.getBalance() : BigDecimal.ZERO;
+        if (availableBalance.compareTo(BigDecimal.ZERO) < 0) {
+            availableBalance = BigDecimal.ZERO;
+        }
+        BigDecimal balanceUsed = availableBalance.min(totalCredit);
+        BigDecimal cashAmount = totalCredit.subtract(balanceUsed);
+
+        LocalDate[] period = resolvePaymentPeriod(student, enrollment, request, totalCredit);
         LocalDate periodStart = period[0];
         LocalDate periodEnd = period[1];
 
@@ -86,7 +97,8 @@ public class PaymentService {
             .student(student)
             .group(group)
             .studentGroup(enrollment)
-            .amount(request.getAmount())
+            .amount(cashAmount)
+            .balanceUsed(balanceUsed)
             .discountAmount(discount)
             .receiptNumber(receipt)
             .paymentDate(payDate)
@@ -100,6 +112,30 @@ public class PaymentService {
             .build();
 
         Payment saved = paymentRepository.save(payment);
+
+        // Audit: +payment.amount (naqd). Mavjud balans kredit sifatida qoladi.
+        if (enrollment != null && cashAmount.compareTo(BigDecimal.ZERO) > 0) {
+            String payNote = "To'lov #" + saved.getReceiptNumber();
+            if (balanceUsed.compareTo(BigDecimal.ZERO) > 0) {
+                payNote += " (balansdan qoplandi: " + balanceUsed.toPlainString() + ")";
+            }
+            balanceTransactionService.record(
+                enrollment,
+                BalanceTransactionType.PAYMENT,
+                cashAmount,
+                saved.getId(),
+                payNote);
+        } else if (enrollment != null && cashAmount.compareTo(BigDecimal.ZERO) == 0
+                && balanceUsed.compareTo(BigDecimal.ZERO) > 0) {
+            // To'liq eski balansdan — o'zgarish 0, lekin audit uchun yozuv
+            balanceTransactionService.record(
+                enrollment,
+                BalanceTransactionType.PAYMENT,
+                BigDecimal.ZERO,
+                saved.getId(),
+                "To'lov #" + saved.getReceiptNumber()
+                    + " to'liq balansdan: " + balanceUsed.toPlainString());
+        }
 
         if (shouldApplyBonuses(request)) {
             BigDecimal bpNet = bonusPenaltyService.applyPendingForStudent(
@@ -116,27 +152,39 @@ public class PaymentService {
             saved = paymentRepository.save(saved);
         }
 
-        Income income = Income.builder()
-            .category(IncomeCategory.STUDENT_PAYMENT)
-            .amount(request.getAmount())
-            .payment(saved)
-            .description("Student payment: " + student.getFirstName() + " " + student.getLastName())
-            .incomeDate(payDate)
-            .receivedBy(receiver)
-            .build();
-        incomeRepository.save(income);
+        if (cashAmount.compareTo(BigDecimal.ZERO) > 0) {
+            Income income = Income.builder()
+                .category(IncomeCategory.STUDENT_PAYMENT)
+                .amount(cashAmount)
+                .payment(saved)
+                .description("Student payment: " + student.getFirstName() + " " + student.getLastName())
+                .incomeDate(payDate)
+                .receivedBy(receiver)
+                .build();
+            incomeRepository.save(income);
 
-        if (request.getCashRegisterId() != null) {
-            CashPaymentMethod cashMethod = resolveCashPaymentMethod(request);
-            CashTransaction cashTx = cashRegisterService.recordIncome(
-                request.getCashRegisterId(),
-                saved.getAmount(),
-                cashMethod,
-                student,
-                "O'quvchi to'lovi",
-                "To'lov #" + saved.getReceiptNumber(),
-                saved.getPaymentDate());
-            saved.setCashRegister(cashTx.getCashRegister());
+            if (request.getCashRegisterId() != null) {
+                CashPaymentMethod cashMethod = resolveCashPaymentMethod(request);
+                CashTransaction cashTx = cashRegisterService.recordIncome(
+                    request.getCashRegisterId(),
+                    cashAmount,
+                    cashMethod,
+                    student,
+                    "O'quvchi to'lovi",
+                    "To'lov #" + saved.getReceiptNumber(),
+                    saved.getPaymentDate());
+                saved.setCashRegister(cashTx.getCashRegister());
+                saved = paymentRepository.save(saved);
+            }
+        } else if (balanceUsed.compareTo(BigDecimal.ZERO) > 0) {
+            String note = "To'liq balansdan qoplandı: " + balanceUsed.toPlainString();
+            saved.setNotes(appendNote(saved.getNotes(), note));
+            saved = paymentRepository.save(saved);
+        }
+
+        // PER_LESSON: periodEnd taxminiy — lessons purchased asosida
+        if (enrollment != null && enrollment.getPaymentType() == PaymentType.PER_LESSON) {
+            applyPerLessonPaymentPeriod(saved, enrollment, totalCredit);
             saved = paymentRepository.save(saved);
         }
 
@@ -144,6 +192,21 @@ public class PaymentService {
         paymentScheduleService.recalculateForStudent(student);
 
         return toResponse(saved);
+    }
+
+    private void applyPerLessonPaymentPeriod(Payment payment, StudentGroup sg, BigDecimal totalCredit) {
+        BigDecimal lessonPrice = PaymentScheduleService.resolveLessonPrice(sg);
+        if (lessonPrice.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        int bought = totalCredit.divide(lessonPrice, 0, RoundingMode.DOWN).intValue();
+        if (bought < 1) {
+            bought = 1;
+        }
+        LocalDate start = payment.getPeriodStart() != null ? payment.getPeriodStart() : LocalDate.now();
+        payment.setPeriodStart(start);
+        // periodEnd: taxminiy — dars kunlari bo'yicha (recalc aniqroq yangilaydi)
+        payment.setPeriodEnd(start.plusDays(Math.max(bought, 1)));
     }
 
     private StudentGroup resolveEnrollment(Long studentId, Long groupId) {
@@ -159,10 +222,11 @@ public class PaymentService {
 
     /**
      * periodStart = sg.nextPaymentDate ?? sg.paymentStartDate ?? sg.joinDate
-     * months = max(1, amount / monthlyFee) when fee &gt; 0
+     * months = max(1, totalCredit / monthlyFee) when fee &gt; 0
      * periodEnd = periodStart + months - 1 day
      */
-    private LocalDate[] resolvePaymentPeriod(Student student, StudentGroup sg, PaymentRequest request) {
+    private LocalDate[] resolvePaymentPeriod(Student student, StudentGroup sg, PaymentRequest request,
+                                             BigDecimal totalCredit) {
         LocalDate periodStart = request.getPeriodFrom();
         LocalDate periodEnd = request.getPeriodTo();
 
@@ -188,8 +252,9 @@ public class PaymentService {
                 fee = PaymentScheduleService.resolveMonthlyFee(sg);
             }
             int months = 1;
-            if (fee != null && fee.compareTo(BigDecimal.ZERO) > 0 && request.getAmount() != null) {
-                months = request.getAmount().divide(fee, 0, RoundingMode.DOWN).intValue();
+            BigDecimal credit = totalCredit != null ? totalCredit : request.getAmount();
+            if (fee != null && fee.compareTo(BigDecimal.ZERO) > 0 && credit != null) {
+                months = credit.divide(fee, 0, RoundingMode.DOWN).intValue();
                 if (months < 1) {
                     months = 1;
                 }
@@ -351,6 +416,7 @@ public class PaymentService {
             .amount(p.getAmount())
             .discountAmount(p.getDiscountAmount() != null ? p.getDiscountAmount() : BigDecimal.ZERO)
             .bonusDiscount(p.getBonusDiscount() != null ? p.getBonusDiscount() : BigDecimal.ZERO)
+            .balanceUsed(p.getBalanceUsed() != null ? p.getBalanceUsed() : BigDecimal.ZERO)
             .receiptNumber(p.getReceiptNumber())
             .formattedAmount(formatUzs(p.getAmount()))
             .paymentDate(p.getPaymentDate())

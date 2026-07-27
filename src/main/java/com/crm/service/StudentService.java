@@ -1,9 +1,12 @@
 package com.crm.service;
 
+import com.crm.dto.request.BalanceAdjustRequest;
+import com.crm.dto.request.FreezeStudentRequest;
 import com.crm.dto.request.StudentParentRequest;
 import com.crm.dto.request.StudentRequest;
 import com.crm.dto.request.TransferGroupRequest;
 import com.crm.dto.request.StudentCreateAndAddRequest;
+import com.crm.dto.request.UnfreezeStudentRequest;
 import com.crm.dto.response.*;
 import com.crm.entity.Course;
 import com.crm.entity.Group;
@@ -16,6 +19,7 @@ import com.crm.entity.StudentStatusHistory;
 import com.crm.entity.enums.AttendanceStatus;
 import com.crm.entity.enums.MarketingSource;
 import com.crm.entity.enums.PaymentStatus;
+import com.crm.entity.enums.PaymentType;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.DuplicateResourceException;
@@ -47,13 +51,27 @@ public class StudentService {
     private final AttendanceRepository attendanceRepository;
     private final StudentStatusHistoryRepository studentStatusHistoryRepository;
     private final PaymentScheduleService paymentScheduleService;
+    private final TeacherAccessService teacherAccessService;
+    private final BalanceTransactionService balanceTransactionService;
 
     @Transactional(readOnly = true)
     public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<Student> studentPage;
 
-        if (search != null && !search.isBlank()) {
+        var teacherScope = teacherAccessService.resolveTeacherScope();
+        if (teacherScope.isPresent()) {
+            Long teacherId = teacherScope.get().getId();
+            if (search != null && !search.isBlank()) {
+                studentPage = studentRepository.searchDistinctActiveByTeacherId(
+                    teacherId, search.trim(), pageable);
+            } else if (status != null) {
+                studentPage = studentRepository.findDistinctActiveByTeacherIdAndStatus(
+                    teacherId, status, pageable);
+            } else {
+                studentPage = studentRepository.findDistinctActiveByTeacherId(teacherId, pageable);
+            }
+        } else if (search != null && !search.isBlank()) {
             studentPage = studentRepository.searchStudents(search, pageable);
         } else if (status != null) {
             studentPage = studentRepository.findByStatus(status, pageable);
@@ -81,6 +99,7 @@ public class StudentService {
 
     @Transactional(readOnly = true)
     public StudentDetailResponse getStudentById(Long id) {
+        teacherAccessService.assertOwnsStudent(id);
         Student student = findById(id);
         return toDetailResponse(student);
     }
@@ -128,6 +147,9 @@ public class StudentService {
 
         if (student.getPaymentStatus() == null) {
             student.setPaymentStatus(PaymentStatus.PENDING);
+        }
+        if (student.getBalance() == null) {
+            student.setBalance(BigDecimal.ZERO);
         }
 
         if (request.getReferralStudentId() != null) {
@@ -392,7 +414,27 @@ public class StudentService {
         student.setStatus(StudentStatus.ACTIVE);
         student.setPaymentStatus(PaymentStatus.PENDING);
         student.setPaymentStartDate(req.getPaymentStartDate());
-        student.setMonthlyFee(req.getMonthlyFee());
+        student.setBalance(BigDecimal.ZERO);
+
+        PaymentType paymentType = req.getPaymentType() != null
+            ? req.getPaymentType() : PaymentType.MONTHLY;
+        BigDecimal fee = req.getMonthlyFee();
+        if (fee == null && group.getCourse() != null) {
+            fee = group.getCourse().getMonthlyPrice();
+        }
+        if (fee == null) {
+            fee = BigDecimal.ZERO;
+        }
+        if (paymentType == PaymentType.MONTHLY && (req.getMonthlyFee() == null)
+                && (group.getCourse() == null || group.getCourse().getMonthlyPrice() == null)) {
+            throw new BadRequestException("Oylik to'lov summasi majburiy");
+        }
+        student.setMonthlyFee(fee);
+
+        BigDecimal lessonPrice = req.getLessonPrice();
+        if (lessonPrice == null && group.getCourse() != null) {
+            lessonPrice = group.getCourse().getLessonPrice();
+        }
 
         if (req.getMarketingSource() != null && !req.getMarketingSource().isBlank()) {
             try {
@@ -418,7 +460,12 @@ public class StudentService {
             .nextPaymentDate(req.getPaymentStartDate())
             .isTrial(Boolean.TRUE.equals(req.getIsTrial()))
             .isActive(true)
-            .monthlyPriceOverride(req.getMonthlyFee())
+            .monthlyPriceOverride(fee)
+            .paymentType(paymentType)
+            .lessonPrice(lessonPrice)
+            .lessonsPurchased(0)
+            .lessonsUsed(0)
+            .balance(BigDecimal.ZERO)
             .paymentStatus(Boolean.TRUE.equals(req.getIsTrial()) ? "TRIAL" : "PENDING")
             .lessonsAttended(0)
             .build();
@@ -579,6 +626,7 @@ public class StudentService {
             .paymentStartDate(s.getPaymentStartDate())
             .nextPaymentDate(s.getNextPaymentDate())
             .monthlyFee(s.getMonthlyFee())
+            .balance(s.getBalance() != null ? s.getBalance() : BigDecimal.ZERO)
             .createdAt(s.getCreatedAt());
 
         if (currentGroup != null && currentGroup.getGroup() != null) {
@@ -698,6 +746,7 @@ public class StudentService {
             .paymentStartDate(s.getPaymentStartDate())
             .nextPaymentDate(s.getNextPaymentDate())
             .monthlyFee(s.getMonthlyFee())
+            .balance(s.getBalance() != null ? s.getBalance() : BigDecimal.ZERO)
             .activeGroups(activeGroups)
             .paymentHistory(paymentHistory)
             .attendanceSummary(attendanceSummary)
@@ -821,5 +870,251 @@ public class StudentService {
                 return m;
             })
             .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public FreezeStudentResponse freezeStudent(Long studentId, FreezeStudentRequest request) {
+        Student student = findById(studentId);
+        if (student.getStatus() == StudentStatus.FROZEN) {
+            throw new BadRequestException("O'quvchi allaqachon muzlatilgan");
+        }
+
+        List<StudentGroup> enrollments;
+        if (request.getGroupId() != null) {
+            StudentGroup sg = studentGroupRepository
+                .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, request.getGroupId())
+                .orElseThrow(() -> new ResourceNotFoundException("StudentGroup", request.getGroupId()));
+            enrollments = List.of(sg);
+        } else {
+            enrollments = studentGroupRepository.findActiveByStudentId(studentId);
+        }
+        if (enrollments.isEmpty()) {
+            throw new BadRequestException("Muzlatish uchun active guruh yo'q");
+        }
+
+        List<AttendanceStatus> billable = List.of(
+            AttendanceStatus.PRESENT, AttendanceStatus.ABSENT, AttendanceStatus.LATE);
+
+        BigDecimal totalAdded = BigDecimal.ZERO;
+        List<FreezeStudentResponse.FrozenGroupBreakdown> breakdowns = new ArrayList<>();
+        String previousStatus = student.getStatus() != null ? student.getStatus().name() : "ACTIVE";
+
+        for (StudentGroup sg : enrollments) {
+            BigDecimal lessonPrice = PaymentScheduleService.resolveLessonPrice(sg);
+            LocalDate from = sg.getJoinDate() != null ? sg.getJoinDate() : LocalDate.EPOCH;
+            int lessonsUsed = (int) attendanceRepository.countByStudentAndGroupAndStatusesSince(
+                studentId, sg.getGroup().getId(), billable, from);
+
+            BigDecimal used = lessonPrice.multiply(BigDecimal.valueOf(lessonsUsed));
+            BigDecimal paid = paymentRepository.sumCreditsByStudentGroupId(sg.getId());
+            if (paid == null || paid.compareTo(BigDecimal.ZERO) == 0) {
+                paid = paymentRepository.sumCreditsByStudentAndGroup(studentId, sg.getGroup().getId());
+            }
+            if (paid == null) {
+                paid = BigDecimal.ZERO;
+            }
+
+            BigDecimal groupBalance = paid.subtract(used);
+            if (groupBalance.compareTo(BigDecimal.ZERO) < 0) {
+                groupBalance = BigDecimal.ZERO;
+            }
+            totalAdded = totalAdded.add(groupBalance);
+
+            sg.setIsActive(false);
+            sg.setLeaveDate(LocalDate.now());
+            sg.setExitDate(LocalDate.now());
+            sg.setExitReason("FROZEN");
+            sg.setExitNotes(request.getNote());
+            sg.setPaymentStatus("FROZEN");
+            sg.setLessonsUsed(lessonsUsed);
+
+            // Balansni paid-used ga moslashtirish + FREEZE audit
+            BigDecimal currentSgBalance = sg.getBalance() != null ? sg.getBalance() : BigDecimal.ZERO;
+            BigDecimal delta = groupBalance.subtract(currentSgBalance);
+            if (delta.compareTo(BigDecimal.ZERO) != 0) {
+                balanceTransactionService.record(
+                    sg,
+                    com.crm.entity.enums.BalanceTransactionType.FREEZE,
+                    delta,
+                    null,
+                    "Muzlatish hisobi (paid - used): " + groupBalance.toPlainString()
+                        + (request.getNote() != null ? " | " + request.getNote() : ""));
+            } else {
+                balanceTransactionService.record(
+                    sg,
+                    com.crm.entity.enums.BalanceTransactionType.FREEZE,
+                    BigDecimal.ZERO,
+                    null,
+                    "Muzlatish: balans=" + groupBalance.toPlainString()
+                        + (request.getNote() != null ? " | " + request.getNote() : ""));
+            }
+
+            studentGroupRepository.save(sg);
+
+            breakdowns.add(FreezeStudentResponse.FrozenGroupBreakdown.builder()
+                .groupId(sg.getGroup().getId())
+                .groupName(sg.getGroup().getGroupName())
+                .lessonsUsed(lessonsUsed)
+                .used(used)
+                .paid(paid)
+                .balance(groupBalance)
+                .build());
+        }
+
+        balanceTransactionService.syncStudentBalanceFromGroups(student);
+        student.setStatus(StudentStatus.FROZEN);
+        student.setNextPaymentDate(null);
+        student.setPaymentStatus(PaymentStatus.FROZEN);
+        studentRepository.save(student);
+
+        StudentStatusHistory history = new StudentStatusHistory();
+        history.setStudent(student);
+        history.setFromStatus(previousStatus);
+        history.setToStatus(StudentStatus.FROZEN.name());
+        history.setReason(request.getReason() != null ? request.getReason() : "FROZEN");
+        history.setNotes("Muzlatish balansi: " + totalAdded.toPlainString()
+            + (request.getNote() != null ? " | " + request.getNote() : ""));
+        history.setChangedAt(LocalDateTime.now());
+        studentStatusHistoryRepository.save(history);
+
+        paymentScheduleService.clearPaymentSchedule(studentId);
+
+        return FreezeStudentResponse.builder()
+            .studentId(studentId)
+            .totalBalance(student.getBalance())
+            .groups(breakdowns)
+            .build();
+    }
+
+    @Transactional
+    public StudentDetailResponse unfreezeStudent(Long studentId, UnfreezeStudentRequest request) {
+        Student student = findById(studentId);
+        if (student.getStatus() != StudentStatus.FROZEN) {
+            throw new BadRequestException("O'quvchi muzlatilgan emas");
+        }
+
+        Group group = groupRepository.findById(request.getGroupId())
+            .orElseThrow(() -> new ResourceNotFoundException("Group", request.getGroupId()));
+
+        if (studentGroupRepository.findByStudentIdAndGroupIdAndIsActiveTrue(studentId, group.getId())
+                .isPresent()) {
+            throw new BadRequestException("O'quvchi bu guruhda allaqachon active");
+        }
+
+        String previousStatus = student.getStatus().name();
+        student.setStatus(StudentStatus.ACTIVE);
+        student.setPaymentStatus(PaymentStatus.PENDING);
+        student.setPaymentStartDate(request.getPaymentStartDate());
+        // balance saqlanadi
+        studentRepository.save(student);
+
+        BigDecimal fee = group.getCourse() != null && group.getCourse().getMonthlyPrice() != null
+            ? group.getCourse().getMonthlyPrice() : BigDecimal.ZERO;
+        BigDecimal lessonPrice = group.getCourse() != null ? group.getCourse().getLessonPrice() : null;
+
+        StudentGroup sg = StudentGroup.builder()
+            .student(student)
+            .group(group)
+            .joinDate(LocalDate.now())
+            .paymentStartDate(request.getPaymentStartDate())
+            .nextPaymentDate(request.getPaymentStartDate())
+            .isTrial(false)
+            .isActive(true)
+            .monthlyPriceOverride(fee)
+            .paymentType(PaymentType.MONTHLY)
+            .lessonPrice(lessonPrice)
+            .lessonsPurchased(0)
+            .lessonsUsed(0)
+            .balance(BigDecimal.ZERO)
+            .paymentStatus("PENDING")
+            .lessonsAttended(0)
+            .build();
+        studentGroupRepository.save(sg);
+        studentGroupRepository.flush();
+
+        // Oldingi muzlatilgan guruh balansini yangi SG ga o'tkazish
+        StudentGroup frozenSg = studentGroupRepository.findByStudentIdOrderByJoinDateDesc(studentId)
+            .stream()
+            .filter(g -> g.getGroup() != null && group.getId().equals(g.getGroup().getId())
+                && "FROZEN".equals(g.getExitReason()))
+            .findFirst()
+            .orElse(null);
+        BigDecimal carry = frozenSg != null && frozenSg.getBalance() != null
+            ? frozenSg.getBalance() : BigDecimal.ZERO;
+        if (carry.compareTo(BigDecimal.ZERO) > 0 && frozenSg != null) {
+            balanceTransactionService.record(
+                frozenSg,
+                com.crm.entity.enums.BalanceTransactionType.UNFREEZE,
+                carry.negate(),
+                null,
+                "Balans yangi guruhga o'tkazildi");
+            balanceTransactionService.record(
+                sg,
+                com.crm.entity.enums.BalanceTransactionType.UNFREEZE,
+                carry,
+                null,
+                "Muzlatishdan qaytganda tiklandi");
+        } else {
+            balanceTransactionService.record(
+                sg,
+                com.crm.entity.enums.BalanceTransactionType.UNFREEZE,
+                BigDecimal.ZERO,
+                null,
+                "Muzlatishdan chiqarildi: " + group.getGroupName());
+        }
+
+        StudentStatusHistory history = new StudentStatusHistory();
+        history.setStudent(student);
+        history.setFromStatus(previousStatus);
+        history.setToStatus(StudentStatus.ACTIVE.name());
+        history.setReason("UNFROZEN");
+        history.setNotes("Guruhga qayta qo'shildi: " + group.getGroupName());
+        history.setChangedAt(LocalDateTime.now());
+        studentStatusHistoryRepository.save(history);
+
+        paymentScheduleService.recalculateForStudent(student);
+        return getStudentById(studentId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<BalanceHistoryItemDto> getBalanceHistory(
+            Long studentId, Long groupId, LocalDate from, LocalDate to) {
+        return balanceTransactionService.getHistory(studentId, groupId, from, to);
+    }
+
+    @Transactional
+    public BalanceHistoryItemDto adjustBalance(Long studentId, BalanceAdjustRequest request) {
+        return balanceTransactionService.manualAdjust(
+            studentId, request.getGroupId(), request.getAmount(), request.getNote());
+    }
+
+    @Transactional(readOnly = true)
+    public List<FrozenStudentResponse> getFrozenStudents() {
+        List<Student> frozen = studentRepository.findByStatus(StudentStatus.FROZEN);
+        List<FrozenStudentResponse> result = new ArrayList<>();
+        for (Student s : frozen) {
+            StudentGroup last = studentGroupRepository.findByStudentIdOrderByJoinDateDesc(s.getId())
+                .stream()
+                .filter(sg -> "FROZEN".equals(sg.getExitReason()) || Boolean.FALSE.equals(sg.getIsActive()))
+                .findFirst()
+                .orElse(studentGroupRepository.findByStudentIdOrderByJoinDateDesc(s.getId())
+                    .stream().findFirst().orElse(null));
+
+            LocalDate frozenDate = last != null && last.getLeaveDate() != null
+                ? last.getLeaveDate()
+                : (s.getUpdatedAt() != null ? s.getUpdatedAt().toLocalDate() : null);
+
+            result.add(FrozenStudentResponse.builder()
+                .studentId(s.getId())
+                .fullName(((s.getFirstName() != null ? s.getFirstName() : "")
+                    + " " + (s.getLastName() != null ? s.getLastName() : "")).trim())
+                .phone(s.getPhone())
+                .frozenDate(frozenDate)
+                .balance(s.getBalance() != null ? s.getBalance() : BigDecimal.ZERO)
+                .lastGroupId(last != null && last.getGroup() != null ? last.getGroup().getId() : null)
+                .lastGroupName(last != null && last.getGroup() != null ? last.getGroup().getGroupName() : null)
+                .build());
+        }
+        return result;
     }
 }

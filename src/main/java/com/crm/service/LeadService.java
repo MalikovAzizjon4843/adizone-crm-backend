@@ -239,6 +239,8 @@ public class LeadService {
             groupRequest.setPaymentStartDate(
                 body.getPaymentStartDate() != null ? body.getPaymentStartDate() : LocalDate.now());
             groupRequest.setMonthlyFee(body.getMonthlyFee());
+            groupRequest.setPaymentType(body.getPaymentType());
+            groupRequest.setLessonPrice(body.getLessonPrice());
             groupRequest.setIsTrial(body.getIsTrial());
             groupService.addStudentToGroup(groupRequest);
         }
@@ -360,16 +362,25 @@ public class LeadService {
                     cb.like(root.get("phone"), phoneTerm)));
         }
         if (fromDate != null && !fromDate.isBlank()) {
-            LocalDate start = LocalDate.parse(fromDate.trim());
+            LocalDate start = parseDateParam(fromDate, "fromDate");
             spec = spec.and((root, query, cb) -> cb.greaterThanOrEqualTo(
                     root.get("createdAt"), start.atStartOfDay()));
         }
         if (toDate != null && !toDate.isBlank()) {
-            LocalDate end = LocalDate.parse(toDate.trim());
-            spec = spec.and((root, query, cb) -> cb.lessThanOrEqualTo(
-                    root.get("createdAt"), end.atTime(23, 59, 59, 999999999)));
+            LocalDate end = parseDateParam(toDate, "toDate");
+            LocalDateTime exclusiveEnd = end.plusDays(1).atStartOfDay();
+            spec = spec.and((root, query, cb) -> cb.lessThan(
+                    root.get("createdAt"), exclusiveEnd));
         }
         return spec;
+    }
+
+    private LocalDate parseDateParam(String value, String paramName) {
+        try {
+            return LocalDate.parse(value.trim());
+        } catch (Exception e) {
+            throw new BadRequestException("Noto'g'ri " + paramName + " formati (yyyy-MM-dd): " + value);
+        }
     }
 
     private LeadStatus parseStatus(String status) {
@@ -620,13 +631,19 @@ public class LeadService {
             return "Boshqa";
         }
         return switch (source.trim().toUpperCase()) {
-            case "TELEGRAM" -> "Telegram";
             case "INSTAGRAM" -> "Instagram";
+            case "TELEGRAM" -> "Telegram";
             case "YOUTUBE" -> "YouTube";
+            case "FACEBOOK" -> "Facebook";
+            case "TARGET" -> "Target";
+            case "SELF_CALL" -> "O'zi qo'ng'iroq";
+            case "FORMER_STUDENT" -> "Avvalgi o'quvchi";
             case "REFERRAL" -> "Tavsiya";
             case "WALK_IN" -> "Kelib ko'rgan";
-            case "OFFLINE" -> "Oflayn reklama";
+            case "OFFLINE" -> "Oflayn";
+            case "LEAD" -> "Lid";
             case "WEBSITE" -> "Veb-sayt";
+            case "OTHER" -> "Boshqa";
             default -> source;
         };
     }
@@ -637,14 +654,14 @@ public class LeadService {
         }
         return switch (status) {
             case NEW -> "Yangi";
-            case DAY_1_WORKED -> "1-kun bog'lanildi";
-            case DAY_2_WORKED -> "2-kun bog'lanildi";
-            case DAY_3_WORKED -> "3-kun bog'lanildi";
-            case DAY_4_WORKED -> "4-kun bog'lanildi";
-            case ONLINE_ENROLLED -> "Onlayn guruhga yozildi";
-            case OFFLINE_ENROLLED -> "Oflayn guruhga yozildi";
-            case ONLINE_PAID -> "Onlayn to'lov qildi";
-            case OFFLINE_PAID -> "Oflayn to'lov qildi";
+            case DAY_1_WORKED -> "1-kun ishlandi";
+            case DAY_2_WORKED -> "2-kun ishlandi";
+            case DAY_3_WORKED -> "3-kun ishlandi";
+            case DAY_4_WORKED -> "4-kun ishlandi";
+            case ONLINE_ENROLLED -> "Online guruhga yozildi";
+            case OFFLINE_ENROLLED -> "Offline guruhga yozildi";
+            case ONLINE_PAID -> "Online to'ladi";
+            case OFFLINE_PAID -> "Offline to'ladi";
             case CONVERTED -> "O'quvchiga aylandi";
             case REJECTED -> "Rad etildi";
         };
