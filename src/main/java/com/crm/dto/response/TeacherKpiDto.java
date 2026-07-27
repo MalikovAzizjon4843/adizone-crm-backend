@@ -19,4 +19,11 @@ public class TeacherKpiDto {
     private TeacherKpiAttendanceDto teacherAttendance;
     private TeacherKpiStudentAttendanceDto studentAttendance;
     private TeacherKpiSatisfactionDto satisfaction;
+
+    /** 4 mezonli samaradorlik (joriy davr) */
+    private TeacherKpiScoresDto current;
+    /** monthly: oylar, daily: kunlar */
+    private List<TeacherKpiTrendPointDto> trend;
+    private String period;
 }
+

@@ -5,6 +5,7 @@ import com.crm.dto.response.*;
 import com.crm.exception.BadRequestException;
 import com.crm.service.FileStorageService;
 import com.crm.service.ImportService;
+import com.crm.service.TeacherKpiService;
 import com.crm.service.TeacherService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -40,39 +41,47 @@ public class TeacherController {
     @PreAuthorize("hasRole('TEACHER')")
     public ResponseEntity<TeacherKpiDto> myKpi(
             @AuthenticationPrincipal UserDetails userDetails,
+            @RequestParam(required = false, defaultValue = "monthly") String period,
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        if (from == null) {
-            from = LocalDate.now().withDayOfMonth(1);
-        }
-        if (to == null) {
-            to = LocalDate.now();
-        }
+        to = TeacherKpiService.defaultTo(to);
+        from = TeacherKpiService.defaultFrom(period, from, to);
         return ResponseEntity.ok(
-            teacherService.getKpiForUsername(userDetails.getUsername(), from, to));
+            teacherService.getKpiForUsername(userDetails.getUsername(), from, to, period));
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/kpi/ranking")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<TeacherKpiRankingResponse>> getKpiRanking(
+            @RequestParam(required = false, defaultValue = "monthly") String period,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        to = TeacherKpiService.defaultTo(to);
+        from = TeacherKpiService.defaultFrom(period, from, to);
+        return ResponseEntity.ok(ApiResponse.success(
+            teacherService.getKpiRanking(period, from, to)));
+    }
+
+    @GetMapping("/{id:\\d+}")
     public ResponseEntity<ApiResponse<TeacherResponse>> getTeacherById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(teacherService.getTeacherById(id)));
     }
 
-    @GetMapping("/{id}/kpi")
+    @GetMapping("/{id:\\d+}/kpi")
     public ResponseEntity<TeacherKpiDto> getKpi(
             @PathVariable Long id,
+            @RequestParam(required = false, defaultValue = "monthly") String period,
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        if (from == null) {
-            from = LocalDate.now().withDayOfMonth(1);
-        }
-        if (to == null) {
-            to = LocalDate.now();
-        }
-        return ResponseEntity.ok(teacherService.getKpi(id, from, to));
+        to = TeacherKpiService.defaultTo(to);
+        from = TeacherKpiService.defaultFrom(period, from, to);
+        return ResponseEntity.ok(teacherService.getKpi(id, from, to, period));
     }
 
     @PostMapping

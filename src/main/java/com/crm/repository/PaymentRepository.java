@@ -143,4 +143,23 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
     BigDecimal sumPaidByStudentAndGroup(
         @Param("studentId") Long studentId,
         @Param("groupId") Long groupId);
+
+    @Query("""
+        SELECT COALESCE(SUM(COALESCE(p.amount, 0) + COALESCE(p.balanceUsed, 0)), 0)
+        FROM Payment p
+        WHERE p.studentGroup.id = :studentGroupId
+          AND p.status = 'PAID'
+        """)
+    BigDecimal sumCreditsByStudentGroupId(@Param("studentGroupId") Long studentGroupId);
+
+    @Query("""
+        SELECT COALESCE(SUM(COALESCE(p.amount, 0) + COALESCE(p.balanceUsed, 0)), 0)
+        FROM Payment p
+        WHERE p.student.id = :studentId
+          AND p.group.id = :groupId
+          AND p.status = 'PAID'
+        """)
+    BigDecimal sumCreditsByStudentAndGroup(
+        @Param("studentId") Long studentId,
+        @Param("groupId") Long groupId);
 }

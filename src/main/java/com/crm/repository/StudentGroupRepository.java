@@ -128,4 +128,47 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
     /** Diagnostika: leaveDate null lekin isActive=false (nomuvofiq). */
     @Query("SELECT COUNT(sg) FROM StudentGroup sg WHERE sg.isActive = false AND sg.leaveDate IS NULL")
     long countInactiveFlagButNoLeaveDate();
+
+    /**
+     * Batch active enrollments by teacher:
+     * teacherId, activeCount, paidCount, billableCount (not TRIAL),
+     * debtorCount (OVERDUE or nextPaymentDate < today, not TRIAL)
+     */
+    @Query("""
+        SELECT g.teacher.id,
+               COUNT(sg),
+               SUM(CASE WHEN sg.paymentStatus = 'PAID' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN sg.paymentStatus IS NULL OR sg.paymentStatus <> 'TRIAL' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN (sg.paymentStatus IS NULL OR sg.paymentStatus <> 'TRIAL')
+                         AND (sg.paymentStatus = 'OVERDUE'
+                              OR (sg.nextPaymentDate IS NOT NULL AND sg.nextPaymentDate < :today))
+                        THEN 1 ELSE 0 END)
+        FROM StudentGroup sg
+        JOIN sg.group g
+        WHERE g.teacher IS NOT NULL
+          AND sg.isActive = true
+          AND sg.leaveDate IS NULL
+        GROUP BY g.teacher.id
+        """)
+    List<Object[]> countActivePaymentStatsGroupedByTeacher(@Param("today") LocalDate today);
+
+    /**
+     * Batch leavers in period by teacher:
+     * teacherId, graduatedCount, leftCount (non-GRADUATED)
+     */
+    @Query("""
+        SELECT g.teacher.id,
+               SUM(CASE WHEN sg.exitReason = 'GRADUATED' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN sg.exitReason IS NULL OR sg.exitReason <> 'GRADUATED' THEN 1 ELSE 0 END)
+        FROM StudentGroup sg
+        JOIN sg.group g
+        WHERE g.teacher IS NOT NULL
+          AND sg.isActive = false
+          AND sg.leaveDate IS NOT NULL
+          AND sg.leaveDate BETWEEN :from AND :to
+        GROUP BY g.teacher.id
+        """)
+    List<Object[]> countLeaveStatsGroupedByTeacher(
+        @Param("from") LocalDate from,
+        @Param("to") LocalDate to);
 }
