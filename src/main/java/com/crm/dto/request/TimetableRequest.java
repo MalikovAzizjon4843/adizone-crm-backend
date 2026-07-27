@@ -1,10 +1,10 @@
 package com.crm.dto.request;
 
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.time.LocalTime;
+import java.util.List;
 
 @Data
 public class TimetableRequest {
@@ -16,8 +16,11 @@ public class TimetableRequest {
     private Long teacherId;
     private Long classroomId;
 
-    @NotBlank(message = "Day of week is required")
+    /** Eski format: bitta kun */
     private String dayOfWeek;
+
+    /** Yangi format: bir necha kun */
+    private List<String> daysOfWeek;
 
     @NotNull(message = "Start time is required")
     private LocalTime startTime;

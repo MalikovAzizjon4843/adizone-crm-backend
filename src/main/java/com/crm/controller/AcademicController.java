@@ -171,9 +171,16 @@ public class AcademicController {
 
     @PostMapping("/api/timetable")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<ApiResponse<TimetableResponse>> createTimetable(@Valid @RequestBody TimetableRequest request) {
+    public ResponseEntity<?> createTimetable(@Valid @RequestBody TimetableRequest request) {
+        boolean multi = request.getDaysOfWeek() != null && !request.getDaysOfWeek().isEmpty();
+        if (multi) {
+            return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Timetable entries created",
+                    academicService.createTimetableBatch(request)));
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success("Timetable entry created", academicService.createTimetable(request)));
+            .body(ApiResponse.success("Timetable entry created",
+                academicService.createTimetable(request)));
     }
 
     @PutMapping("/api/timetable/{id}")
