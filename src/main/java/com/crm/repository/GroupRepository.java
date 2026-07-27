@@ -24,6 +24,15 @@ public interface GroupRepository extends JpaRepository<Group, Long> {
 
     List<Group> findByTeacher_IdAndStatus(Long teacherId, GroupStatus status);
 
+    /** Batch: teacherId, groupCount */
+    @Query("""
+        SELECT g.teacher.id, COUNT(g)
+        FROM Group g
+        WHERE g.teacher IS NOT NULL
+        GROUP BY g.teacher.id
+        """)
+    List<Object[]> countGroupsGroupedByTeacher();
+
     long countByStatus(GroupStatus status);
 
     @Query("SELECT g FROM Group g WHERE g.currentStudents < g.maxStudents AND g.status = 'ACTIVE'")

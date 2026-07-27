@@ -6,6 +6,7 @@ import com.crm.dto.response.TeacherKpiAttendanceDto;
 import com.crm.dto.response.TeacherKpiConversionDto;
 import com.crm.dto.response.TeacherKpiDto;
 import com.crm.dto.response.TeacherKpiGroupDto;
+import com.crm.dto.response.TeacherKpiRankingResponse;
 import com.crm.dto.response.TeacherKpiSatisfactionDto;
 import com.crm.dto.response.TeacherKpiStudentAttendanceDto;
 import com.crm.dto.response.TeacherResponse;
@@ -49,6 +50,7 @@ public class TeacherService {
     private final StudentGroupRepository studentGroupRepository;
     private final PayrollRepository payrollRepository;
     private final AttendanceRepository attendanceRepository;
+    private final TeacherKpiService teacherKpiService;
 
     @Transactional(readOnly = true)
     public List<TeacherResponse> getAllTeachers(boolean activeOnly) {
@@ -234,11 +236,18 @@ public class TeacherService {
 
     @Transactional(readOnly = true)
     public TeacherKpiDto getKpi(Long teacherId, LocalDate from, LocalDate to) {
+        return getKpi(teacherId, from, to, "monthly");
+    }
+
+    @Transactional(readOnly = true)
+    public TeacherKpiDto getKpi(Long teacherId, LocalDate from, LocalDate to, String period) {
         Teacher teacher = findById(teacherId);
+        String normalizedPeriod = TeacherKpiService.normalizePeriod(period);
 
         TeacherKpiDto dto = new TeacherKpiDto();
         dto.setTeacherId(teacherId);
         dto.setTeacherName(teacher.getFirstName() + " " + teacher.getLastName());
+        dto.setPeriod(normalizedPeriod);
 
         fillFinancialKpi(dto, teacherId, from, to);
 
@@ -303,7 +312,16 @@ public class TeacherService {
         dto.setSatisfaction(new TeacherKpiSatisfactionDto());
         dto.setStudentProgress(0.0);
 
+        // 4 mezonli skor + trend (mavjud KPI ustiga)
+        dto.setCurrent(teacherKpiService.computeScores(teacherId, from, to));
+        dto.setTrend(teacherKpiService.buildTrend(teacherId, normalizedPeriod, from, to));
+
         return dto;
+    }
+
+    @Transactional(readOnly = true)
+    public TeacherKpiRankingResponse getKpiRanking(String period, LocalDate from, LocalDate to) {
+        return teacherKpiService.getRanking(period, from, to);
     }
 
     private void fillFinancialKpi(TeacherKpiDto dto, Long teacherId, LocalDate from, LocalDate to) {
@@ -407,16 +425,26 @@ public class TeacherService {
 
     @Transactional(readOnly = true)
     public TeacherKpiDto getKpiForUser(Long userId, LocalDate from, LocalDate to) {
+        return getKpiForUser(userId, from, to, "monthly");
+    }
+
+    @Transactional(readOnly = true)
+    public TeacherKpiDto getKpiForUser(Long userId, LocalDate from, LocalDate to, String period) {
         Teacher teacher = findTeacherByUserId(userId);
-        return getKpi(teacher.getId(), from, to);
+        return getKpi(teacher.getId(), from, to, period);
     }
 
     @Transactional(readOnly = true)
     public TeacherKpiDto getKpiForUsername(String username, LocalDate from, LocalDate to) {
+        return getKpiForUsername(username, from, to, "monthly");
+    }
+
+    @Transactional(readOnly = true)
+    public TeacherKpiDto getKpiForUsername(String username, LocalDate from, LocalDate to, String period) {
         User user = userRepository.findByUsername(username)
             .orElseThrow(() -> new ResourceNotFoundException(
                 "User not found with username: " + username));
-        return getKpiForUser(user.getId(), from, to);
+        return getKpiForUser(user.getId(), from, to, period);
     }
 
     @Transactional

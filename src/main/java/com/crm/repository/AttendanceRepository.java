@@ -70,4 +70,38 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     long countDistinctSessionsByGroupIdsAndDateBetween(@Param("groupIds") List<Long> groupIds,
                                                           @Param("from") LocalDate from,
                                                           @Param("to") LocalDate to);
+
+    /**
+     * Batch: teacherId, presentOrLateCount, totalAttendanceCount
+     */
+    @Query("""
+        SELECT g.teacher.id,
+               SUM(CASE WHEN a.status IN :presentStatuses THEN 1 ELSE 0 END),
+               COUNT(a)
+        FROM Attendance a
+        JOIN a.group g
+        WHERE g.teacher IS NOT NULL
+          AND a.attendanceDate BETWEEN :from AND :to
+        GROUP BY g.teacher.id
+        """)
+    List<Object[]> countAttendanceStatsGroupedByTeacher(
+        @Param("from") LocalDate from,
+        @Param("to") LocalDate to,
+        @Param("presentStatuses") List<AttendanceStatus> presentStatuses);
+
+    @Query("SELECT COUNT(a) FROM Attendance a WHERE a.student.id = :studentId "
+           + "AND a.group.id = :groupId AND a.status IN :statuses")
+    long countByStudentAndGroupAndStatuses(
+        @Param("studentId") Long studentId,
+        @Param("groupId") Long groupId,
+        @Param("statuses") List<AttendanceStatus> statuses);
+
+    @Query("SELECT COUNT(a) FROM Attendance a WHERE a.student.id = :studentId "
+           + "AND a.group.id = :groupId AND a.status IN :statuses "
+           + "AND a.attendanceDate >= :fromDate")
+    long countByStudentAndGroupAndStatusesSince(
+        @Param("studentId") Long studentId,
+        @Param("groupId") Long groupId,
+        @Param("statuses") List<AttendanceStatus> statuses,
+        @Param("fromDate") LocalDate fromDate);
 }

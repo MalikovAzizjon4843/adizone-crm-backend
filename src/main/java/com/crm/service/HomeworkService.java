@@ -27,16 +27,24 @@ public class HomeworkService {
     private final ClassRepository classRepository;
     private final GroupRepository groupRepository;
     private final TeacherRepository teacherRepository;
+    private final TeacherAccessService teacherAccessService;
 
     @Transactional(readOnly = true)
     public PageResponse<HomeworkResponse> getAllHomeworks(int page, int size) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        Page<Homework> p = homeworkRepository.findByIsActiveTrue(pageable);
+        Page<Homework> p;
+        var teacherScope = teacherAccessService.resolveTeacherScope();
+        if (teacherScope.isPresent()) {
+            p = homeworkRepository.findByTeacherIdAndIsActiveTrue(teacherScope.get().getId(), pageable);
+        } else {
+            p = homeworkRepository.findByIsActiveTrue(pageable);
+        }
         return buildPage(p, page, size);
     }
 
     @Transactional(readOnly = true)
     public PageResponse<HomeworkResponse> getHomeworksByGroup(Long groupId, int page, int size) {
+        teacherAccessService.assertOwnsGroup(groupId);
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<Homework> p = homeworkRepository.findByGroupIdAndIsActiveTrue(groupId, pageable);
         return buildPage(p, page, size);
@@ -44,12 +52,20 @@ public class HomeworkService {
 
     @Transactional(readOnly = true)
     public HomeworkResponse getHomeworkById(Long id) {
-        return toResponse(findById(id));
+        Homework hw = findById(id);
+        assertHomeworkAccess(hw);
+        return toResponse(hw);
     }
 
     @Transactional
     public HomeworkResponse createHomework(HomeworkRequest request) {
+        if (request.getGroupId() != null) {
+            teacherAccessService.assertOwnsGroup(request.getGroupId());
+        }
         Homework hw = buildHomework(new Homework(), request);
+        if (teacherAccessService.isCurrentUserTeacher()) {
+            hw.setTeacher(teacherAccessService.getCurrentTeacherOrThrow());
+        }
         hw.setIsActive(true);
         if (hw.getAssignedDate() == null) hw.setAssignedDate(LocalDate.now());
         return toResponse(homeworkRepository.save(hw));
@@ -58,6 +74,10 @@ public class HomeworkService {
     @Transactional
     public HomeworkResponse updateHomework(Long id, HomeworkRequest request) {
         Homework hw = findById(id);
+        assertHomeworkAccess(hw);
+        if (request.getGroupId() != null) {
+            teacherAccessService.assertOwnsGroup(request.getGroupId());
+        }
         buildHomework(hw, request);
         return toResponse(homeworkRepository.save(hw));
     }
@@ -65,12 +85,14 @@ public class HomeworkService {
     @Transactional
     public void deleteHomework(Long id) {
         Homework hw = findById(id);
+        assertHomeworkAccess(hw);
         hw.setIsActive(false);
         homeworkRepository.save(hw);
     }
 
     @Transactional(readOnly = true)
     public List<HomeworkSubmissionResponse> getSubmissions(Long homeworkId) {
+        assertHomeworkAccess(findById(homeworkId));
         return submissionRepository.findByHomeworkId(homeworkId).stream()
             .map(this::toSubmissionResponse).collect(Collectors.toList());
     }
@@ -111,6 +133,19 @@ public class HomeworkService {
     public Homework findById(Long id) {
         return homeworkRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Homework", id));
+    }
+
+    private void assertHomeworkAccess(Homework hw) {
+        if (!teacherAccessService.isCurrentUserTeacher()) {
+            return;
+        }
+        Teacher teacher = teacherAccessService.getCurrentTeacherOrThrow();
+        boolean ownsTeacher = hw.getTeacher() != null && teacher.getId().equals(hw.getTeacher().getId());
+        boolean ownsGroup = hw.getGroup() != null && hw.getGroup().getTeacher() != null
+            && teacher.getId().equals(hw.getGroup().getTeacher().getId());
+        if (!ownsTeacher && !ownsGroup) {
+            throw new com.crm.exception.ForbiddenException("Bu uy vazifasi sizga tegishli emas");
+        }
     }
 
     private Homework buildHomework(Homework hw, HomeworkRequest req) {

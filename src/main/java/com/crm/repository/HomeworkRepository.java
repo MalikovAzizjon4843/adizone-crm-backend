@@ -11,5 +11,6 @@ public interface HomeworkRepository extends JpaRepository<Homework, Long> {
     Page<Homework> findByIsActiveTrue(Pageable pageable);
     Page<Homework> findByGroupIdAndIsActiveTrue(Long groupId, Pageable pageable);
     Page<Homework> findByTeacherId(Long teacherId, Pageable pageable);
+    Page<Homework> findByTeacherIdAndIsActiveTrue(Long teacherId, Pageable pageable);
     long countByIsActiveTrue();
 }

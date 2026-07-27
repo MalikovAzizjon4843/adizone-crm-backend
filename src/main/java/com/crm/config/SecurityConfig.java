@@ -85,6 +85,8 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/finance/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                .requestMatchers("/api/expenses", "/api/expenses/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
                 .requestMatchers("/api/payroll/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
                 .requestMatchers("/api/payments/**")
@@ -105,6 +107,11 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/admin/**")
                     .hasRole("SUPER_ADMIN")
+
+                .requestMatchers(HttpMethod.GET, "/api/students", "/api/students/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT", "TEACHER")
+                .requestMatchers("/api/students/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
 
                 .requestMatchers("/api/attendance/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")

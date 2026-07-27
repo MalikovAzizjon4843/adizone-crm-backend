@@ -26,22 +26,19 @@ import java.util.List;
 public class AttendanceUnlockRequestService {
 
     private final AttendanceUnlockRequestRepository attendanceUnlockRequestRepository;
-    private final TeacherRepository teacherRepository;
     private final GroupRepository groupRepository;
     private final UserRepository userRepository;
     private final BonusPenaltyService bonusPenaltyService;
+    private final TeacherAccessService teacherAccessService;
 
     @Transactional
     public AttendanceUnlockResponseDto createRequest(AttendanceUnlockCreateDto dto) {
-        String username = SecurityContextHolder.getContext().getAuthentication().getName();
-        User user = userRepository.findByUsername(username)
-            .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + username));
-
-        Teacher teacher = teacherRepository.findByUser_Id(user.getId())
-            .orElseThrow(() -> new BadRequestException("Sizning profilingiz o'qituvchi sifatida topilmadi"));
+        Teacher teacher = teacherAccessService.getCurrentTeacherOrThrow();
 
         Group group = groupRepository.findById(dto.getGroupId())
             .orElseThrow(() -> new ResourceNotFoundException("Group", dto.getGroupId()));
+
+        teacherAccessService.assertOwnsGroup(group);
 
         boolean existsPending = attendanceUnlockRequestRepository.existsByTeacherIdAndGroupIdAndAttendanceDateAndStatus(
             teacher.getId(), group.getId(), dto.getAttendanceDate(), UnlockRequestStatus.PENDING
@@ -71,12 +68,7 @@ public class AttendanceUnlockRequestService {
 
     @Transactional(readOnly = true)
     public List<AttendanceUnlockResponseDto> getMyRequests() {
-        String username = SecurityContextHolder.getContext().getAuthentication().getName();
-        User user = userRepository.findByUsername(username)
-            .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + username));
-
-        Teacher teacher = teacherRepository.findByUser_Id(user.getId())
-            .orElseThrow(() -> new BadRequestException("Sizning profilingiz o'qituvchi sifatida topilmadi"));
+        Teacher teacher = teacherAccessService.getCurrentTeacherOrThrow();
 
         return attendanceUnlockRequestRepository.findByTeacherIdOrderByCreatedAtDesc(teacher.getId())
             .stream()

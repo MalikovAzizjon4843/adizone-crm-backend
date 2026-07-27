@@ -70,4 +70,62 @@ public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpec
     @Query(value = "SELECT admission_number FROM students WHERE admission_number LIKE '0-%' "
            + "ORDER BY admission_number DESC LIMIT 1", nativeQuery = true)
     Optional<String> findLatestAutoAdmissionNumber();
+
+    @Query("""
+        SELECT DISTINCT s FROM Student s
+        JOIN s.studentGroups sg
+        JOIN sg.group g
+        WHERE g.teacher.id = :teacherId
+          AND sg.isActive = true
+          AND sg.leaveDate IS NULL
+        """)
+    Page<Student> findDistinctActiveByTeacherId(
+        @Param("teacherId") Long teacherId, Pageable pageable);
+
+    @Query("""
+        SELECT DISTINCT s FROM Student s
+        JOIN s.studentGroups sg
+        JOIN sg.group g
+        WHERE g.teacher.id = :teacherId
+          AND sg.isActive = true
+          AND sg.leaveDate IS NULL
+          AND s.status = :status
+        """)
+    Page<Student> findDistinctActiveByTeacherIdAndStatus(
+        @Param("teacherId") Long teacherId,
+        @Param("status") StudentStatus status,
+        Pageable pageable);
+
+    @Query("""
+        SELECT DISTINCT s FROM Student s
+        JOIN s.studentGroups sg
+        JOIN sg.group g
+        WHERE g.teacher.id = :teacherId
+          AND sg.isActive = true
+          AND sg.leaveDate IS NULL
+          AND (
+            LOWER(s.firstName) LIKE LOWER(CONCAT('%', :search, '%'))
+            OR LOWER(s.lastName) LIKE LOWER(CONCAT('%', :search, '%'))
+            OR s.phone LIKE CONCAT('%', :search, '%')
+            OR LOWER(COALESCE(s.admissionNumber,'')) LIKE LOWER(CONCAT('%', :search, '%'))
+          )
+        """)
+    Page<Student> searchDistinctActiveByTeacherId(
+        @Param("teacherId") Long teacherId,
+        @Param("search") String search,
+        Pageable pageable);
+
+    @Query("""
+        SELECT CASE WHEN COUNT(s) > 0 THEN true ELSE false END
+        FROM Student s
+        JOIN s.studentGroups sg
+        JOIN sg.group g
+        WHERE s.id = :studentId
+          AND g.teacher.id = :teacherId
+          AND sg.isActive = true
+          AND sg.leaveDate IS NULL
+        """)
+    boolean existsActiveInTeacherGroups(
+        @Param("studentId") Long studentId,
+        @Param("teacherId") Long teacherId);
 }

@@ -20,6 +20,12 @@ public interface TimetableRepository extends JpaRepository<Timetable, Long> {
     List<Timetable> findByDayOfWeek(String dayOfWeek);
 
     @Query("""
+        SELECT t FROM Timetable t
+        WHERE t.teacher.id = :teacherId OR t.group.teacher.id = :teacherId
+        """)
+    Page<Timetable> findByTeacherScope(@Param("teacherId") Long teacherId, Pageable pageable);
+
+    @Query("""
         SELECT DISTINCT t FROM Timetable t
         LEFT JOIN FETCH t.classroom
         LEFT JOIN FETCH t.group g
@@ -29,6 +35,20 @@ public interface TimetableRepository extends JpaRepository<Timetable, Long> {
         WHERE t.dayOfWeek = :dayOfWeek
         """)
     List<Timetable> findByDayOfWeekWithDetails(@Param("dayOfWeek") String dayOfWeek);
+
+    @Query("""
+        SELECT DISTINCT t FROM Timetable t
+        LEFT JOIN FETCH t.classroom
+        LEFT JOIN FETCH t.group g
+        LEFT JOIN FETCH g.course
+        LEFT JOIN FETCH g.teacher
+        LEFT JOIN FETCH t.teacher
+        WHERE t.dayOfWeek = :dayOfWeek
+          AND (t.teacher.id = :teacherId OR g.teacher.id = :teacherId)
+        """)
+    List<Timetable> findByDayOfWeekWithDetailsForTeacher(
+        @Param("dayOfWeek") String dayOfWeek,
+        @Param("teacherId") Long teacherId);
 
     @Query("""
         SELECT t FROM Timetable t
