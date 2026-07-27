@@ -40,6 +40,7 @@ public class StudentDetailResponse {
     private LocalDate paymentStartDate;
     private LocalDate nextPaymentDate;
     private BigDecimal monthlyFee;
+    private BigDecimal balance;
     private List<GroupSummary> activeGroups;
     private List<PaymentSummary> paymentHistory;
     private Map<String, Integer> attendanceSummary;

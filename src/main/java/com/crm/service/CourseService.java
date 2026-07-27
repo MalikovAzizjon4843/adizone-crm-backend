@@ -43,6 +43,7 @@ public class CourseService {
             .durationMonths(request.getDurationMonths())
             .lessonsCount(request.getLessonsCount())
             .monthlyPrice(request.getMonthlyPrice())
+            .lessonPrice(request.getLessonPrice())
             .isActive(true)
             .build();
         return toResponse(courseRepository.save(course));
@@ -61,6 +62,7 @@ public class CourseService {
         course.setDurationMonths(request.getDurationMonths());
         course.setLessonsCount(request.getLessonsCount());
         course.setMonthlyPrice(request.getMonthlyPrice());
+        course.setLessonPrice(request.getLessonPrice());
         return toResponse(courseRepository.save(course));
     }
 
@@ -85,6 +87,7 @@ public class CourseService {
             .durationMonths(c.getDurationMonths())
             .lessonsCount(c.getLessonsCount())
             .monthlyPrice(c.getMonthlyPrice())
+            .lessonPrice(c.getLessonPrice())
             .isActive(c.getIsActive())
             .createdAt(c.getCreatedAt())
             .build();

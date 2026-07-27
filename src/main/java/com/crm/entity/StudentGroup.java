@@ -1,5 +1,6 @@
 package com.crm.entity;
 
+import com.crm.entity.enums.PaymentType;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -53,6 +54,30 @@ public class StudentGroup {
     @Column(name = "monthly_price_override", precision = 12, scale = 2)
     private BigDecimal monthlyPriceOverride;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_type", length = 20)
+    @Builder.Default
+    private PaymentType paymentType = PaymentType.MONTHLY;
+
+    /** Shu o'quvchi uchun dars narxi (kursdan yoki qo'lda). */
+    @Column(name = "lesson_price", precision = 12, scale = 2)
+    private BigDecimal lessonPrice;
+
+    /** PER_LESSON: sotib olingan darslar soni */
+    @Column(name = "lessons_purchased")
+    @Builder.Default
+    private Integer lessonsPurchased = 0;
+
+    /** PER_LESSON: o'qilgan darslar (PRESENT/ABSENT/LATE) */
+    @Column(name = "lessons_used")
+    @Builder.Default
+    private Integer lessonsUsed = 0;
+
+    /** Guruh bo'yicha balans (audit trail bilan) */
+    @Column(name = "balance", precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal balance = BigDecimal.ZERO;
+
     @Column(columnDefinition = "TEXT")
     private String notes;
 
@@ -68,7 +93,7 @@ public class StudentGroup {
     @Column(name = "next_payment_due")
     private LocalDate nextPaymentDue;
 
-    /** TRIAL, PENDING, PAID, OVERDUE, SUSPENDED, ARCHIVED */
+    /** TRIAL, PENDING, PAID, OVERDUE, SUSPENDED, ARCHIVED, FROZEN */
     @Column(name = "payment_status", length = 20)
     private String paymentStatus = "PENDING";
 
@@ -78,7 +103,7 @@ public class StudentGroup {
     @Column(name = "suspension_reason", columnDefinition = "TEXT")
     private String suspensionReason;
 
-    /** GRADUATED, LEFT, TRANSFERRED, SUSPENDED, OTHER */
+    /** GRADUATED, LEFT, TRANSFERRED, SUSPENDED, FROZEN, OTHER */
     @Column(name = "exit_reason", length = 50)
     private String exitReason;
 
@@ -102,8 +127,12 @@ public class StudentGroup {
         if (paymentStartDate == null) paymentStartDate = joinDate;
         if (nextPaymentDate == null) nextPaymentDate = paymentStartDate;
         if (isTrial == null) isTrial = false;
+        if (paymentType == null) paymentType = PaymentType.MONTHLY;
         if (paymentStatus == null) paymentStatus = Boolean.TRUE.equals(isTrial) ? "TRIAL" : "PENDING";
         if (lessonsAttended == null) lessonsAttended = 0;
+        if (lessonsPurchased == null) lessonsPurchased = 0;
+        if (lessonsUsed == null) lessonsUsed = 0;
+        if (balance == null) balance = BigDecimal.ZERO;
     }
 
     @PreUpdate

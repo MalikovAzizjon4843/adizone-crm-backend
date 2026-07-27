@@ -84,6 +84,10 @@ public class Payment {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    @Column(name = "balance_used", precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal balanceUsed = BigDecimal.ZERO;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -122,6 +126,9 @@ public class Payment {
         }
         if (bonusDiscount == null) {
             bonusDiscount = BigDecimal.ZERO;
+        }
+        if (balanceUsed == null) {
+            balanceUsed = BigDecimal.ZERO;
         }
     }
 

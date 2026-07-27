@@ -1,5 +1,6 @@
 package com.crm.dto.request;
 
+import com.crm.entity.enums.PaymentType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -26,8 +27,11 @@ public class StudentCreateAndAddRequest {
     @NotNull(message = "To'lov boshlanish sanasi majburiy")
     private LocalDate paymentStartDate;
 
-    @NotNull(message = "Oylik to'lov summasi majburiy")
+    /** MONTHLY uchun tavsiya etiladi; PER_LESSON da ixtiyoriy */
     private BigDecimal monthlyFee;
+
+    private PaymentType paymentType;
+    private BigDecimal lessonPrice;
 
     private Boolean isTrial = false;
 }

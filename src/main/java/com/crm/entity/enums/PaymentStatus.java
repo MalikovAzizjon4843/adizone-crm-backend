@@ -12,5 +12,6 @@ public enum PaymentStatus {
     CANCELLED,
     TRIAL,
     SUSPENDED,
-    ARCHIVED
+    ARCHIVED,
+    FROZEN
 }

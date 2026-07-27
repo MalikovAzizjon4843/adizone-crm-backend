@@ -12,6 +12,7 @@ public class CourseResponse {
     private Integer durationMonths;
     private Integer lessonsCount;
     private BigDecimal monthlyPrice;
+    private BigDecimal lessonPrice;
     private Boolean isActive;
     private LocalDateTime createdAt;
 }

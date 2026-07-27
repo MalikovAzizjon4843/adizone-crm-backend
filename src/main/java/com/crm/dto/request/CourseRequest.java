@@ -9,4 +9,6 @@ public class CourseRequest {
     @NotNull @Min(1) private Integer durationMonths;
     @NotNull @Min(1) private Integer lessonsCount;
     @NotNull @DecimalMin("0.0") private BigDecimal monthlyPrice;
+    /** Ixtiyoriy — bir dars narxi */
+    @DecimalMin("0.0") private BigDecimal lessonPrice;
 }

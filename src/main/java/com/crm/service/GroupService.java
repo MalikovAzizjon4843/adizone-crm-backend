@@ -16,6 +16,7 @@ import com.crm.entity.Timetable;
 import com.crm.entity.Classroom;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.entity.enums.PaymentStatus;
+import com.crm.entity.enums.PaymentType;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
@@ -51,12 +52,22 @@ public class GroupService {
     private final TimetableRepository timetableRepository;
     private final StudentStatusHistoryRepository studentStatusHistoryRepository;
     private final PaymentScheduleService paymentScheduleService;
+    private final TeacherAccessService teacherAccessService;
 
     @Transactional(readOnly = true)
     public List<GroupResponse> getAllGroups(GroupStatus status) {
-        List<Group> groups = status != null
-            ? groupRepository.findByStatus(status)
-            : groupRepository.findAll();
+        List<Group> groups;
+        var teacherScope = teacherAccessService.resolveTeacherScope();
+        if (teacherScope.isPresent()) {
+            Long teacherId = teacherScope.get().getId();
+            groups = status != null
+                ? groupRepository.findByTeacher_IdAndStatus(teacherId, status)
+                : groupRepository.findByTeacherId(teacherId);
+        } else {
+            groups = status != null
+                ? groupRepository.findByStatus(status)
+                : groupRepository.findAll();
+        }
         Map<Long, Integer> activeCounts = loadActiveStudentCountsByGroup();
         return groups.stream()
             .map(g -> toResponse(g, false, activeCounts.getOrDefault(g.getId(), 0)))
@@ -65,18 +76,22 @@ public class GroupService {
 
     @Transactional(readOnly = true)
     public GroupResponse getGroupById(Long id) {
-        return toResponse(findById(id), true, null);
+        Group group = findById(id);
+        teacherAccessService.assertOwnsGroup(group);
+        return toResponse(group, true, null);
     }
 
     @Transactional(readOnly = true)
     public List<GroupResponse.ScheduleDayResponse> getSchedule(Long groupId) {
-        findById(groupId);
+        Group group = findById(groupId);
+        teacherAccessService.assertOwnsGroup(group);
         return mapScheduleDays(groupId);
     }
 
     @Transactional(readOnly = true)
     public List<SuspendedStudentResponse> getSuspendedStudents(Long groupId) {
-        findById(groupId);
+        Group group = findById(groupId);
+        teacherAccessService.assertOwnsGroup(group);
         return studentGroupRepository.findSuspendedByGroupId(groupId).stream()
             .map(sg -> SuspendedStudentResponse.builder()
                 .studentId(sg.getStudent().getId())
@@ -413,6 +428,8 @@ public class GroupService {
         LocalDate paymentStart = request.getPaymentStartDate() != null
             ? request.getPaymentStartDate() : LocalDate.now();
         boolean isTrial = Boolean.TRUE.equals(request.getIsTrial());
+        PaymentType paymentType = request.getPaymentType() != null
+            ? request.getPaymentType() : PaymentType.MONTHLY;
 
         BigDecimal fee = request.getMonthlyFee() != null
             ? request.getMonthlyFee()
@@ -422,11 +439,21 @@ public class GroupService {
                     ? group.getCourse().getMonthlyPrice()
                     : BigDecimal.ZERO));
 
+        BigDecimal lessonPrice = request.getLessonPrice();
+        if (lessonPrice == null && group.getCourse() != null) {
+            lessonPrice = group.getCourse().getLessonPrice();
+        }
+
         String initialStatus = isTrial ? "TRIAL" : "PENDING";
 
         student.setPaymentStartDate(paymentStart);
-        student.setMonthlyFee(fee);
+        if (paymentType == PaymentType.MONTHLY) {
+            student.setMonthlyFee(fee);
+        }
         student.setPaymentStatus(isTrial ? PaymentStatus.TRIAL : PaymentStatus.PENDING);
+        if (student.getBalance() == null) {
+            student.setBalance(BigDecimal.ZERO);
+        }
         studentRepository.save(student);
 
         StudentGroup sg = StudentGroup.builder()
@@ -439,6 +466,11 @@ public class GroupService {
             .isActive(true)
             .discountPercentage(request.getDiscountPercentage())
             .monthlyPriceOverride(fee)
+            .paymentType(paymentType)
+            .lessonPrice(lessonPrice)
+            .lessonsPurchased(0)
+            .lessonsUsed(0)
+            .balance(BigDecimal.ZERO)
             .notes(request.getNotes())
             .paymentStatus(initialStatus)
             .lessonsAttended(0)
@@ -447,8 +479,8 @@ public class GroupService {
         studentGroupRepository.save(sg);
         studentGroupRepository.flush();
         LocalDate studentNext = paymentScheduleService.recalculateForStudent(student);
-        log.info("addStudentToGroup student={} sg={} paymentStart={} → student.nextPaymentDate={}",
-            student.getId(), sg.getId(), paymentStart, studentNext);
+        log.info("addStudentToGroup student={} sg={} paymentType={} paymentStart={} → student.nextPaymentDate={}",
+            student.getId(), sg.getId(), paymentType, paymentStart, studentNext);
     }
 
     @Transactional

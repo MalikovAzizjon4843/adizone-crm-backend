@@ -39,6 +39,10 @@ public class Course extends BaseEntity {
     @Column(name = "monthly_price", nullable = false, precision = 12, scale = 2)
     private BigDecimal monthlyPrice;
 
+    /** Bir dars narxi (ixtiyoriy). Null bo'lsa muzlatishda fallback hisoblanadi. */
+    @Column(name = "lesson_price", precision = 12, scale = 2)
+    private BigDecimal lessonPrice;
+
     @Column(name = "is_active")
     private Boolean isActive = true;
 }

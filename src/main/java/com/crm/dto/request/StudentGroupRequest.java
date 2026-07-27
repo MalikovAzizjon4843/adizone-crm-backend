@@ -1,5 +1,6 @@
 package com.crm.dto.request;
 
+import com.crm.entity.enums.PaymentType;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -22,5 +23,9 @@ public class StudentGroupRequest {
     private BigDecimal discountPercentage;
     /** Legacy — monthlyFee bo'sh bo'lsa shu ishlatiladi */
     private BigDecimal monthlyPriceOverride;
+    /** MONTHLY (default) yoki PER_LESSON */
+    private PaymentType paymentType;
+    /** PER_LESSON uchun; null bo'lsa course.lessonPrice */
+    private BigDecimal lessonPrice;
     private String notes;
 }

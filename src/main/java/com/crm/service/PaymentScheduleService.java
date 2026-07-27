@@ -3,12 +3,18 @@ package com.crm.service;
 import com.crm.config.PaymentScheduleConfig;
 import com.crm.dto.response.DebtorsListResponse;
 import com.crm.dto.response.ExpectedPaymentsResponse;
+import com.crm.entity.Course;
 import com.crm.entity.Group;
+import com.crm.entity.GroupScheduleDay;
 import com.crm.entity.Payment;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
+import com.crm.entity.enums.AttendanceStatus;
 import com.crm.entity.enums.PaymentStatus;
+import com.crm.entity.enums.PaymentType;
 import com.crm.entity.enums.StudentStatus;
+import com.crm.repository.AttendanceRepository;
+import com.crm.repository.GroupScheduleDayRepository;
 import com.crm.repository.PaymentRepository;
 import com.crm.repository.StudentGroupRepository;
 import com.crm.repository.StudentRepository;
@@ -20,6 +26,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
@@ -28,6 +36,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -35,9 +44,14 @@ import java.util.stream.Collectors;
 @Slf4j
 public class PaymentScheduleService {
 
+    private static final List<AttendanceStatus> BILLABLE_STATUSES =
+        List.of(AttendanceStatus.PRESENT, AttendanceStatus.ABSENT, AttendanceStatus.LATE);
+
     private final StudentRepository studentRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final PaymentRepository paymentRepository;
+    private final AttendanceRepository attendanceRepository;
+    private final GroupScheduleDayRepository groupScheduleDayRepository;
 
     @Transactional
     public LocalDate recalculateForStudent(Long studentId) {
@@ -98,6 +112,10 @@ public class PaymentScheduleService {
 
         ensureGroupFeeAndStartDate(sg);
 
+        if (sg.getPaymentType() == PaymentType.PER_LESSON) {
+            syncPerLessonCounters(sg);
+        }
+
         LocalDate base = sg.getPaymentStartDate() != null
             ? sg.getPaymentStartDate()
             : resolvePaymentStartDate(student, sg);
@@ -116,6 +134,13 @@ public class PaymentScheduleService {
         }
 
         PaymentStatus status = resolvePaymentStatus(student, sg, next);
+        if (sg.getPaymentType() == PaymentType.PER_LESSON) {
+            int purchased = sg.getLessonsPurchased() != null ? sg.getLessonsPurchased() : 0;
+            int used = sg.getLessonsUsed() != null ? sg.getLessonsUsed() : 0;
+            if (purchased - used <= 0 && !Boolean.TRUE.equals(sg.getIsTrial())) {
+                status = PaymentStatus.OVERDUE;
+            }
+        }
 
         sg.setNextPaymentDate(next);
         sg.setNextPaymentDue(next);
@@ -236,7 +261,7 @@ public class PaymentScheduleService {
             return 0;
         }
         return switch (status) {
-            case SUSPENDED, ARCHIVED -> 5;
+            case SUSPENDED, ARCHIVED, FROZEN -> 5;
             case OVERDUE -> 4;
             case PENDING, PARTIAL, CANCELLED -> 3;
             case TRIAL -> 2;
@@ -264,8 +289,13 @@ public class PaymentScheduleService {
      * Oxirgi to'lov = eng katta periodEnd (shu StudentGroup, yo'qsa student).
      * periodEnd null → paidDate + 1 oy.
      * To'lov yo'q → paymentStartDate / joinDate.
+     * PER_LESSON: qolgan darslar tugash sanasi.
      */
     public LocalDate calculateNextPaymentDate(Student student, StudentGroup enrollment) {
+        if (enrollment != null && enrollment.getPaymentType() == PaymentType.PER_LESSON) {
+            return calculatePerLessonNextPaymentDate(enrollment);
+        }
+
         LocalDate base = resolvePaymentStartDate(student, enrollment);
 
         Payment last = findLastPaymentForEnrollment(enrollment, student.getId());
@@ -281,6 +311,125 @@ public class PaymentScheduleService {
             ? last.getPaymentDate()
             : (last.getCreatedAt() != null ? last.getCreatedAt().toLocalDate() : base);
         return payDate.plusMonths(1);
+    }
+
+    private LocalDate calculatePerLessonNextPaymentDate(StudentGroup sg) {
+        syncPerLessonCounters(sg);
+        int purchased = sg.getLessonsPurchased() != null ? sg.getLessonsPurchased() : 0;
+        int used = sg.getLessonsUsed() != null ? sg.getLessonsUsed() : 0;
+        int remaining = purchased - used;
+        if (remaining <= 0) {
+            LocalDate start = sg.getPaymentStartDate() != null
+                ? sg.getPaymentStartDate()
+                : (sg.getJoinDate() != null ? sg.getJoinDate() : LocalDate.now());
+            return start.isBefore(LocalDate.now()) ? LocalDate.now().minusDays(1) : start;
+        }
+        return estimateDateAfterRemainingLessons(sg, remaining);
+    }
+
+    /** PER_LESSON: to'lovlar va davomatdan purchased/used yangilash. */
+    public void syncPerLessonCounters(StudentGroup sg) {
+        if (sg == null || sg.getPaymentType() != PaymentType.PER_LESSON) {
+            return;
+        }
+        BigDecimal lessonPrice = resolveLessonPrice(sg);
+        BigDecimal credits = sumEnrollmentCredits(sg);
+        int purchased = 0;
+        if (lessonPrice.compareTo(BigDecimal.ZERO) > 0) {
+            purchased = credits.divide(lessonPrice, 0, RoundingMode.DOWN).intValue();
+        }
+        int used = 0;
+        if (sg.getStudent() != null && sg.getGroup() != null) {
+            LocalDate from = sg.getJoinDate() != null ? sg.getJoinDate() : LocalDate.EPOCH;
+            used = (int) attendanceRepository.countByStudentAndGroupAndStatusesSince(
+                sg.getStudent().getId(), sg.getGroup().getId(), BILLABLE_STATUSES, from);
+        }
+        sg.setLessonsPurchased(purchased);
+        sg.setLessonsUsed(used);
+        if (sg.getLessonPrice() == null && lessonPrice.compareTo(BigDecimal.ZERO) > 0) {
+            sg.setLessonPrice(lessonPrice);
+        }
+    }
+
+    private BigDecimal sumEnrollmentCredits(StudentGroup sg) {
+        if (sg.getId() != null) {
+            BigDecimal bySg = paymentRepository.sumCreditsByStudentGroupId(sg.getId());
+            if (bySg != null && bySg.compareTo(BigDecimal.ZERO) > 0) {
+                return bySg;
+            }
+        }
+        if (sg.getStudent() != null && sg.getGroup() != null) {
+            BigDecimal byPair = paymentRepository.sumCreditsByStudentAndGroup(
+                sg.getStudent().getId(), sg.getGroup().getId());
+            return byPair != null ? byPair : BigDecimal.ZERO;
+        }
+        return BigDecimal.ZERO;
+    }
+
+    private LocalDate estimateDateAfterRemainingLessons(StudentGroup sg, int remaining) {
+        Set<DayOfWeek> days = groupScheduleDayRepository
+            .findByGroup_IdOrderByDayOfWeekAsc(sg.getGroup().getId()).stream()
+            .map(GroupScheduleDay::getDayOfWeek)
+            .filter(d -> d != null && !d.isBlank())
+            .map(d -> {
+                try {
+                    return DayOfWeek.valueOf(d.trim().toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    return null;
+                }
+            })
+            .filter(d -> d != null)
+            .collect(Collectors.toSet());
+
+        LocalDate cursor = LocalDate.now().plusDays(1);
+        if (days.isEmpty()) {
+            return cursor.plusDays(Math.max(remaining, 1));
+        }
+        int left = remaining;
+        // max 2 yil oldinga
+        LocalDate limit = cursor.plusYears(2);
+        while (left > 0 && !cursor.isAfter(limit)) {
+            if (days.contains(cursor.getDayOfWeek())) {
+                left--;
+                if (left == 0) {
+                    return cursor;
+                }
+            }
+            cursor = cursor.plusDays(1);
+        }
+        return cursor;
+    }
+
+    /**
+     * Dars narxi: sg.lessonPrice → course.lessonPrice → monthlyFee / oyiga darslar.
+     */
+    public static BigDecimal resolveLessonPrice(StudentGroup sg) {
+        if (sg == null) {
+            return BigDecimal.ZERO;
+        }
+        if (sg.getLessonPrice() != null && sg.getLessonPrice().compareTo(BigDecimal.ZERO) > 0) {
+            return sg.getLessonPrice();
+        }
+        Group g = sg.getGroup();
+        Course course = g != null ? g.getCourse() : null;
+        if (course != null && course.getLessonPrice() != null
+                && course.getLessonPrice().compareTo(BigDecimal.ZERO) > 0) {
+            return course.getLessonPrice();
+        }
+        BigDecimal monthly = resolveMonthlyFee(sg);
+        int perMonth = estimateLessonsPerMonth(sg, course);
+        if (monthly.compareTo(BigDecimal.ZERO) > 0 && perMonth > 0) {
+            return monthly.divide(BigDecimal.valueOf(perMonth), 2, RoundingMode.HALF_UP);
+        }
+        return BigDecimal.ZERO;
+    }
+
+    private static int estimateLessonsPerMonth(StudentGroup sg, Course course) {
+        if (course != null && course.getLessonsCount() != null && course.getDurationMonths() != null
+                && course.getDurationMonths() > 0 && course.getLessonsCount() > 0) {
+            return Math.max(1, course.getLessonsCount() / course.getDurationMonths());
+        }
+        return 8;
     }
 
     private Payment findLastPaymentForEnrollment(StudentGroup enrollment, Long studentId) {
@@ -346,8 +495,10 @@ public class PaymentScheduleService {
             if ("SUSPENDED".equals(currentSg) || currentStudent == PaymentStatus.SUSPENDED) {
                 return PaymentStatus.SUSPENDED;
             }
-            if ("ARCHIVED".equals(currentSg) || currentStudent == PaymentStatus.ARCHIVED) {
-                return PaymentStatus.ARCHIVED;
+            if ("ARCHIVED".equals(currentSg) || currentStudent == PaymentStatus.ARCHIVED
+                    || "FROZEN".equals(currentSg) || currentStudent == PaymentStatus.FROZEN) {
+                return currentStudent == PaymentStatus.FROZEN || "FROZEN".equals(currentSg)
+                    ? PaymentStatus.FROZEN : PaymentStatus.ARCHIVED;
             }
             if (enrollment != null && Boolean.TRUE.equals(enrollment.getIsTrial())) {
                 status = PaymentStatus.TRIAL;

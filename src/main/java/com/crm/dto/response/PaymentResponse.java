@@ -23,6 +23,8 @@ public class PaymentResponse {
     private BigDecimal amount;
     private BigDecimal discountAmount;
     private BigDecimal bonusDiscount;
+    /** Balansdan yechilgan summa */
+    private BigDecimal balanceUsed;
     private String receiptNumber;
     /** Amount formatted for display, e.g. "800 000 so'm" */
     private String formattedAmount;

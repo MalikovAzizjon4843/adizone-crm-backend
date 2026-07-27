@@ -37,5 +37,6 @@ public class StudentResponse {
     private LocalDate paymentStartDate;
     private LocalDate nextPaymentDate;
     private BigDecimal monthlyFee;
+    private BigDecimal balance;
     private LocalDateTime createdAt;
 }

@@ -53,6 +53,28 @@ public class StudentPaymentLifecycleService {
         studentGroupRepository.save(sg);
         log.info("Lesson attended student={} group={} date={} total={} (paymentStatus unchanged)",
             studentId, groupId, lessonDate, attended);
+
+        if (sg.getPaymentType() == com.crm.entity.enums.PaymentType.PER_LESSON) {
+            paymentScheduleService.recalculate(sg);
+            if (sg.getStudent() != null) {
+                paymentScheduleService.recalculateForStudent(sg.getStudent());
+            }
+        }
+    }
+
+    /** ABSENT ham darsbay hisobdan yeydi (EXCUSED emas). */
+    @Transactional
+    public void onBillableAttendance(Long studentId, Long groupId) {
+        StudentGroup sg = studentGroupRepository
+            .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, groupId)
+            .orElse(null);
+        if (sg == null || sg.getPaymentType() != com.crm.entity.enums.PaymentType.PER_LESSON) {
+            return;
+        }
+        paymentScheduleService.recalculate(sg);
+        if (sg.getStudent() != null) {
+            paymentScheduleService.recalculateForStudent(sg.getStudent());
+        }
     }
 
     /**

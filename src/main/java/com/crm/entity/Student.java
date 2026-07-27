@@ -90,7 +90,12 @@ public class Student extends BaseEntity {
     @Column(name = "monthly_fee", precision = 12, scale = 2)
     private BigDecimal monthlyFee;
 
-    /** TRIAL, PENDING, PAID, OVERDUE, SUSPENDED, ARCHIVED — hech qachon null bo'lmasin. */
+    /** Muzlatishdan qolgan kredit (keyingi to'lovda ishlatiladi). */
+    @Column(name = "balance", precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal balance = BigDecimal.ZERO;
+
+    /** TRIAL, PENDING, PAID, OVERDUE, SUSPENDED, ARCHIVED, FROZEN — hech qachon null bo'lmasin. */
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_status", length = 20)
     private PaymentStatus paymentStatus = PaymentStatus.PENDING;
