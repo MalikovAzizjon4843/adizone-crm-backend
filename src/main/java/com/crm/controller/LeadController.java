@@ -15,11 +15,14 @@ import com.crm.dto.response.PageResponse;
 import com.crm.service.LeadService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -60,18 +63,13 @@ public class LeadController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Long operatorId) {
         byte[] xlsx = leadService.exportLeadsXlsx(fromDate, toDate, status, operatorId);
-        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
-        headers.setContentType(org.springframework.http.MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        String filename = "lidlar_" + LocalDate.now() + ".xlsx";
 
-        String filename = "lidlar";
-        if (fromDate != null && fromDate.length() >= 7) {
-            filename += "_" + fromDate.substring(0, 7);
-        } else {
-            filename += "_" + java.time.LocalDate.now().toString().substring(0, 7);
-        }
-        filename += ".xlsx";
-
-        headers.setContentDispositionFormData("attachment", filename);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        headers.set(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"" + filename + "\"");
         return ResponseEntity.ok().headers(headers).body(xlsx);
     }
 
