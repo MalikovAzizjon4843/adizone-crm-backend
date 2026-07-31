@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,6 +19,11 @@ public interface LeadRepository extends JpaRepository<Lead, Long>, JpaSpecificat
     Optional<Lead> findByPhone(String phone);
 
     long countByStatus(LeadStatus status);
+
+    @Query("SELECT COUNT(l) FROM Lead l WHERE l.createdAt >= :from AND l.createdAt <= :to")
+    long countByCreatedAtBetween(
+        @Param("from") LocalDateTime from,
+        @Param("to") LocalDateTime to);
 
     long countByConvertedTrue();
 
@@ -40,6 +46,34 @@ public interface LeadRepository extends JpaRepository<Lead, Long>, JpaSpecificat
         ORDER BY COUNT(l) DESC
         """)
     List<Object[]> countByOperatorGrouped();
+
+    /** Batch: userId, assignedCount, convertedCount */
+    @Query("""
+        SELECT l.assignedUser.id,
+               COUNT(l),
+               SUM(CASE WHEN l.status = com.crm.entity.enums.LeadStatus.CONVERTED
+                          OR l.converted = true THEN 1 ELSE 0 END)
+        FROM Lead l
+        WHERE l.assignedUser IS NOT NULL
+          AND COALESCE(l.assignedAt, l.createdAt) >= :from
+          AND COALESCE(l.assignedAt, l.createdAt) < :toExclusive
+        GROUP BY l.assignedUser.id
+        """)
+    List<Object[]> countAssignedAndConvertedGroupedByUser(
+        @Param("from") java.time.LocalDateTime from,
+        @Param("toExclusive") java.time.LocalDateTime toExclusive);
+
+    @Query("""
+        SELECT COUNT(l) FROM Lead l
+        WHERE l.assignedUser.id = :userId
+          AND (l.status = com.crm.entity.enums.LeadStatus.CONVERTED OR l.converted = true)
+          AND COALESCE(l.assignedAt, l.createdAt) >= :from
+          AND COALESCE(l.assignedAt, l.createdAt) < :toExclusive
+        """)
+    long countConvertedByUserInRange(
+        @Param("userId") Long userId,
+        @Param("from") java.time.LocalDateTime from,
+        @Param("toExclusive") java.time.LocalDateTime toExclusive);
 
     @Modifying
     @Query(value = "UPDATE leads SET status = :newStatus WHERE status = :oldStatus", nativeQuery = true)
