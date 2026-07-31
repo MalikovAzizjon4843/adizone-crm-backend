@@ -60,8 +60,6 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/leads/public").permitAll()
                 .requestMatchers("/api/settings/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/notices/latest").permitAll()
-
                 // ── Teacher-accessible reads (before broader / catch-alls) ──
                 .requestMatchers(HttpMethod.GET, "/api/timetable/grid")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
@@ -134,6 +132,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/classrooms/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
+                // Notice read-status — any authenticated user (before admin-only POST)
+                .requestMatchers(HttpMethod.POST, "/api/notices/read-all", "/api/notices/*/read")
+                    .authenticated()
                 .requestMatchers(HttpMethod.POST, "/api/notices/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/api/notices/**")

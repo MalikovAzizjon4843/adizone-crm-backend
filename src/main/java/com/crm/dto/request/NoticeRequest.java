@@ -20,6 +20,9 @@ public class NoticeRequest {
     private Boolean isActive;
     private Boolean isPublished;
     private LocalDateTime publishedAt;
+    /** Full timestamp expiry (preferred if both sent). */
     private LocalDateTime expiresAt;
+    /** Calendar-day expiry; maps to expiresAt end-of-day when expiresAt is null. */
+    private LocalDate expiryDate;
     private Long createdById;
 }

@@ -97,14 +97,20 @@ public class AnalyticsService {
         long unpaidPayroll = payrollRepository.countPending();
 
         List<NoticeResponse> latestNotices = noticeRepository
-            .findTop5ByIsPublishedTrueOrderByPublishedAtDesc().stream()
+            .findActiveNotices(java.time.LocalDate.now().atStartOfDay(),
+                org.springframework.data.domain.PageRequest.of(0, 5))
+            .stream()
             .map(n -> NoticeResponse.builder()
                 .id(n.getId()).uuid(n.getUuid())
                 .title(n.getTitle()).content(n.getContent())
                 .noticeDate(n.getNoticeDate())
                 .publishedTo(n.getPublishedTo())
                 .noticeType(n.getNoticeType()).isPublished(n.getIsPublished())
-                .publishedAt(n.getPublishedAt()).createdAt(n.getCreatedAt()).build())
+                .publishedAt(n.getPublishedAt())
+                .expiresAt(n.getExpiresAt())
+                .expiryDate(n.getExpiresAt() != null ? n.getExpiresAt().toLocalDate() : null)
+                .isExpired(false)
+                .createdAt(n.getCreatedAt()).build())
             .collect(Collectors.toList());
 
         List<PaymentResponse> recentPayments = paymentRepository

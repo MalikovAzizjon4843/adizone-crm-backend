@@ -23,6 +23,10 @@ public class NoticeResponse {
     private Boolean isPublished;
     private LocalDateTime publishedAt;
     private LocalDateTime expiresAt;
+    /** Calendar date derived from expiresAt (null = never expires). */
+    private LocalDate expiryDate;
+    private Boolean isExpired;
+    private Boolean isRead;
     private String createdByName;
     private LocalDateTime createdAt;
 }
