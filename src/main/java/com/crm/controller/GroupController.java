@@ -5,6 +5,7 @@ import com.crm.dto.request.RemoveStudentRequest;
 import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.request.StudentCreateAndAddRequest;
 import com.crm.dto.response.ApiResponse;
+import com.crm.dto.response.GroupLessonDaysResponse;
 import com.crm.dto.response.GroupResponse;
 import com.crm.dto.response.SuspendedStudentResponse;
 import com.crm.dto.response.StudentResponse;
@@ -39,6 +40,12 @@ public class GroupController {
     public ResponseEntity<ApiResponse<List<GroupResponse.ScheduleDayResponse>>> getSchedule(
             @PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(groupService.getSchedule(id)));
+    }
+
+    @GetMapping("/{id}/lesson-days")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','TEACHER')")
+    public ResponseEntity<ApiResponse<GroupLessonDaysResponse>> getLessonDays(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(groupService.getLessonDays(id)));
     }
 
     @GetMapping("/{id}/suspended-students")

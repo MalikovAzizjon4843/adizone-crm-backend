@@ -1,4 +1,5 @@
 package com.crm.controller;
+
 import com.crm.dto.request.AttendanceRequest;
 import com.crm.dto.response.*;
 import com.crm.service.AttendanceService;
@@ -8,6 +9,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
 import java.time.LocalDate;
 import java.util.List;
 
@@ -23,6 +25,24 @@ public class AttendanceController {
             @Valid @RequestBody AttendanceRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Attendance marked",
             attendanceService.markAttendance(request)));
+    }
+
+    @GetMapping("/missing/my")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ResponseEntity<ApiResponse<TeacherMissingAttendanceResponse>> getMyMissingAttendance(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ResponseEntity.ok(ApiResponse.success(
+            attendanceService.getMyMissingAttendance(from, to)));
+    }
+
+    @GetMapping("/missing")
+    public ResponseEntity<ApiResponse<MissingAttendanceResponse>> getMissingAttendance(
+            @RequestParam Long groupId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ResponseEntity.ok(ApiResponse.success(
+            attendanceService.getMissingAttendance(groupId, from, to)));
     }
 
     @GetMapping("/group/{groupId}")

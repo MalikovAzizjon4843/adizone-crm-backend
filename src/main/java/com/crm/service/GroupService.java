@@ -2,6 +2,7 @@ package com.crm.service;
 
 import com.crm.dto.request.GroupRequest;
 import com.crm.dto.request.StudentGroupRequest;
+import com.crm.dto.response.GroupLessonDaysResponse;
 import com.crm.dto.response.GroupResponse;
 import com.crm.dto.response.ScheduleResponse;
 import com.crm.dto.response.SuspendedStudentResponse;
@@ -32,6 +33,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -89,6 +91,95 @@ public class GroupService {
     }
 
     @Transactional(readOnly = true)
+    public GroupLessonDaysResponse getLessonDays(Long groupId) {
+        Group group = findById(groupId);
+        teacherAccessService.assertOwnsGroup(group);
+
+        List<GroupLessonDaysResponse.LessonDayItem> days = new ArrayList<>();
+        List<GroupScheduleDay> scheduleDays =
+            groupScheduleDayRepository.findByGroup_IdOrderByDayOfWeekAsc(groupId);
+
+        if (!scheduleDays.isEmpty()) {
+            for (GroupScheduleDay d : scheduleDays) {
+                days.add(GroupLessonDaysResponse.LessonDayItem.builder()
+                    .dayOfWeek(normalizeDay(d.getDayOfWeek()))
+                    .startTime(formatScheduleTime(d.getStartTime()))
+                    .endTime(formatScheduleTime(d.getEndTime()))
+                    .roomName(resolveRoomName(d.getRoom(), group))
+                    .build());
+            }
+        } else {
+            for (Timetable t : timetableRepository.findByGroupId(groupId)) {
+                days.add(GroupLessonDaysResponse.LessonDayItem.builder()
+                    .dayOfWeek(normalizeDay(t.getDayOfWeek()))
+                    .startTime(t.getStartTime() != null
+                        ? t.getStartTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+                        : null)
+                    .endTime(t.getEndTime() != null
+                        ? t.getEndTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+                        : null)
+                    .roomName(t.getClassroom() != null
+                        ? resolveRoomName(t.getClassroom(), group)
+                        : resolveRoomName(null, group))
+                    .build());
+            }
+        }
+
+        return GroupLessonDaysResponse.builder()
+            .groupId(group.getId())
+            .groupName(group.getGroupName())
+            .days(days)
+            .build();
+    }
+
+    private void warnIfNoLessonDays(Group group) {
+        if (group == null || group.getId() == null) {
+            return;
+        }
+        boolean hasSchedule = !groupScheduleDayRepository
+            .findByGroup_IdOrderByDayOfWeekAsc(group.getId()).isEmpty();
+        boolean hasTimetable = !timetableRepository.findByGroupId(group.getId()).isEmpty();
+        if (!hasSchedule && !hasTimetable) {
+            log.warn("Guruhda dars kunlari belgilanmagan — davomat kiritib bo'lmaydi (groupId={}, name={})",
+                group.getId(), group.getGroupName());
+        }
+    }
+
+    private static String normalizeDay(String day) {
+        if (day == null || day.isBlank()) {
+            return day;
+        }
+        return day.trim().toUpperCase(java.util.Locale.ROOT);
+    }
+
+    private static String formatScheduleTime(String time) {
+        if (time == null || time.isBlank()) {
+            return null;
+        }
+        String t = time.trim();
+        return t.length() >= 5 ? t.substring(0, 5) : t;
+    }
+
+    private static String resolveRoomName(Classroom room, Group group) {
+        if (room != null) {
+            if (room.getRoomNumber() != null && !room.getRoomNumber().isBlank()) {
+                return room.getRoomNumber();
+            }
+            if (room.getRoomName() != null && !room.getRoomName().isBlank()) {
+                return room.getRoomName();
+            }
+        }
+        if (group != null && group.getClassroom() != null) {
+            Classroom c = group.getClassroom();
+            if (c.getRoomNumber() != null && !c.getRoomNumber().isBlank()) {
+                return c.getRoomNumber();
+            }
+            return c.getRoomName();
+        }
+        return group != null ? group.getRoom() : null;
+    }
+
+    @Transactional(readOnly = true)
     public List<SuspendedStudentResponse> getSuspendedStudents(Long groupId) {
         Group group = findById(groupId);
         teacherAccessService.assertOwnsGroup(group);
@@ -134,6 +225,7 @@ public class GroupService {
         if (resolved != null) {
             saveScheduleDays(saved, resolved);
         }
+        warnIfNoLessonDays(saved);
 
         return toResponse(groupRepository.findById(saved.getId()).orElse(saved), false, null);
     }
@@ -168,6 +260,7 @@ public class GroupService {
                 saveScheduleDays(saved, resolved);
             }
         }
+        warnIfNoLessonDays(saved);
 
         return toResponse(saved, false, null);
     }

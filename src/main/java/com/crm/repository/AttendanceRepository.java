@@ -19,6 +19,15 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
 
     List<Attendance> findByGroup_IdAndAttendanceDate(Long groupId, LocalDate date);
 
+    boolean existsByGroup_IdAndAttendanceDate(Long groupId, LocalDate date);
+
+    @Query("SELECT DISTINCT a.attendanceDate FROM Attendance a "
+           + "WHERE a.group.id = :groupId AND a.attendanceDate BETWEEN :from AND :to")
+    List<LocalDate> findDistinctDatesByGroupAndDateBetween(
+        @Param("groupId") Long groupId,
+        @Param("from") LocalDate from,
+        @Param("to") LocalDate to);
+
     List<Attendance> findByStudentIdOrderByAttendanceDateDesc(Long studentId);
 
     Optional<Attendance> findByStudentIdAndGroupIdAndAttendanceDate(
@@ -104,4 +113,16 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
         @Param("groupId") Long groupId,
         @Param("statuses") List<AttendanceStatus> statuses,
         @Param("fromDate") LocalDate fromDate);
+
+    /** Batch: userId, markedCount */
+    @Query("""
+        SELECT a.markedBy.id, COUNT(a)
+        FROM Attendance a
+        WHERE a.markedBy IS NOT NULL
+          AND a.attendanceDate BETWEEN :from AND :to
+        GROUP BY a.markedBy.id
+        """)
+    List<Object[]> countMarkedGroupedByUser(
+        @Param("from") LocalDate from,
+        @Param("to") LocalDate to);
 }

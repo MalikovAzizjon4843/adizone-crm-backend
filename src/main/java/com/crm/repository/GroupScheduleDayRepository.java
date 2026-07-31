@@ -13,6 +13,8 @@ public interface GroupScheduleDayRepository extends JpaRepository<GroupScheduleD
 
     List<GroupScheduleDay> findByGroup_IdOrderByDayOfWeekAsc(Long groupId);
 
+    boolean existsByGroup_IdAndDayOfWeekIgnoreCase(Long groupId, String dayOfWeek);
+
     void deleteByGroup_Id(Long groupId);
 
     List<GroupScheduleDay> findByRoomAndDayOfWeek(com.crm.entity.Classroom room, String dayOfWeek);
