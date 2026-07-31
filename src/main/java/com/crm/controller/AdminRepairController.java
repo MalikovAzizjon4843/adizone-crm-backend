@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestController
@@ -68,5 +69,18 @@ public class AdminRepairController {
         return ResponseEntity.ok(ApiResponse.success(
             "Balans tekshiruvi",
             balanceTransactionService.verifyBalances()));
+    }
+
+    /**
+     * Eski o'quvchilarda createdBy/attributedUserId NULL qoladi —
+     * bonus faqat yangi yozuvlar uchun hisoblanadi.
+     */
+    @PostMapping("/note-student-attribution")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> noteStudentAttribution() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("message",
+            "Mavjud o'quvchilarda createdBy NULL bo'lsa o'zgartirilmaydi; bonus faqat yangi yozuvlarga");
+        result.put("action", "none");
+        return ResponseEntity.ok(ApiResponse.success("Student attribution policy", result));
     }
 }

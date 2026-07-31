@@ -78,6 +78,14 @@ public class Student extends BaseEntity {
     @Column(name = "converted_from_lead_id")
     private Long convertedFromLeadId;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by")
+    private User createdBy;
+
+    /** Bonus kimga yoziladi (createdBy yoki lead operatori). */
+    @Column(name = "attributed_user_id")
+    private Long attributedUserId;
+
     /** To'lov hisoblash boshlanish sanasi (nextPaymentDate shundan). */
     @Column(name = "payment_start_date")
     private LocalDate paymentStartDate;

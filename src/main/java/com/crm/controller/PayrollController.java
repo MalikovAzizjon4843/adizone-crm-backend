@@ -11,6 +11,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/payroll")
@@ -18,6 +19,34 @@ import java.util.List;
 public class PayrollController {
 
     private final PayrollService payrollService;
+
+    @GetMapping("/calculate")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<List<SalaryCalculationDto>>> calculateAll(
+            @RequestParam int month,
+            @RequestParam int year) {
+        return ResponseEntity.ok(ApiResponse.success(payrollService.previewCalculate(month, year)));
+    }
+
+    @GetMapping("/calculate/{userId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<SalaryCalculationDto>> calculateUser(
+            @PathVariable Long userId,
+            @RequestParam int month,
+            @RequestParam int year) {
+        return ResponseEntity.ok(ApiResponse.success(
+            payrollService.previewCalculateUser(userId, month, year)));
+    }
+
+    @PostMapping("/generate")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> generate(
+            @RequestParam int month,
+            @RequestParam int year,
+            @RequestParam(defaultValue = "false") boolean overwrite) {
+        return ResponseEntity.ok(ApiResponse.success("Oylik yaratildi",
+            payrollService.generatePayroll(month, year, overwrite)));
+    }
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<PayrollResponse>>> getAllPayroll(

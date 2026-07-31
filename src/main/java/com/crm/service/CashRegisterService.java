@@ -4,6 +4,7 @@ import com.crm.dto.request.CashRegisterCreateDto;
 import com.crm.dto.request.ExpenseCreateDto;
 import com.crm.dto.request.IncomeCreateDto;
 import com.crm.dto.request.TransferDto;
+import com.crm.dto.response.CashBalanceDto;
 import com.crm.dto.response.CashRegisterDto;
 import com.crm.dto.response.CashTransactionDto;
 import com.crm.entity.CashRegister;
@@ -25,6 +26,17 @@ import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.BorderStyle;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.IndexedColors;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -32,6 +44,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -129,11 +142,23 @@ public class CashRegisterService {
     }
 
     @Transactional(readOnly = true)
+    public CashBalanceDto getBalance(Long id) {
+        CashRegister register = findRegisterById(id);
+        return CashBalanceDto.builder()
+            .cashRegisterId(register.getId())
+            .balance(register.getBalance())
+            .cashBalance(register.getCashBalance())
+            .plasticBalance(register.getPlasticBalance())
+            .build();
+    }
+
+    @Transactional(readOnly = true)
     public Page<CashTransactionDto> getTransactions(
             Long cashRegisterId,
             LocalDate from,
             LocalDate to,
             Long studentId,
+            Long teacherId,
             String type,
             String paymentMethod,
             Pageable pageable) {
@@ -144,12 +169,12 @@ public class CashRegisterService {
         CashPaymentMethod methodFilter = parsePaymentMethod(paymentMethod);
 
         log.debug(
-            "getTransactions registerId={}, from={}, to={}, studentId={}, type={}, paymentMethod={}, page={}, size={}",
-            cashRegisterId, from, to, studentId, typeFilter, methodFilter,
+            "getTransactions registerId={}, from={}, to={}, studentId={}, teacherId={}, type={}, paymentMethod={}, page={}, size={}",
+            cashRegisterId, from, to, studentId, teacherId, typeFilter, methodFilter,
             pageable.getPageNumber(), pageable.getPageSize());
 
         Specification<CashTransaction> spec = buildTransactionSpec(
-            cashRegisterId, from, to, studentId, typeFilter, methodFilter);
+            cashRegisterId, from, to, studentId, teacherId, typeFilter, methodFilter);
 
         Page<CashTransaction> page = cashTransactionRepository.findAll(spec, pageable);
 
@@ -159,11 +184,95 @@ public class CashRegisterService {
         return page.map(this::toTransactionDto);
     }
 
+    @Transactional(readOnly = true)
+    public byte[] exportTransactions(
+            Long cashRegisterId,
+            LocalDate from,
+            LocalDate to,
+            Long studentId,
+            Long teacherId,
+            String type,
+            String paymentMethod) {
+
+        findRegisterById(cashRegisterId);
+        CashTransactionType typeFilter = parseTransactionType(type);
+        CashPaymentMethod methodFilter = parsePaymentMethod(paymentMethod);
+        Specification<CashTransaction> spec = buildTransactionSpec(
+            cashRegisterId, from, to, studentId, teacherId, typeFilter, methodFilter);
+        List<CashTransaction> transactions = cashTransactionRepository.findAll(spec);
+
+        try (Workbook workbook = new XSSFWorkbook();
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+            Sheet sheet = workbook.createSheet("Tranzaksiyalar");
+
+            Font headerFont = workbook.createFont();
+            headerFont.setBold(true);
+            headerFont.setColor(IndexedColors.WHITE.getIndex());
+
+            CellStyle headerStyle = workbook.createCellStyle();
+            headerStyle.setFont(headerFont);
+            headerStyle.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
+            headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            headerStyle.setAlignment(HorizontalAlignment.CENTER);
+            headerStyle.setBorderBottom(BorderStyle.THIN);
+            headerStyle.setBorderTop(BorderStyle.THIN);
+            headerStyle.setBorderLeft(BorderStyle.THIN);
+            headerStyle.setBorderRight(BorderStyle.THIN);
+
+            String[] headers = {
+                "ID", "Sana", "Turi", "Usul", "O'quvchi", "O'qituvchi",
+                "Nomi", "Summa", "Izoh", "Holat", "Yaratuvchi"
+            };
+            Row headerRow = sheet.createRow(0);
+            for (int i = 0; i < headers.length; i++) {
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(headers[i]);
+                cell.setCellStyle(headerStyle);
+            }
+
+            int rowIdx = 1;
+            for (CashTransaction t : transactions) {
+                Row row = sheet.createRow(rowIdx++);
+                row.createCell(0).setCellValue(t.getId() != null ? t.getId() : 0);
+                row.createCell(1).setCellValue(
+                    t.getTransactionDate() != null ? t.getTransactionDate().toString() : "");
+                row.createCell(2).setCellValue(
+                    t.getType() != null ? t.getType().name() : "");
+                row.createCell(3).setCellValue(
+                    t.getPaymentMethod() != null ? t.getPaymentMethod().name() : "");
+                row.createCell(4).setCellValue(t.getStudent() != null
+                    ? t.getStudent().getFirstName() + " " + t.getStudent().getLastName() : "");
+                row.createCell(5).setCellValue(t.getTeacher() != null
+                    ? t.getTeacher().getFirstName() + " " + t.getTeacher().getLastName() : "");
+                row.createCell(6).setCellValue(
+                    t.getTransactionName() != null ? t.getTransactionName() : "");
+                row.createCell(7).setCellValue(
+                    t.getAmount() != null ? t.getAmount().doubleValue() : 0);
+                row.createCell(8).setCellValue(t.getNote() != null ? t.getNote() : "");
+                row.createCell(9).setCellValue(
+                    t.getStatus() != null ? t.getStatus().name() : "");
+                row.createCell(10).setCellValue(t.getCreatedBy() != null
+                    ? t.getCreatedBy().getFirstName() + " " + t.getCreatedBy().getLastName() : "");
+            }
+
+            for (int i = 0; i < headers.length; i++) {
+                sheet.autoSizeColumn(i);
+            }
+
+            workbook.write(out);
+            return out.toByteArray();
+        } catch (Exception e) {
+            throw new BadRequestException("Eksport yaratib bo'lmadi: " + e.getMessage());
+        }
+    }
+
     private static Specification<CashTransaction> buildTransactionSpec(
             Long cashRegisterId,
             LocalDate from,
             LocalDate to,
             Long studentId,
+            Long teacherId,
             CashTransactionType type,
             CashPaymentMethod paymentMethod) {
 
@@ -184,6 +293,10 @@ public class CashRegisterService {
         if (studentId != null) {
             spec = spec.and((root, query, cb) ->
                 cb.equal(root.get("student").get("id"), studentId));
+        }
+        if (teacherId != null) {
+            spec = spec.and((root, query, cb) ->
+                cb.equal(root.get("teacher").get("id"), teacherId));
         }
         if (type != null) {
             spec = spec.and((root, query, cb) -> cb.equal(root.get("type"), type));
@@ -250,6 +363,13 @@ public class CashRegisterService {
             dto.getTransactionType(),
             dto.getNote(),
             dto.getTransactionDate());
+
+        if (student != null && dto.getAmount() != null) {
+            BigDecimal current = student.getBalance() != null
+                ? student.getBalance() : BigDecimal.ZERO;
+            student.setBalance(current.add(requirePositiveAmount(dto.getAmount())));
+            studentRepository.save(student);
+        }
 
         return toTransactionDto(tx);
     }

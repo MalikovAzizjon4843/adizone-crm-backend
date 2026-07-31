@@ -171,4 +171,22 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
     List<Object[]> countLeaveStatsGroupedByTeacher(
         @Param("from") LocalDate from,
         @Param("to") LocalDate to);
+
+    @Query("""
+        SELECT COUNT(DISTINCT sg.student.id) FROM StudentGroup sg
+        WHERE sg.firstLessonDate IS NOT NULL
+          AND sg.firstLessonDate BETWEEN :from AND :to
+        """)
+    long countDistinctByFirstLessonDateBetween(
+        @Param("from") LocalDate from,
+        @Param("to") LocalDate to);
+
+    @Query("""
+        SELECT COUNT(DISTINCT sg.student.id) FROM StudentGroup sg
+        WHERE sg.leaveDate IS NOT NULL
+          AND sg.leaveDate BETWEEN :from AND :to
+        """)
+    long countDistinctLeftBetween(
+        @Param("from") LocalDate from,
+        @Param("to") LocalDate to);
 }

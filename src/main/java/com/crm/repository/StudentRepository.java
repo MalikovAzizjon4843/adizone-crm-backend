@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,6 +27,15 @@ public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpec
 
     long countByStatus(StudentStatus status);
     long countByMarketingSource(MarketingSource source);
+
+    long countByBalanceLessThan(BigDecimal amount);
+
+    @Query("SELECT COUNT(s) FROM Student s WHERE s.status = :status "
+           + "AND s.updatedAt >= :from AND s.updatedAt <= :to")
+    long countByStatusAndUpdatedAtBetween(
+        @Param("status") StudentStatus status,
+        @Param("from") LocalDateTime from,
+        @Param("to") LocalDateTime to);
 
     @Query("SELECT s FROM Student s WHERE " +
            "LOWER(s.firstName) LIKE LOWER(CONCAT('%', :search, '%')) OR " +

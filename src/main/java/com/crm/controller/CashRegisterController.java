@@ -6,6 +6,7 @@ import com.crm.dto.request.ExpenseCreateDto;
 import com.crm.dto.request.IncomeCreateDto;
 import com.crm.dto.request.TransferDto;
 import com.crm.dto.response.ApiResponse;
+import com.crm.dto.response.CashBalanceDto;
 import com.crm.dto.response.CashRegisterDto;
 import com.crm.dto.response.CashTransactionDto;
 import com.crm.service.CashRegisterService;
@@ -14,7 +15,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -25,7 +28,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/cash-registers")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ADMINISTRATOR','ACCOUNTANT')")
 public class CashRegisterController {
 
     private final CashRegisterService cashRegisterService;
@@ -74,12 +77,18 @@ public class CashRegisterController {
             cashRegisterService.updateStatus(id, dto.getStatus())));
     }
 
+    @GetMapping("/{id}/balance")
+    public ResponseEntity<ApiResponse<CashBalanceDto>> getBalance(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(cashRegisterService.getBalance(id)));
+    }
+
     @GetMapping("/{id}/transactions")
     public ResponseEntity<ApiResponse<Page<CashTransactionDto>>> getTransactions(
             @PathVariable Long id,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
             @RequestParam(required = false) Long studentId,
+            @RequestParam(required = false) Long teacherId,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String paymentMethod,
             @RequestParam(defaultValue = "0") int page,
@@ -90,7 +99,28 @@ public class CashRegisterController {
             Sort.by(Sort.Direction.DESC, "transactionDate", "createdAt"));
         return ResponseEntity.ok(ApiResponse.success(
             cashRegisterService.getTransactions(
-                id, fromDate, toDate, studentId, type, paymentMethod, pageable)));
+                id, fromDate, toDate, studentId, teacherId, type, paymentMethod, pageable)));
+    }
+
+    @GetMapping("/{id}/transactions/export")
+    public ResponseEntity<byte[]> exportTransactions(
+            @PathVariable Long id,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to,
+            @RequestParam(required = false) Long studentId,
+            @RequestParam(required = false) Long teacherId,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String paymentMethod) {
+        LocalDate fromDate = parseOptionalDate(from);
+        LocalDate toDate = parseOptionalDate(to);
+        byte[] file = cashRegisterService.exportTransactions(
+            id, fromDate, toDate, studentId, teacherId, type, paymentMethod);
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=cash-transactions-" + id + ".xlsx")
+            .contentType(MediaType.parseMediaType(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .body(file);
     }
 
     private static LocalDate parseOptionalDate(String value) {

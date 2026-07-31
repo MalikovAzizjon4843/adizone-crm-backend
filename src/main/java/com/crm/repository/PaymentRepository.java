@@ -162,4 +162,90 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
     BigDecimal sumCreditsByStudentAndGroup(
         @Param("studentId") Long studentId,
         @Param("groupId") Long groupId);
+
+    /** Batch: userId, paymentCount, paymentSum */
+    @Query("""
+        SELECT p.receivedBy.id, COUNT(p), COALESCE(SUM(p.amount), 0)
+        FROM Payment p
+        WHERE p.receivedBy IS NOT NULL
+          AND p.status = 'PAID'
+          AND p.paymentDate BETWEEN :from AND :to
+        GROUP BY p.receivedBy.id
+        """)
+    List<Object[]> sumReceivedGroupedByUser(
+        @Param("from") LocalDate from,
+        @Param("to") LocalDate to);
+
+    @Query("""
+        SELECT COUNT(p), COALESCE(SUM(p.amount), 0)
+        FROM Payment p
+        WHERE p.receivedBy.id = :userId
+          AND p.status = 'PAID'
+          AND p.paymentDate BETWEEN :from AND :to
+        """)
+    List<Object[]> sumReceivedByUserInRange(
+        @Param("userId") Long userId,
+        @Param("from") LocalDate from,
+        @Param("to") LocalDate to);
+
+    @Query("""
+        SELECT COUNT(DISTINCT p.student.id) FROM Payment p
+        WHERE p.status = 'PAID'
+          AND p.paymentDate >= :monthStart
+          AND p.student.id NOT IN (
+              SELECT p2.student.id FROM Payment p2
+              WHERE p2.status = 'PAID' AND p2.paymentDate < :monthStart
+          )
+        """)
+    long countFirstPaymentsThisMonth(@Param("monthStart") LocalDate monthStart);
+
+    /**
+     * TEACHER: DISTINCT student+group juftliklari (oyda to'lagan).
+     * [studentId, studentName, groupId, groupName, paymentDate]
+     */
+    @Query(value = """
+        SELECT DISTINCT ON (p.student_id, COALESCE(p.group_id, sg.group_id))
+               p.student_id,
+               CONCAT(s.first_name, ' ', s.last_name),
+               COALESCE(p.group_id, sg.group_id),
+               g.group_name,
+               p.payment_date
+        FROM payments p
+        JOIN students s ON s.id = p.student_id
+        LEFT JOIN student_groups sg ON sg.id = p.student_group_id
+        JOIN groups g ON g.id = COALESCE(p.group_id, sg.group_id)
+        WHERE g.teacher_id = :teacherId
+          AND p.status = 'PAID'
+          AND p.payment_date BETWEEN :from AND :to
+        ORDER BY p.student_id, COALESCE(p.group_id, sg.group_id), p.payment_date
+        """, nativeQuery = true)
+    List<Object[]> findPaidStudentGroupPairsForTeacher(
+        @Param("teacherId") Long teacherId,
+        @Param("from") LocalDate from,
+        @Param("to") LocalDate to);
+
+    /**
+     * ADMIN/SALES: birinchi to'lov shu oyda bo'lgan attributed students.
+     * [studentId, studentName, firstPaymentDate]
+     */
+    @Query(value = """
+        SELECT s.id,
+               CONCAT(s.first_name, ' ', s.last_name),
+               fp.first_payment_date
+        FROM students s
+        JOIN (
+            SELECT student_id, MIN(id) AS first_payment_id, MIN(payment_date) AS first_payment_date
+            FROM payments
+            WHERE status = 'PAID'
+            GROUP BY student_id
+        ) fp ON fp.student_id = s.id
+        JOIN payments p ON p.id = fp.first_payment_id
+        WHERE s.attributed_user_id = :userId
+          AND p.payment_date BETWEEN :from AND :to
+        ORDER BY p.payment_date, s.id
+        """, nativeQuery = true)
+    List<Object[]> findNewStudentsByAttributedUser(
+        @Param("userId") Long userId,
+        @Param("from") LocalDate from,
+        @Param("to") LocalDate to);
 }

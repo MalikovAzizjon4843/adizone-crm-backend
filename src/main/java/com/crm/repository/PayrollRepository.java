@@ -17,10 +17,13 @@ public interface PayrollRepository extends JpaRepository<Payroll, Long> {
     Page<Payroll> findByStatus(String status, Pageable pageable);
     List<Payroll> findByTeacherId(Long teacherId);
     Optional<Payroll> findByTeacherIdAndMonthAndYear(Long teacherId, Integer month, Integer year);
+    Optional<Payroll> findByUser_IdAndMonthAndYear(Long userId, Integer month, Integer year);
 
     @Query("SELECT COUNT(p) FROM Payroll p WHERE p.status = 'PENDING'")
     long countPending();
 
     @Query("SELECT p FROM Payroll p WHERE p.year = :year AND p.month = :month")
     List<Payroll> findByPeriod(@Param("year") Integer year, @Param("month") Integer month);
+
+    boolean existsByUser_IdAndMonthAndYear(Long userId, Integer month, Integer year);
 }

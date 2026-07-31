@@ -116,8 +116,12 @@ public class LeadService {
         } else {
             User user = userRepository.findById(request.getUserId())
                     .orElseThrow(() -> new ResourceNotFoundException("User", request.getUserId()));
-            if (user.getRole() != UserRole.ADMIN && user.getRole() != UserRole.SUPER_ADMIN) {
-                throw new BadRequestException("Faqat ADMIN yoki SUPER_ADMIN operator sifatida biriktiriladi");
+            if (user.getRole() != UserRole.ADMIN
+                    && user.getRole() != UserRole.SUPER_ADMIN
+                    && user.getRole() != UserRole.ADMINISTRATOR
+                    && user.getRole() != UserRole.SALES_MANAGER) {
+                throw new BadRequestException(
+                    "Faqat ADMIN, ADMINISTRATOR yoki SALES_MANAGER operator sifatida biriktiriladi");
             }
             lead.setAssignedUser(user);
             lead.setAssignedAt(LocalDateTime.now());
@@ -182,7 +186,9 @@ public class LeadService {
     @Transactional(readOnly = true)
     public List<LeadOperatorResponse> getOperators() {
         return userRepository.findByRoleInAndIsActiveTrueOrderByFirstNameAscLastNameAsc(
-                        Arrays.asList(UserRole.ADMIN, UserRole.SUPER_ADMIN))
+                        Arrays.asList(
+                            UserRole.ADMIN, UserRole.SUPER_ADMIN,
+                            UserRole.ADMINISTRATOR, UserRole.SALES_MANAGER))
                 .stream()
                 .map(user -> LeadOperatorResponse.builder()
                         .id(user.getId())
@@ -227,6 +233,18 @@ public class LeadService {
                 .marketingSource(parseMarketingSource(lead.getSource()))
                 .paymentStatus(PaymentStatus.PENDING)
                 .build();
+        student = studentRepository.save(student);
+
+        User converter = getCurrentUser();
+        User attributed = lead.getAssignedUser() != null ? lead.getAssignedUser() : converter;
+        if (converter != null) {
+            student.setCreatedBy(converter);
+        }
+        if (attributed != null) {
+            student.setAttributedUserId(attributed.getId());
+        } else if (converter != null) {
+            student.setAttributedUserId(converter.getId());
+        }
         student = studentRepository.save(student);
 
         studentService.syncParentFromPhone(student, lead.getParentPhone(), lead.getAddress());

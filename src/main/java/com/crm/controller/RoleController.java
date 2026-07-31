@@ -34,6 +34,8 @@ public class RoleController {
         return switch (role) {
             case SUPER_ADMIN -> "Super Admin";
             case ADMIN -> "Admin";
+            case ADMINISTRATOR -> "Administrator";
+            case SALES_MANAGER -> "Sotuv menejeri";
             case TEACHER -> "O'qituvchi";
             case ACCOUNTANT -> "Buxgalter";
             case STUDENT -> "O'quvchi";

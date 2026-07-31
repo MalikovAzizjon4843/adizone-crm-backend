@@ -13,6 +13,8 @@ public class PayrollResponse {
     private UUID uuid;
     private Long teacherId;
     private String teacherName;
+    private Long userId;
+    private String userName;
     private Integer month;
     private Integer year;
     private BigDecimal basicSalary;
@@ -20,6 +22,11 @@ public class PayrollResponse {
     private BigDecimal deductions;
     private BigDecimal netSalary;
     private BigDecimal bonusPenaltyAdjustment;
+    private Integer paidStudentCount;
+    private Integer newStudentCount;
+    private Boolean kpiApplied;
+    private BigDecimal kpiAmount;
+    private String calculationDetails;
     private LocalDate paymentDate;
     private String paymentMethod;
     private String status;

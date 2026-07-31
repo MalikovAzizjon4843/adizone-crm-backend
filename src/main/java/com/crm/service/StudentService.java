@@ -16,6 +16,7 @@ import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
 import com.crm.entity.StudentParent;
 import com.crm.entity.StudentStatusHistory;
+import com.crm.entity.User;
 import com.crm.entity.enums.AttendanceStatus;
 import com.crm.entity.enums.MarketingSource;
 import com.crm.entity.enums.PaymentStatus;
@@ -158,6 +159,8 @@ public class StudentService {
         }
 
         Student saved = studentRepository.save(student);
+        applyCreatorAttribution(saved, null);
+        studentRepository.save(saved);
         syncParents(saved, request.getParents(), request.getParentPhone());
         if (request.getGroupId() != null) {
             addStudentToGroupIfNeeded(saved, request.getGroupId());
@@ -446,6 +449,8 @@ public class StudentService {
             student.setMarketingSource(MarketingSource.OTHER);
         }
 
+        student = studentRepository.save(student);
+        applyCreatorAttribution(student, null);
         student = studentRepository.save(student);
 
         if (req.getParentPhone() != null && !req.getParentPhone().isBlank()) {
@@ -1116,5 +1121,29 @@ public class StudentService {
                 .build());
         }
         return result;
+    }
+
+    /**
+     * createdBy = joriy user; attributedUserId = attributedOverride ?? createdBy.
+     * Eski yozuvlar NULL qoladi (repair qilinmaydi).
+     */
+    public void applyCreatorAttribution(Student student, User attributedOverride) {
+        if (student == null) {
+            return;
+        }
+        User creator = null;
+        try {
+            creator = teacherAccessService.getCurrentUserOrThrow();
+        } catch (Exception ignored) {
+            // background / no auth
+        }
+        if (creator != null) {
+            student.setCreatedBy(creator);
+        }
+        if (attributedOverride != null) {
+            student.setAttributedUserId(attributedOverride.getId());
+        } else if (creator != null) {
+            student.setAttributedUserId(creator.getId());
+        }
     }
 }
