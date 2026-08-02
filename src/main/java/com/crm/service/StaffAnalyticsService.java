@@ -18,6 +18,7 @@ import com.crm.repository.StudentGroupRepository;
 import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,6 +40,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class StaffAnalyticsService {
 
     private static final Set<UserRole> STAFF_ROLES = EnumSet.of(
@@ -107,6 +109,10 @@ public class StaffAnalyticsService {
                 Comparator.reverseOrder())
             .thenComparing(StaffMemberMetricsDto::getFullName,
                 Comparator.nullsLast(String::compareToIgnoreCase)));
+
+        long insufficient = staff.stream().filter(m -> Boolean.TRUE.equals(m.getInsufficientData())).count();
+        log.info("Staff analytics: period={} from={} to={} staff={} insufficientData={}",
+            p, rangeFrom, rangeTo, staff.size(), insufficient);
 
         return StaffAnalyticsResponse.builder()
             .period(p)

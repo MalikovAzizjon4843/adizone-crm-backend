@@ -66,6 +66,18 @@ public class StudentController {
         return ResponseEntity.ok(ApiResponse.success(studentService.getStudentById(id)));
     }
 
+    @PostMapping("/{id:\\d+}/freeze/preview")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<FreezeStudentResponse>> previewFreeze(
+            @PathVariable Long id,
+            @RequestBody(required = false) FreezeStudentRequest request) {
+        if (request == null) {
+            request = new FreezeStudentRequest();
+        }
+        return ResponseEntity.ok(ApiResponse.success(
+            studentService.previewFreeze(id, request)));
+    }
+
     @PostMapping("/{id:\\d+}/freeze")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<FreezeStudentResponse>> freezeStudent(

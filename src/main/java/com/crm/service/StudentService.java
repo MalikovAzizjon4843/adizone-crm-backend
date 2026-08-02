@@ -877,6 +877,18 @@ public class StudentService {
             .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public FreezeStudentResponse previewFreeze(Long studentId, FreezeStudentRequest request) {
+        Student student = findById(studentId);
+        List<StudentGroup> enrollments = resolveFreezeEnrollments(studentId, request);
+        FreezeBreakdownResult calc = computeFreezeBreakdown(studentId, enrollments);
+        return FreezeStudentResponse.builder()
+            .studentId(studentId)
+            .totalBalance(calc.totalBalance())
+            .groups(calc.breakdowns())
+            .build();
+    }
+
     @Transactional
     public FreezeStudentResponse freezeStudent(Long studentId, FreezeStudentRequest request) {
         Student student = findById(studentId);
@@ -884,46 +896,15 @@ public class StudentService {
             throw new BadRequestException("O'quvchi allaqachon muzlatilgan");
         }
 
-        List<StudentGroup> enrollments;
-        if (request.getGroupId() != null) {
-            StudentGroup sg = studentGroupRepository
-                .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, request.getGroupId())
-                .orElseThrow(() -> new ResourceNotFoundException("StudentGroup", request.getGroupId()));
-            enrollments = List.of(sg);
-        } else {
-            enrollments = studentGroupRepository.findActiveByStudentId(studentId);
-        }
-        if (enrollments.isEmpty()) {
-            throw new BadRequestException("Muzlatish uchun active guruh yo'q");
-        }
+        List<StudentGroup> enrollments = resolveFreezeEnrollments(studentId, request);
+        FreezeBreakdownResult calc = computeFreezeBreakdown(studentId, enrollments);
 
-        List<AttendanceStatus> billable = List.of(
-            AttendanceStatus.PRESENT, AttendanceStatus.ABSENT, AttendanceStatus.LATE);
-
-        BigDecimal totalAdded = BigDecimal.ZERO;
-        List<FreezeStudentResponse.FrozenGroupBreakdown> breakdowns = new ArrayList<>();
         String previousStatus = student.getStatus() != null ? student.getStatus().name() : "ACTIVE";
 
-        for (StudentGroup sg : enrollments) {
-            BigDecimal lessonPrice = PaymentScheduleService.resolveLessonPrice(sg);
-            LocalDate from = sg.getJoinDate() != null ? sg.getJoinDate() : LocalDate.EPOCH;
-            int lessonsUsed = (int) attendanceRepository.countByStudentAndGroupAndStatusesSince(
-                studentId, sg.getGroup().getId(), billable, from);
-
-            BigDecimal used = lessonPrice.multiply(BigDecimal.valueOf(lessonsUsed));
-            BigDecimal paid = paymentRepository.sumCreditsByStudentGroupId(sg.getId());
-            if (paid == null || paid.compareTo(BigDecimal.ZERO) == 0) {
-                paid = paymentRepository.sumCreditsByStudentAndGroup(studentId, sg.getGroup().getId());
-            }
-            if (paid == null) {
-                paid = BigDecimal.ZERO;
-            }
-
-            BigDecimal groupBalance = paid.subtract(used);
-            if (groupBalance.compareTo(BigDecimal.ZERO) < 0) {
-                groupBalance = BigDecimal.ZERO;
-            }
-            totalAdded = totalAdded.add(groupBalance);
+        for (int i = 0; i < enrollments.size(); i++) {
+            StudentGroup sg = enrollments.get(i);
+            FreezeStudentResponse.FrozenGroupBreakdown row = calc.breakdowns().get(i);
+            BigDecimal groupBalance = row.getBalance() != null ? row.getBalance() : BigDecimal.ZERO;
 
             sg.setIsActive(false);
             sg.setLeaveDate(LocalDate.now());
@@ -931,39 +912,20 @@ public class StudentService {
             sg.setExitReason("FROZEN");
             sg.setExitNotes(request.getNote());
             sg.setPaymentStatus("FROZEN");
-            sg.setLessonsUsed(lessonsUsed);
+            sg.setLessonsUsed(row.getLessonsUsed());
 
-            // Balansni paid-used ga moslashtirish + FREEZE audit
             BigDecimal currentSgBalance = sg.getBalance() != null ? sg.getBalance() : BigDecimal.ZERO;
             BigDecimal delta = groupBalance.subtract(currentSgBalance);
-            if (delta.compareTo(BigDecimal.ZERO) != 0) {
-                balanceTransactionService.record(
-                    sg,
-                    com.crm.entity.enums.BalanceTransactionType.FREEZE,
-                    delta,
-                    null,
-                    "Muzlatish hisobi (paid - used): " + groupBalance.toPlainString()
-                        + (request.getNote() != null ? " | " + request.getNote() : ""));
-            } else {
-                balanceTransactionService.record(
-                    sg,
-                    com.crm.entity.enums.BalanceTransactionType.FREEZE,
-                    BigDecimal.ZERO,
-                    null,
-                    "Muzlatish: balans=" + groupBalance.toPlainString()
-                        + (request.getNote() != null ? " | " + request.getNote() : ""));
-            }
+            String note = "Muzlatish hisobi (paid - used): " + groupBalance.toPlainString()
+                + (request.getNote() != null ? " | " + request.getNote() : "");
+            balanceTransactionService.record(
+                sg,
+                com.crm.entity.enums.BalanceTransactionType.FREEZE,
+                delta,
+                null,
+                note);
 
             studentGroupRepository.save(sg);
-
-            breakdowns.add(FreezeStudentResponse.FrozenGroupBreakdown.builder()
-                .groupId(sg.getGroup().getId())
-                .groupName(sg.getGroup().getGroupName())
-                .lessonsUsed(lessonsUsed)
-                .used(used)
-                .paid(paid)
-                .balance(groupBalance)
-                .build());
         }
 
         balanceTransactionService.syncStudentBalanceFromGroups(student);
@@ -977,7 +939,7 @@ public class StudentService {
         history.setFromStatus(previousStatus);
         history.setToStatus(StudentStatus.FROZEN.name());
         history.setReason(request.getReason() != null ? request.getReason() : "FROZEN");
-        history.setNotes("Muzlatish balansi: " + totalAdded.toPlainString()
+        history.setNotes("Muzlatish balansi: " + calc.totalBalance().toPlainString()
             + (request.getNote() != null ? " | " + request.getNote() : ""));
         history.setChangedAt(LocalDateTime.now());
         studentStatusHistoryRepository.save(history);
@@ -986,10 +948,80 @@ public class StudentService {
 
         return FreezeStudentResponse.builder()
             .studentId(studentId)
-            .totalBalance(student.getBalance())
-            .groups(breakdowns)
+            .totalBalance(student.getBalance() != null ? student.getBalance() : calc.totalBalance())
+            .groups(calc.breakdowns())
             .build();
     }
+
+    private List<StudentGroup> resolveFreezeEnrollments(Long studentId, FreezeStudentRequest request) {
+        List<StudentGroup> enrollments;
+        if (request != null && request.getGroupId() != null) {
+            StudentGroup sg = studentGroupRepository
+                .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, request.getGroupId())
+                .orElseThrow(() -> new ResourceNotFoundException("StudentGroup", request.getGroupId()));
+            enrollments = List.of(sg);
+        } else {
+            enrollments = studentGroupRepository.findActiveByStudentId(studentId);
+        }
+        if (enrollments.isEmpty()) {
+            throw new BadRequestException("Muzlatish uchun active guruh yo'q");
+        }
+        return enrollments;
+    }
+
+    /**
+     * Freeze/preview umumiy hisob.
+     * paid yo'q bo'lsa balans=0 (xato emas).
+     */
+    private FreezeBreakdownResult computeFreezeBreakdown(Long studentId, List<StudentGroup> enrollments) {
+        List<AttendanceStatus> billable = List.of(
+            AttendanceStatus.PRESENT, AttendanceStatus.ABSENT, AttendanceStatus.LATE);
+        LocalDate today = LocalDate.now();
+        BigDecimal total = BigDecimal.ZERO;
+        List<FreezeStudentResponse.FrozenGroupBreakdown> breakdowns = new ArrayList<>();
+
+        for (StudentGroup sg : enrollments) {
+            LocalDate from = sg.getPaymentStartDate() != null
+                ? sg.getPaymentStartDate()
+                : (sg.getJoinDate() != null ? sg.getJoinDate() : today);
+
+            BigDecimal lessonPrice = paymentScheduleService.resolveFreezeLessonPrice(sg, from, today);
+            int lessonsAttended = (int) attendanceRepository.countByStudentAndGroupAndStatusesSince(
+                studentId, sg.getGroup().getId(), billable, from);
+
+            BigDecimal used = lessonPrice.multiply(BigDecimal.valueOf(lessonsAttended));
+            BigDecimal paid = paymentRepository.sumCreditsByStudentGroupId(sg.getId());
+            if (paid == null || paid.compareTo(BigDecimal.ZERO) == 0) {
+                paid = paymentRepository.sumCreditsByStudentAndGroup(studentId, sg.getGroup().getId());
+            }
+            if (paid == null) {
+                paid = BigDecimal.ZERO;
+            }
+
+            BigDecimal groupBalance = paid.subtract(used);
+            if (groupBalance.compareTo(BigDecimal.ZERO) < 0) {
+                groupBalance = BigDecimal.ZERO;
+            }
+            total = total.add(groupBalance);
+
+            breakdowns.add(FreezeStudentResponse.FrozenGroupBreakdown.builder()
+                .groupId(sg.getGroup().getId())
+                .groupName(sg.getGroup().getGroupName())
+                .lessonsAttended(lessonsAttended)
+                .lessonsUsed(lessonsAttended)
+                .lessonPrice(lessonPrice)
+                .used(used)
+                .paid(paid)
+                .balance(groupBalance)
+                .build());
+        }
+
+        return new FreezeBreakdownResult(total, breakdowns);
+    }
+
+    private record FreezeBreakdownResult(
+        BigDecimal totalBalance,
+        List<FreezeStudentResponse.FrozenGroupBreakdown> breakdowns) {}
 
     @Transactional
     public StudentDetailResponse unfreezeStudent(Long studentId, UnfreezeStudentRequest request) {

@@ -424,6 +424,72 @@ public class PaymentScheduleService {
         return BigDecimal.ZERO;
     }
 
+    /**
+     * Freeze/preview uchun dars narxi.
+     * MONTHLY: course.lessonPrice yo'q bo'lsa → monthlyFee / davrdagi rejalashtirilgan darslar.
+     */
+    public BigDecimal resolveFreezeLessonPrice(StudentGroup sg, LocalDate periodFrom, LocalDate periodTo) {
+        if (sg == null) {
+            return BigDecimal.ZERO;
+        }
+        if (sg.getLessonPrice() != null && sg.getLessonPrice().compareTo(BigDecimal.ZERO) > 0) {
+            return sg.getLessonPrice();
+        }
+        Group g = sg.getGroup();
+        Course course = g != null ? g.getCourse() : null;
+        if (course != null && course.getLessonPrice() != null
+                && course.getLessonPrice().compareTo(BigDecimal.ZERO) > 0) {
+            return course.getLessonPrice();
+        }
+
+        BigDecimal monthly = resolveMonthlyFee(sg);
+        if (monthly.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+
+        int planned = 0;
+        if (g != null && periodFrom != null && periodTo != null && !periodTo.isBefore(periodFrom)) {
+            planned = countScheduledLessonsInRange(g.getId(), periodFrom, periodTo);
+        }
+        if (planned <= 0) {
+            planned = estimateLessonsPerMonth(sg, course);
+        }
+        if (planned <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return monthly.divide(BigDecimal.valueOf(planned), 2, RoundingMode.HALF_UP);
+    }
+
+    /** Guruh jadvalidagi dars kunlari bo'yicha [from..to] oralig'idagi dars soni. */
+    public int countScheduledLessonsInRange(Long groupId, LocalDate from, LocalDate to) {
+        if (groupId == null || from == null || to == null || to.isBefore(from)) {
+            return 0;
+        }
+        Set<DayOfWeek> days = groupScheduleDayRepository
+            .findByGroup_IdOrderByDayOfWeekAsc(groupId).stream()
+            .map(GroupScheduleDay::getDayOfWeek)
+            .filter(d -> d != null && !d.isBlank())
+            .map(d -> {
+                try {
+                    return DayOfWeek.valueOf(d.trim().toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    return null;
+                }
+            })
+            .filter(d -> d != null)
+            .collect(Collectors.toSet());
+        if (days.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
+            if (days.contains(d.getDayOfWeek())) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     private static int estimateLessonsPerMonth(StudentGroup sg, Course course) {
         if (course != null && course.getLessonsCount() != null && course.getDurationMonths() != null
                 && course.getDurationMonths() > 0 && course.getLessonsCount() > 0) {
