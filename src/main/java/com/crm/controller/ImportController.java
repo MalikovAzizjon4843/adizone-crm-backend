@@ -57,41 +57,14 @@ public class ImportController {
 
     @GetMapping("/template/students")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<byte[]> downloadStudentTemplate() throws IOException {
-        Workbook workbook = new XSSFWorkbook();
-        Sheet sheet = workbook.createSheet("O'quvchilar");
-
-        Row header = sheet.createRow(0);
-        String[] headers = {
-            "Ism*", "Familiya*", "Telefon*",
-            "Ota-ona telefoni", "Manzil",
-            "Jins (MALE/FEMALE)",
-            "Manba (INSTAGRAM/TELEGRAM/YOUTUBE/REFERRAL/OFFLINE/OTHER)"
-        };
-        for (int i = 0; i < headers.length; i++) {
-            Cell cell = header.createCell(i);
-            cell.setCellValue(headers[i]);
-            sheet.setColumnWidth(i, 5000);
-        }
-
-        Row sample = sheet.createRow(1);
-        sample.createCell(0).setCellValue("Aziz");
-        sample.createCell(1).setCellValue("Karimov");
-        sample.createCell(2).setCellValue("+998901234567");
-        sample.createCell(3).setCellValue("+998901234568");
-        sample.createCell(4).setCellValue("Toshkent");
-        sample.createCell(5).setCellValue("MALE");
-        sample.createCell(6).setCellValue("INSTAGRAM");
-
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        workbook.write(out);
-        workbook.close();
-
+    public ResponseEntity<byte[]> downloadStudentTemplate() {
+        byte[] body = importService.buildStudentImportTemplate();
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION,
-                "attachment; filename=students_template.xlsx")
-            .contentType(MediaType.APPLICATION_OCTET_STREAM)
-            .body(out.toByteArray());
+                "attachment; filename=\"oquvchilar_shablon.xlsx\"")
+            .contentType(MediaType.parseMediaType(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .body(body);
     }
 
     @GetMapping("/template/teachers")

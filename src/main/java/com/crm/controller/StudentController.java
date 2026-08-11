@@ -180,6 +180,31 @@ public class StudentController {
             importService.importStudents(file)));
     }
 
+    /** Dry-run: import bilan bir xil validatsiya, lekin bazaga hech narsa yozilmaydi. */
+    @PostMapping("/import/validate")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<ImportResult>> validateStudentImportFile(
+            @RequestParam(value = "file", required = false) MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BadRequestException("Fayl yuklanmadi yoki bo'sh (multipart maydon nomi: file)");
+        }
+        return ResponseEntity.ok(ApiResponse.success(
+            "Tekshiruv tugadi",
+            importService.validateStudents(file)));
+    }
+
+    @GetMapping("/import/template")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<byte[]> downloadStudentImportTemplate() {
+        byte[] body = importService.buildStudentImportTemplate();
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"oquvchilar_shablon.xlsx\"")
+            .contentType(MediaType.parseMediaType(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+            .body(body);
+    }
+
     @GetMapping("/export")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<byte[]> exportStudents() {

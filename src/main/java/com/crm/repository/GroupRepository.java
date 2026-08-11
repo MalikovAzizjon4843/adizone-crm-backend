@@ -14,6 +14,12 @@ import java.util.List;
 @Repository
 public interface GroupRepository extends JpaRepository<Group, Long> {
 
+    List<Group> findByGroupNameAndStatus(String groupName, GroupStatus status);
+
+    /** Excel import uchun: barcha guruhlar kursi bilan birga (LAZY course N+1 bo'lmasin). */
+    @Query("SELECT g FROM Group g LEFT JOIN FETCH g.course")
+    List<Group> findAllWithCourse();
+
     List<Group> findByStatus(GroupStatus status);
 
     Page<Group> findByStatus(GroupStatus status, Pageable pageable);
