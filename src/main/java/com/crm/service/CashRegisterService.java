@@ -12,7 +12,8 @@ import com.crm.entity.CashTransaction;
 import com.crm.entity.Student;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
-import com.crm.entity.enums.CashPaymentMethod;
+import com.crm.entity.enums.PaymentMethod;
+import com.crm.entity.enums.PaymentMethods;
 import com.crm.entity.enums.CashRegisterStatus;
 import com.crm.entity.enums.CashTransactionStatus;
 import com.crm.entity.enums.CashTransactionType;
@@ -47,14 +48,28 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CashRegisterService {
+
+    /**
+     * Naqd balansga tushadigan usullar. Qolgan barcha usullar (CARD, CLICK, PAYME,
+     * UZUM, TERMINAL, BANK, OTHER) plastik — ya'ni naqdsiz — balansga tushadi.
+     * Ro'yxat enum bo'yicha aniqlanadi, qo'lda yozilgan matn bo'yicha emas.
+     */
+    private static final Set<PaymentMethod> CASH_BUCKET_METHODS =
+        EnumSet.of(PaymentMethod.CASH, PaymentMethod.CASH_AND_CARD);
+
+    /** Onlayn to'lov tizimlari — kassada "onlayn qabul qilish" yoqilgan bo'lishi shart. */
+    private static final Set<PaymentMethod> ONLINE_METHODS =
+        EnumSet.of(PaymentMethod.CLICK, PaymentMethod.PAYME, PaymentMethod.UZUM);
 
     private final CashRegisterRepository cashRegisterRepository;
     private final CashTransactionRepository cashTransactionRepository;
@@ -166,7 +181,7 @@ public class CashRegisterService {
         findRegisterById(cashRegisterId);
 
         CashTransactionType typeFilter = parseTransactionType(type);
-        CashPaymentMethod methodFilter = parsePaymentMethod(paymentMethod);
+        PaymentMethod methodFilter = parsePaymentMethod(paymentMethod);
 
         log.debug(
             "getTransactions registerId={}, from={}, to={}, studentId={}, teacherId={}, type={}, paymentMethod={}, page={}, size={}",
@@ -196,7 +211,7 @@ public class CashRegisterService {
 
         findRegisterById(cashRegisterId);
         CashTransactionType typeFilter = parseTransactionType(type);
-        CashPaymentMethod methodFilter = parsePaymentMethod(paymentMethod);
+        PaymentMethod methodFilter = parsePaymentMethod(paymentMethod);
         Specification<CashTransaction> spec = buildTransactionSpec(
             cashRegisterId, from, to, studentId, teacherId, typeFilter, methodFilter);
         List<CashTransaction> transactions = cashTransactionRepository.findAll(spec);
@@ -274,7 +289,7 @@ public class CashRegisterService {
             Long studentId,
             Long teacherId,
             CashTransactionType type,
-            CashPaymentMethod paymentMethod) {
+            PaymentMethod paymentMethod) {
 
         Specification<CashTransaction> spec = (root, query, cb) -> {
             Join<CashTransaction, CashRegister> registerJoin =
@@ -315,7 +330,7 @@ public class CashRegisterService {
     public CashTransaction recordIncome(
             Long cashRegisterId,
             BigDecimal amount,
-            CashPaymentMethod method,
+            PaymentMethod method,
             Student student,
             String transactionName,
             String note,
@@ -323,9 +338,9 @@ public class CashRegisterService {
 
         CashRegister register = findRegisterById(cashRegisterId);
         BigDecimal positiveAmount = requirePositiveAmount(amount);
-        CashPaymentMethod cashMethod = requirePaymentMethod(method);
+        PaymentMethod cashMethod = requirePaymentMethod(method);
 
-        if (cashMethod == CashPaymentMethod.ONLINE && !register.isAcceptOnlinePayment()) {
+        if (ONLINE_METHODS.contains(cashMethod) && !register.isAcceptOnlinePayment()) {
             throw new BadRequestException("Bu kassa onlayn to'lovlarni qabul qilmaydi");
         }
 
@@ -381,7 +396,7 @@ public class CashRegisterService {
     public CashTransaction recordExpense(
             Long registerId,
             BigDecimal amount,
-            CashPaymentMethod method,
+            PaymentMethod method,
             String transactionName,
             String note,
             LocalDate date,
@@ -394,7 +409,7 @@ public class CashRegisterService {
     public CashTransaction recordExpense(
             Long registerId,
             BigDecimal amount,
-            CashPaymentMethod method,
+            PaymentMethod method,
             String transactionName,
             String note,
             LocalDate date,
@@ -406,7 +421,7 @@ public class CashRegisterService {
 
         CashRegister register = findRegisterById(registerId);
         BigDecimal positiveAmount = requirePositiveAmount(amount);
-        CashPaymentMethod cashMethod = requirePaymentMethod(method);
+        PaymentMethod cashMethod = requirePaymentMethod(method);
 
         CashTransaction tx = new CashTransaction();
         tx.setCashRegister(register);
@@ -462,13 +477,13 @@ public class CashRegisterService {
             .orElseThrow(() -> new ResourceNotFoundException("CashTransaction", transactionId));
 
         CashRegister register = tx.getCashRegister();
-        CashPaymentMethod method = tx.getPaymentMethod();
+        PaymentMethod method = tx.getPaymentMethod();
         BigDecimal amount = tx.getAmount();
 
-        if (method == CashPaymentMethod.PLASTIC) {
-            register.setPlasticBalance(register.getPlasticBalance().add(amount));
-        } else {
+        if (isCashBucket(method)) {
             register.setCashBalance(register.getCashBalance().add(amount));
+        } else {
+            register.setPlasticBalance(register.getPlasticBalance().add(amount));
         }
         register.setBalance(register.getPlasticBalance().add(register.getCashBalance()));
         cashRegisterRepository.save(register);
@@ -488,7 +503,7 @@ public class CashRegisterService {
         CashRegister from = findRegisterById(dto.getFromCashRegisterId());
         CashRegister to = findRegisterById(dto.getToCashRegisterId());
         BigDecimal amount = requirePositiveAmount(dto.getAmount());
-        CashPaymentMethod method = requirePaymentMethod(dto.getPaymentMethod());
+        PaymentMethod method = requirePaymentMethod(dto.getPaymentMethod());
 
         subtractFromBalance(from, method, amount);
         addToBalance(to, method, amount);
@@ -526,36 +541,41 @@ public class CashRegisterService {
         );
     }
 
-    private void addToBalance(CashRegister register, CashPaymentMethod method, BigDecimal amount) {
-        if (method == CashPaymentMethod.PLASTIC) {
-            register.setPlasticBalance(register.getPlasticBalance().add(amount));
-        } else {
+    /** Usul naqd balansga tegishlimi? Aks holda plastik (naqdsiz) balansga boradi. */
+    private static boolean isCashBucket(PaymentMethod method) {
+        return CASH_BUCKET_METHODS.contains(method);
+    }
+
+    private void addToBalance(CashRegister register, PaymentMethod method, BigDecimal amount) {
+        if (isCashBucket(method)) {
             register.setCashBalance(register.getCashBalance().add(amount));
+        } else {
+            register.setPlasticBalance(register.getPlasticBalance().add(amount));
         }
         recomputeBalance(register);
     }
 
-    private void subtractFromBalance(CashRegister register, CashPaymentMethod method, BigDecimal amount) {
-        if (method == CashPaymentMethod.PLASTIC) {
-            if (register.getPlasticBalance().compareTo(amount) < 0) {
-                throw new BadRequestException("Plastik balans yetarli emas");
-            }
-            register.setPlasticBalance(register.getPlasticBalance().subtract(amount));
-        } else {
+    private void subtractFromBalance(CashRegister register, PaymentMethod method, BigDecimal amount) {
+        if (isCashBucket(method)) {
             if (register.getCashBalance().compareTo(amount) < 0) {
                 throw new BadRequestException("Naqd balans yetarli emas");
             }
             register.setCashBalance(register.getCashBalance().subtract(amount));
+        } else {
+            if (register.getPlasticBalance().compareTo(amount) < 0) {
+                throw new BadRequestException("Plastik balans yetarli emas");
+            }
+            register.setPlasticBalance(register.getPlasticBalance().subtract(amount));
         }
         recomputeBalance(register);
     }
 
     private void subtractFromBalanceAllowNegative(
-            CashRegister register, CashPaymentMethod method, BigDecimal amount) {
-        if (method == CashPaymentMethod.PLASTIC) {
-            register.setPlasticBalance(register.getPlasticBalance().subtract(amount));
-        } else {
+            CashRegister register, PaymentMethod method, BigDecimal amount) {
+        if (isCashBucket(method)) {
             register.setCashBalance(register.getCashBalance().subtract(amount));
+        } else {
+            register.setPlasticBalance(register.getPlasticBalance().subtract(amount));
         }
         recomputeBalance(register);
     }
@@ -591,7 +611,7 @@ public class CashRegisterService {
         return amount;
     }
 
-    private static CashPaymentMethod requirePaymentMethod(CashPaymentMethod method) {
+    private static PaymentMethod requirePaymentMethod(PaymentMethod method) {
         if (method == null) {
             throw new BadRequestException("To'lov usuli ko'rsatilishi shart");
         }
@@ -617,15 +637,9 @@ public class CashRegisterService {
         }
     }
 
-    private static CashPaymentMethod parsePaymentMethod(String method) {
-        if (method == null || method.isBlank()) {
-            return null;
-        }
-        try {
-            return CashPaymentMethod.valueOf(method.trim().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
+    /** Filtr uchun: eski nomlar (PLASTIC, ONLINE) ham tushuniladi. */
+    private static PaymentMethod parsePaymentMethod(String method) {
+        return PaymentMethods.parseOrNull(method);
     }
 
     private CashRegisterDto toRegisterDto(CashRegister r) {

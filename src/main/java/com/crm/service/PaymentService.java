@@ -8,9 +8,9 @@ import com.crm.dto.response.PaymentHistoryResponse;
 import com.crm.dto.response.PaymentResponse;
 import com.crm.dto.response.SuspendedStudentResponse;
 import com.crm.entity.*;
-import com.crm.entity.enums.CashPaymentMethod;
 import com.crm.entity.enums.IncomeCategory;
 import com.crm.entity.enums.PaymentMethod;
+import com.crm.entity.enums.PaymentMethods;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.PaymentType;
 import com.crm.entity.enums.BalanceTransactionType;
@@ -164,7 +164,7 @@ public class PaymentService {
             incomeRepository.save(income);
 
             if (request.getCashRegisterId() != null) {
-                CashPaymentMethod cashMethod = resolveCashPaymentMethod(request);
+                PaymentMethod cashMethod = resolveCashPaymentMethod(request);
                 CashTransaction cashTx = cashRegisterService.recordIncome(
                     request.getCashRegisterId(),
                     cashAmount,
@@ -431,23 +431,23 @@ public class PaymentService {
             .build();
     }
 
-    private static CashPaymentMethod resolveCashPaymentMethod(PaymentRequest request) {
+    /**
+     * Kassaga yoziladigan usul. Endi to'lovning haqiqiy usuli saqlanadi (CLICK, PAYME, ...) —
+     * ilgari hammasi PLASTIC ga aylanardi. Naqd/plastik balans taqsimotini
+     * CashRegisterService o'zi enum bo'yicha hal qiladi.
+     */
+    private static PaymentMethod resolveCashPaymentMethod(PaymentRequest request) {
         if (request.getPaymentMethodForCash() != null
                 && !request.getPaymentMethodForCash().isBlank()) {
-            try {
-                return CashPaymentMethod.valueOf(
-                    request.getPaymentMethodForCash().trim().toUpperCase(Locale.ROOT));
-            } catch (IllegalArgumentException e) {
+            PaymentMethod override = PaymentMethods.parseOrNull(request.getPaymentMethodForCash());
+            if (override == null) {
                 throw new BadRequestException(
                     "Noto'g'ri paymentMethodForCash: " + request.getPaymentMethodForCash());
             }
+            return override;
         }
-        PaymentMethod pm = request.getPaymentMethod() != null
+        return request.getPaymentMethod() != null
             ? request.getPaymentMethod() : PaymentMethod.CASH;
-        if (pm == PaymentMethod.CASH_AND_CARD) {
-            return CashPaymentMethod.CASH_AND_CARD;
-        }
-        return pm == PaymentMethod.CASH ? CashPaymentMethod.CASH : CashPaymentMethod.PLASTIC;
     }
 
     private static boolean shouldApplyBonuses(PaymentRequest request) {

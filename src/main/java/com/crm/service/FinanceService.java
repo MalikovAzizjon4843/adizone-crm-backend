@@ -6,7 +6,8 @@ import com.crm.dto.response.FinanceReportResponse;
 import com.crm.entity.Expense;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
-import com.crm.entity.enums.CashPaymentMethod;
+import com.crm.entity.enums.PaymentMethod;
+import com.crm.entity.enums.PaymentMethods;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -104,7 +105,7 @@ public class FinanceService {
         Expense saved = expenseRepository.save(expense);
 
         if (request.getCashRegisterId() != null) {
-            CashPaymentMethod cashMethod = resolveCashPaymentMethod(request.getPaymentMethodForCash());
+            PaymentMethod cashMethod = resolveCashPaymentMethod(request.getPaymentMethodForCash());
             User creator = currentUser();
             var cashTx = cashRegisterService.recordExpense(
                 request.getCashRegisterId(),
@@ -126,12 +127,9 @@ public class FinanceService {
         return userRepository.findByUsername(username).orElse(null);
     }
 
-    private static CashPaymentMethod resolveCashPaymentMethod(String paymentMethodForCash) {
-        if (paymentMethodForCash != null
-                && "PLASTIC".equalsIgnoreCase(paymentMethodForCash.trim())) {
-            return CashPaymentMethod.PLASTIC;
-        }
-        return CashPaymentMethod.CASH;
+    /** Eski "PLASTIC" nomi ham qo'llab-quvvatlanadi (-> CARD). Ko'rsatilmasa — naqd. */
+    private static PaymentMethod resolveCashPaymentMethod(String paymentMethodForCash) {
+        return PaymentMethods.parseOrDefault(paymentMethodForCash, PaymentMethod.CASH);
     }
 
     @Transactional(readOnly = true)

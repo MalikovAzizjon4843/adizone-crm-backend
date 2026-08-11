@@ -6,6 +6,7 @@ import lombok.Data;
 public class PayrollPayDto {
     private String paymentMethod;
     private Long cashRegisterId;
-    /** Cash bucket: CASH or PLASTIC. Defaults to CASH when omitted. */
+    /** Kassaga yoziladigan usul (PaymentMethod nomi). Ko'rsatilmasa — CASH.
+     *  Eski "PLASTIC" -> CARD, "BANK_TRANSFER" -> BANK. */
     private String paymentMethodForCash;
 }

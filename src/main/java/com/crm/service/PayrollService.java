@@ -9,7 +9,8 @@ import com.crm.entity.CashTransaction;
 import com.crm.entity.Payroll;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
-import com.crm.entity.enums.CashPaymentMethod;
+import com.crm.entity.enums.PaymentMethod;
+import com.crm.entity.enums.PaymentMethods;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
@@ -31,7 +32,6 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -119,7 +119,7 @@ public class PayrollService {
                 payroll.setMonth(month);
                 payroll.setYear(year);
                 payroll.setStatus("PENDING");
-                payroll.setPaymentMethod("BANK_TRANSFER");
+                payroll.setPaymentMethod(PaymentMethod.BANK.name());
             } else if (!overwrite) {
                 skipped++;
                 continue;
@@ -259,7 +259,7 @@ public class PayrollService {
                     cashRegisterService.deleteExpense(tx.getId());
                 }
 
-                CashPaymentMethod cashMethod = resolveCashPaymentMethod(payroll.getPaymentMethod(), null);
+                PaymentMethod cashMethod = resolveCashPaymentMethod(payroll.getPaymentMethod(), null);
                 String teacherName = teacher.getFirstName() + " " + teacher.getLastName();
                 var cashTx = cashRegisterService.recordExpense(
                     payroll.getCashRegister().getId(),
@@ -288,16 +288,15 @@ public class PayrollService {
     public PayrollResponse markAsPaid(Long id, PayrollPayDto payDto) {
         Payroll payroll = findById(id);
         payroll.setStatus("PAID");
-        String paymentMethod = payDto != null && payDto.getPaymentMethod() != null
-                && !payDto.getPaymentMethod().isBlank()
-            ? payDto.getPaymentMethod() : "CASH";
+        String paymentMethod = normalizeMethodName(
+            payDto != null ? payDto.getPaymentMethod() : null, PaymentMethod.CASH);
         payroll.setPaymentMethod(paymentMethod);
         payroll.setPaymentDate(LocalDate.now());
 
         Payroll saved = payrollRepository.save(payroll);
 
         if (payDto != null && payDto.getCashRegisterId() != null) {
-            CashPaymentMethod cashMethod = resolveCashPaymentMethod(saved.getPaymentMethod(), payDto.getPaymentMethodForCash());
+            PaymentMethod cashMethod = resolveCashPaymentMethod(saved.getPaymentMethod(), payDto.getPaymentMethodForCash());
             Teacher teacher = saved.getTeacher();
             String name = teacher != null
                 ? teacher.getFirstName() + " " + teacher.getLastName()
@@ -327,26 +326,21 @@ public class PayrollService {
         return userRepository.findByUsername(username).orElse(null);
     }
 
-    private static CashPaymentMethod resolveCashPaymentMethod(String paymentMethod, String paymentMethodForCash) {
-        if ("CASH_AND_CARD".equalsIgnoreCase(paymentMethod) || "CASH_AND_CARD".equalsIgnoreCase(paymentMethodForCash)) {
-            return CashPaymentMethod.CASH_AND_CARD;
+    /**
+     * Payroll.paymentMethod hali ham matn ustuni. Eski nomlar (BANK_TRANSFER, PLASTIC,
+     * ONLINE) yagona enumga moslashtiriladi; tanilmasa naqd deb olinadi.
+     */
+    private static PaymentMethod resolveCashPaymentMethod(String paymentMethod, String paymentMethodForCash) {
+        PaymentMethod override = PaymentMethods.parseOrNull(paymentMethodForCash);
+        if (override != null) {
+            return override;
         }
-        if (paymentMethodForCash != null) {
-            try {
-                return CashPaymentMethod.valueOf(paymentMethodForCash.trim().toUpperCase(Locale.ROOT));
-            } catch (IllegalArgumentException ignored) {
-            }
-        }
-        if (paymentMethod != null) {
-            try {
-                return CashPaymentMethod.valueOf(paymentMethod.trim().toUpperCase(Locale.ROOT));
-            } catch (IllegalArgumentException ignored) {
-            }
-            if ("BANK_TRANSFER".equalsIgnoreCase(paymentMethod.trim()) || "BANK".equalsIgnoreCase(paymentMethod.trim())) {
-                return CashPaymentMethod.ONLINE;
-            }
-        }
-        return CashPaymentMethod.CASH;
+        return PaymentMethods.parseOrDefault(paymentMethod, PaymentMethod.CASH);
+    }
+
+    /** Matnni yagona enum nomiga keltiradi — bazaga faqat yaroqli qiymat tushsin. */
+    private static String normalizeMethodName(String raw, PaymentMethod fallback) {
+        return PaymentMethods.parseOrDefault(raw, fallback).name();
     }
 
     public Payroll findById(Long id) {
@@ -365,7 +359,7 @@ public class PayrollService {
         BigDecimal allowances = p.getAllowances();
         p.setNetSalary(basic.add(allowances));
         p.setPaymentDate(req.getPaymentDate());
-        p.setPaymentMethod(req.getPaymentMethod() != null ? req.getPaymentMethod() : "BANK_TRANSFER");
+        p.setPaymentMethod(normalizeMethodName(req.getPaymentMethod(), PaymentMethod.BANK));
         p.setStatus(req.getStatus() != null ? req.getStatus() : "PENDING");
         p.setNotes(req.getNotes());
         if (req.getCreatedById() != null) {

@@ -15,6 +15,7 @@ public class ExpenseRequest {
     private String notes;
     /** Cash register to deduct this expense from. */
     private Long cashRegisterId;
-    /** Cash bucket: CASH or PLASTIC. Defaults to CASH when omitted. */
+    /** Kassaga yoziladigan usul (PaymentMethod nomi). Ko'rsatilmasa — CASH.
+     *  Eski "PLASTIC" -> CARD. */
     private String paymentMethodForCash;
 }

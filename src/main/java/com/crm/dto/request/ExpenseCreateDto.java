@@ -1,6 +1,6 @@
 package com.crm.dto.request;
 
-import com.crm.entity.enums.CashPaymentMethod;
+import com.crm.entity.enums.PaymentMethod;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -12,7 +12,7 @@ public class ExpenseCreateDto {
     private BigDecimal amount;
     private LocalDate periodMonth;
     private BigDecimal totalAmount;
-    private CashPaymentMethod paymentMethod;
+    private PaymentMethod paymentMethod;
     private LocalDate transactionDate;
     private String note;
 }

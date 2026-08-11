@@ -1,6 +1,6 @@
 package com.crm.entity;
 
-import com.crm.entity.enums.CashPaymentMethod;
+import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.CashTransactionStatus;
 import com.crm.entity.enums.CashTransactionType;
 import jakarta.persistence.*;
@@ -37,7 +37,7 @@ public class CashTransaction {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_method", length = 20)
-    private CashPaymentMethod paymentMethod;
+    private PaymentMethod paymentMethod;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "student_id")

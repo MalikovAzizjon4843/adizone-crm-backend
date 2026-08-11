@@ -71,7 +71,7 @@ public class Payroll extends BaseEntity {
     private LocalDate paymentDate;
 
     @Column(name = "payment_method", length = 20)
-    private String paymentMethod = "BANK_TRANSFER";
+    private String paymentMethod = "BANK";
 
     @Column(length = 20)
     private String status = "PENDING";

@@ -1,6 +1,6 @@
 package com.crm.dto.response;
 
-import com.crm.entity.enums.CashPaymentMethod;
+import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.CashTransactionStatus;
 import com.crm.entity.enums.CashTransactionType;
 import lombok.Data;
@@ -15,7 +15,7 @@ public class CashTransactionDto {
     private String uuid;
     private Long cashRegisterId;
     private CashTransactionType type;
-    private CashPaymentMethod paymentMethod;
+    private PaymentMethod paymentMethod;
     private Long studentId;
     private String studentName;
     private Long teacherId;

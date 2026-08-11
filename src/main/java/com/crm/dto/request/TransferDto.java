@@ -1,6 +1,6 @@
 package com.crm.dto.request;
 
-import com.crm.entity.enums.CashPaymentMethod;
+import com.crm.entity.enums.PaymentMethod;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -10,6 +10,6 @@ public class TransferDto {
     private Long fromCashRegisterId;
     private Long toCashRegisterId;
     private BigDecimal amount;
-    private CashPaymentMethod paymentMethod;
+    private PaymentMethod paymentMethod;
     private String note;
 }

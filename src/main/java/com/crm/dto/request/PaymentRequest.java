@@ -25,7 +25,8 @@ public class PaymentRequest {
     private BigDecimal discountAmount;
     /** Cash register that receives this payment as income. */
     private Long cashRegisterId;
-    /** Override cash bucket: CASH or PLASTIC. If omitted, derived from paymentMethod. */
+    /** Kassaga yoziladigan usulni majburan belgilaydi (PaymentMethod nomi).
+     *  Ko'rsatilmasa — paymentMethod ishlatiladi. Eski "PLASTIC" -> CARD. */
     private String paymentMethodForCash;
     /** Apply pending student bonus/penalty on create. Defaults to true when null. */
     private Boolean applyBonuses;
