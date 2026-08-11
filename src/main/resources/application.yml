@@ -43,6 +43,10 @@ app:
   upload:
     dir: /opt/crm/uploads
   base-url: https://api.adizone.uz
+  schema:
+    # Hibernate yaratgan enum CHECK constraint'larni startup'da o'chiradi.
+    # ddl-auto: update ularni yangilamaydi, natijada yangi enum qiymati bazada rad etiladi.
+    drop-enum-checks: true
 
 jwt:
   secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
