@@ -6,6 +6,7 @@ import com.crm.dto.response.MissingAttendanceResponse;
 import com.crm.dto.response.TeacherMissingAttendanceResponse;
 import com.crm.entity.*;
 import com.crm.entity.enums.AttendanceStatus;
+import com.crm.entity.enums.PaymentType;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
@@ -316,6 +317,13 @@ public class AttendanceService {
         };
     }
 
+    /**
+     * Davomat balansga FAQAT PER_LESSON da ta'sir qiladi.
+     *
+     * <p>MONTHLY da davr qiymati to'lov paytida PERIOD_CHARGE bilan yechiladi
+     * ({@code PaymentService.writeLedgerForPayment}). Bu yerda ham yechilsa
+     * o'quvchidan ikki marta olingan bo'lardi.
+     */
     private void applyBalanceForAttendanceChange(
             Student student, Group group,
             AttendanceStatus previous, Attendance saved) {
@@ -323,6 +331,9 @@ public class AttendanceService {
             .findByStudentIdAndGroupIdAndIsActiveTrue(student.getId(), group.getId())
             .orElse(null);
         if (sg == null) {
+            return;
+        }
+        if (sg.getPaymentType() != PaymentType.PER_LESSON) {
             return;
         }
         java.math.BigDecimal lessonPrice = PaymentScheduleService.resolveLessonPrice(sg);
