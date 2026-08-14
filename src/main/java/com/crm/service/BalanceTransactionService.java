@@ -35,6 +35,7 @@ public class BalanceTransactionService {
     private final StudentGroupRepository studentGroupRepository;
     private final StudentRepository studentRepository;
     private final UserRepository userRepository;
+    private final BalanceExpectationService balanceExpectationService;
 
     /**
      * SG balansini o'zgartiradi va audit yozuv yaratadi.
@@ -125,32 +126,59 @@ public class BalanceTransactionService {
             .toList();
     }
 
+    /**
+     * Balansni MUSTAQIL manbalar bilan solishtiradi.
+     *
+     * <p>Ilgari bu metod {@code sg.balance} ni ledger yig'indisi bilan solishtirardi —
+     * ikkalasi ham bitta yozuvdan hosil bo'lgani uchun u hech qachon xato topa olmasdi.
+     * Endi kutilgan balans {@code payments} + {@code attendance} dan qayta quriladi
+     * ({@link BalanceExpectationService}), ya'ni yetishmayotgan PERIOD_CHARGE,
+     * noto'g'ri PAYMENT krediti va MONTHLY guruhdagi LESSON_CHARGE ko'rinadi.
+     */
     @Transactional(readOnly = true)
     public Map<String, Object> verifyBalances() {
         List<StudentGroup> all = studentGroupRepository.findAll();
         List<Map<String, Object>> mismatched = new ArrayList<>();
         int checked = 0;
+        BigDecimal totalDiff = BigDecimal.ZERO;
 
         for (StudentGroup sg : all) {
             checked++;
-            BigDecimal stored = nz(sg.getBalance());
-            BigDecimal calculated = nz(
-                balanceTransactionRepository.sumAmountByStudentGroupId(sg.getId()));
-            if (stored.compareTo(calculated) != 0) {
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("studentGroupId", sg.getId());
-                row.put("studentId", sg.getStudent() != null ? sg.getStudent().getId() : null);
-                row.put("stored", stored);
-                row.put("calculated", calculated);
-                row.put("diff", stored.subtract(calculated));
-                mismatched.add(row);
+            BalanceExpectationService.Expectation exp = balanceExpectationService.compute(sg);
+            if (!exp.hasIssue()) {
+                continue;
             }
+            totalDiff = totalDiff.add(exp.diff());
+
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("studentGroupId", exp.studentGroupId());
+            row.put("studentId", exp.studentId());
+            row.put("studentName", exp.studentName());
+            row.put("groupName", exp.groupName());
+            row.put("paymentType", exp.paymentType() != null ? exp.paymentType().name() : null);
+            row.put("stored", exp.storedBalance());
+            row.put("expected", exp.expectedBalance());
+            row.put("diff", exp.diff());
+            // Qaysi komponent farq qilgani shu yerdan ko'rinadi
+            Map<String, Object> components = new LinkedHashMap<>();
+            components.put("cashIn", exp.cashIn());
+            components.put("periodCost", exp.periodCost());
+            components.put("lessonCost", exp.lessonCost());
+            components.put("carriedLedger", exp.carriedLedger());
+            components.put("ledgerSum", exp.ledgerSum());
+            row.put("components", components);
+            row.put("missingPeriodCharges", exp.missingPeriodCharges());
+            row.put("wrongCredits", exp.wrongCredits());
+            row.put("strayLessonCharges", exp.strayLessonCharges());
+            row.put("unlinkedPayments", exp.unlinkedPayments());
+            mismatched.add(row);
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("checked", checked);
-        result.put("mismatched", mismatched);
         result.put("mismatchCount", mismatched.size());
+        result.put("totalDiff", totalDiff);
+        result.put("mismatched", mismatched);
         return result;
     }
 

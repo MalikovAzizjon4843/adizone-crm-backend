@@ -129,6 +129,29 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
     @Query("SELECT p FROM Payment p WHERE p.periodStart IS NULL OR p.periodEnd IS NULL")
     List<Payment> findWithMissingPeriods();
 
+    /** Bitta enrollment bo'yicha to'lovlar — balans tekshiruvi va ta'mirlash uchun. */
+    List<Payment> findByStudentGroup_IdAndStatusOrderByPaymentDateAscIdAsc(
+        Long studentGroupId, PaymentStatus status);
+
+    /**
+     * student_group_id to'ldirilmagan to'lovlar (faqat group_id bo'yicha bog'langan).
+     * Bunday satrni qaysi enrollmentga tegishli ekanini aniq aytib bo'lmaydi —
+     * o'quvchi shu guruhga qayta qo'shilgan bo'lsa ikkita nomzod bor. Shuning uchun
+     * balans hisobiga QO'SHILMAYDI, faqat hisobotda ogohlantirish sifatida chiqadi.
+     */
+    @Query("""
+        SELECT p FROM Payment p
+        WHERE p.studentGroup IS NULL
+          AND p.student.id = :studentId
+          AND p.group.id = :groupId
+          AND p.status = :status
+        ORDER BY p.paymentDate ASC, p.id ASC
+        """)
+    List<Payment> findUnlinkedByStudentAndGroup(
+        @Param("studentId") Long studentId,
+        @Param("groupId") Long groupId,
+        @Param("status") PaymentStatus status);
+
     Page<Payment> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     @Query("SELECT p FROM Payment p ORDER BY p.createdAt DESC")

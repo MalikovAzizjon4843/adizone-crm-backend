@@ -41,4 +41,7 @@ public interface BalanceTransactionRepository extends JpaRepository<BalanceTrans
 
     boolean existsByStudentGroup_IdAndTypeAndReferenceId(
         Long studentGroupId, BalanceTransactionType type, Long referenceId);
+
+    /** Bitta enrollment daftari — tekshiruv va ta'mirlash uchun (yozilish tartibida). */
+    List<BalanceTransaction> findByStudentGroup_IdOrderByIdAsc(Long studentGroupId);
 }
