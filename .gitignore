@@ -18,21 +18,32 @@ buildNumber.properties
 application.properties.example # if used to store sensitive info
 
 # IDE specific files
-.idea/         # IntelliJ IDEA
-*.iml          # IntelliJ IDEA
-*.ipr          # IntelliJ IDEA
-*.iws          # IntelliJ IDEA
-.classpath     # Eclipse
-.project       # Eclipse
-.settings/     # Eclipse
-bin/           # Eclipse
-out/           # Eclipse
-.vscode/       # VS Code
+# Eslatma: gitignore qator oxiridagi izohni QO'LLAB-QUVVATLAMAYDI —
+# "\.idea/  # IntelliJ" naqshi hech nimaga mos kelmaydi. Izohlar alohida qatorda.
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+out/
+# VS Code
+.vscode/
+
+# Build artifacts
+*.jar
+*.war
 
 # Operating System Files
-.DS_Store      # macOS
-Thumbs.db      # Windows
-Desktop.ini    # Windows
+# macOS
+.DS_Store
+# Windows
+Thumbs.db
+Desktop.ini
 
 # Misc
 *.swp
