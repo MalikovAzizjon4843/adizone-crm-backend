@@ -185,6 +185,8 @@ public class BalanceTransactionService {
             case LESSON_CHARGE -> "Dars uchun yechildi";
             case LESSON_REFUND -> "Davomat qaytarildi";
             case PAYMENT -> "To'lov qabul qilindi";
+            case PERIOD_CHARGE -> "Davr uchun yechildi";
+            case PERIOD_REFUND -> "Davr qaytarildi";
             case FREEZE -> "Muzlatish";
             case UNFREEZE -> "Muzlatishdan chiqarish";
             case MANUAL_ADJUST -> "Qo'lda tuzatish";
