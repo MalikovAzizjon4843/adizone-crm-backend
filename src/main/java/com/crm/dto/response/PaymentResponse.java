@@ -25,6 +25,10 @@ public class PaymentResponse {
     private BigDecimal bonusDiscount;
     /** Balansdan yechilgan summa */
     private BigDecimal balanceUsed;
+    /** gross - discount: to'lov sifatida hisoblangan summa. */
+    private BigDecimal payable;
+    /** Kassaga tushgan real pul: payable - balanceUsed. */
+    private BigDecimal cashAmount;
     private String receiptNumber;
     /** Amount formatted for display, e.g. "800 000 so'm" */
     private String formattedAmount;

@@ -28,6 +28,17 @@ public class PaymentRequest {
     /** Kassaga yoziladigan usulni majburan belgilaydi (PaymentMethod nomi).
      *  Ko'rsatilmasa — paymentMethod ishlatiladi. Eski "PLASTIC" -> CARD. */
     private String paymentMethodForCash;
+    /** Faqat CASH_AND_CARD uchun: kassaga tushadigan summaning naqd qismi. */
+    private BigDecimal cashPart;
+    /** Faqat CASH_AND_CARD uchun: kassaga tushadigan summaning karta qismi. */
+    private BigDecimal cardPart;
+    /** O'quvchi balansidan foydalanilsinmi. null/false — balans ishlatilmaydi. */
+    private Boolean useBalance;
+    /**
+     * Frontend hisoblagan balans summasi — FAQAT ma'lumot uchun saqlanadi,
+     * hisobda ISHLATILMAYDI. Haqiqiy qiymatni backend o'zi hisoblaydi.
+     */
+    private BigDecimal balanceAmount;
     /** Apply pending student bonus/penalty on create. Defaults to true when null. */
     private Boolean applyBonuses;
 }

@@ -1,5 +1,6 @@
 package com.crm.controller;
 
+import com.crm.dto.request.PaymentPreviewRequest;
 import com.crm.dto.request.PaymentRequest;
 import com.crm.dto.response.*;
 import com.crm.service.PaymentService;
@@ -55,6 +56,14 @@ public class PaymentController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<List<PaymentHistoryResponse>>> getHistory() {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getPaymentHistory()));
+    }
+
+    /** Saqlamasdan hisoblab beradi — frontend summani o'zi hisoblamasligi uchun. */
+    @PostMapping("/preview")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<PaymentPreviewResponse>> previewPayment(
+            @Valid @RequestBody PaymentPreviewRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(paymentService.previewPayment(request)));
     }
 
     @PostMapping

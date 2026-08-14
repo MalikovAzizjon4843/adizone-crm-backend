@@ -88,6 +88,14 @@ public class Payment {
     @Builder.Default
     private BigDecimal balanceUsed = BigDecimal.ZERO;
 
+    /** amount - discountAmount. To'lov sifatida hisoblangan summa (balans + naqd). */
+    @Column(name = "payable_amount", precision = 12, scale = 2)
+    private BigDecimal payableAmount;
+
+    /** Kassaga tushgan real pul: payableAmount - balanceUsed. */
+    @Column(name = "cash_amount", precision = 12, scale = 2)
+    private BigDecimal cashAmount;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

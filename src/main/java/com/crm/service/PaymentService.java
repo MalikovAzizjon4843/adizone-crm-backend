@@ -1,10 +1,12 @@
 package com.crm.service;
 
+import com.crm.dto.request.PaymentPreviewRequest;
 import com.crm.dto.request.PaymentRequest;
 import com.crm.dto.response.DebtorResponse;
 import com.crm.dto.response.DebtorsListResponse;
 import com.crm.dto.response.ExpectedPaymentsResponse;
 import com.crm.dto.response.PaymentHistoryResponse;
+import com.crm.dto.response.PaymentPreviewResponse;
 import com.crm.dto.response.PaymentResponse;
 import com.crm.dto.response.SuspendedStudentResponse;
 import com.crm.entity.*;
@@ -61,12 +63,6 @@ public class PaymentService {
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         User receiver = userRepository.findByUsername(username).orElse(null);
 
-        BigDecimal discount = request.getDiscountAmount() != null
-            ? request.getDiscountAmount() : BigDecimal.ZERO;
-        if (discount.compareTo(BigDecimal.ZERO) < 0) {
-            discount = BigDecimal.ZERO;
-        }
-
         LocalDate payDate = request.getPaymentDate() != null ? request.getPaymentDate() : LocalDate.now();
 
         long seq = paymentRepository.count() + 1;
@@ -79,16 +75,16 @@ public class PaymentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Group", request.getGroupId()));
         }
 
-        // request.amount = to'liq to'lov qiymati; balansdan yechib, kassaga faqat naqd
-        BigDecimal totalCredit = request.getAmount() != null ? request.getAmount() : BigDecimal.ZERO;
-        BigDecimal availableBalance = student.getBalance() != null ? student.getBalance() : BigDecimal.ZERO;
-        if (availableBalance.compareTo(BigDecimal.ZERO) < 0) {
-            availableBalance = BigDecimal.ZERO;
-        }
-        BigDecimal balanceUsed = availableBalance.min(totalCredit);
-        BigDecimal cashAmount = totalCredit.subtract(balanceUsed);
+        // Butun hisob shu yerda — frontend XOM ma'lumot yuboradi (gross, discount, useBalance).
+        PaymentCalculation calc = calculate(
+            student, request.getAmount(), request.getDiscountAmount(), request.getUseBalance());
+        BigDecimal discount = calc.discount();
+        BigDecimal payable = calc.payable();
+        BigDecimal balanceUsed = calc.balanceUsed();
+        BigDecimal cashAmount = calc.cashAmount();
 
-        LocalDate[] period = resolvePaymentPeriod(student, enrollment, request, totalCredit);
+        // Davr hisobi payable asosida — balansdan qoplangan qism ham to'lov sanaladi.
+        LocalDate[] period = resolvePaymentPeriod(student, enrollment, request, payable);
         LocalDate periodStart = period[0];
         LocalDate periodEnd = period[1];
 
@@ -96,7 +92,9 @@ public class PaymentService {
             .student(student)
             .group(group)
             .studentGroup(enrollment)
-            .amount(cashAmount)
+            .amount(calc.gross())
+            .payableAmount(payable)
+            .cashAmount(cashAmount)
             .balanceUsed(balanceUsed)
             .discountAmount(discount)
             .receiptNumber(receipt)
@@ -112,8 +110,12 @@ public class PaymentService {
 
         Payment saved = paymentRepository.save(payment);
 
-        // Audit: +payment.amount (naqd). Mavjud balans kredit sifatida qoladi.
-        if (enrollment != null && cashAmount.compareTo(BigDecimal.ZERO) > 0) {
+        // Balans daftariga yoziladigan kredit: gross - balanceUsed.
+        // Chegirma ham kredit sifatida yoziladi, aks holda hisoblangan oylik
+        // to'liq yopilmay, o'quvchida chegirma miqdorida qarz qolib ketadi.
+        BigDecimal ledgerCredit = calc.gross().subtract(balanceUsed);
+
+        if (enrollment != null && ledgerCredit.compareTo(BigDecimal.ZERO) > 0) {
             String payNote = "To'lov #" + saved.getReceiptNumber();
             if (balanceUsed.compareTo(BigDecimal.ZERO) > 0) {
                 payNote += " (balansdan qoplandi: " + balanceUsed.toPlainString() + ")";
@@ -121,10 +123,10 @@ public class PaymentService {
             balanceTransactionService.record(
                 enrollment,
                 BalanceTransactionType.PAYMENT,
-                cashAmount,
+                ledgerCredit,
                 saved.getId(),
                 payNote);
-        } else if (enrollment != null && cashAmount.compareTo(BigDecimal.ZERO) == 0
+        } else if (enrollment != null && ledgerCredit.compareTo(BigDecimal.ZERO) == 0
                 && balanceUsed.compareTo(BigDecimal.ZERO) > 0) {
             // To'liq eski balansdan — o'zgarish 0, lekin audit uchun yozuv
             balanceTransactionService.record(
@@ -185,7 +187,7 @@ public class PaymentService {
 
         // PER_LESSON: periodEnd taxminiy — lessons purchased asosida
         if (enrollment != null && enrollment.getPaymentType() == PaymentType.PER_LESSON) {
-            applyPerLessonPaymentPeriod(saved, enrollment, totalCredit);
+            applyPerLessonPaymentPeriod(saved, enrollment, payable);
             saved = paymentRepository.save(saved);
         }
 
@@ -195,12 +197,12 @@ public class PaymentService {
         return toResponse(saved);
     }
 
-    private void applyPerLessonPaymentPeriod(Payment payment, StudentGroup sg, BigDecimal totalCredit) {
+    private void applyPerLessonPaymentPeriod(Payment payment, StudentGroup sg, BigDecimal payable) {
         BigDecimal lessonPrice = PaymentScheduleService.resolveLessonPrice(sg);
         if (lessonPrice.compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
-        int bought = totalCredit.divide(lessonPrice, 0, RoundingMode.DOWN).intValue();
+        int bought = payable.divide(lessonPrice, 0, RoundingMode.DOWN).intValue();
         if (bought < 1) {
             bought = 1;
         }
@@ -208,6 +210,77 @@ public class PaymentService {
         payment.setPeriodStart(start);
         // periodEnd: taxminiy — dars kunlari bo'yicha (recalc aniqroq yangilaydi)
         payment.setPeriodEnd(start.plusDays(Math.max(bought, 1)));
+    }
+
+    /** To'lov hisobining natijasi — createPayment va preview bir xil qiymatlardan foydalanadi. */
+    public record PaymentCalculation(
+        BigDecimal gross,
+        BigDecimal discount,
+        BigDecimal payable,
+        BigDecimal balanceUsed,
+        BigDecimal cashAmount,
+        BigDecimal studentBalance,
+        BigDecimal balanceAfter) {}
+
+    /**
+     * To'lov hisobining YAGONA manbai. Frontend hisoblagan qiymatlarga ishonilmaydi:
+     * balans miqdori bu yerda o'quvchining haqiqiy balansidan olinadi.
+     *
+     * <pre>
+     * payable     = gross - discount
+     * balanceUsed = useBalance ? min(max(balance, 0), payable) : 0
+     * cashAmount  = payable - balanceUsed
+     * </pre>
+     */
+    private PaymentCalculation calculate(Student student, BigDecimal amount,
+                                         BigDecimal discountAmount, Boolean useBalance) {
+        // Manfiy yoki null summa 0 deb olinadi — bu yerda 500 chiqmasligi kerak.
+        BigDecimal gross = nz(amount).max(BigDecimal.ZERO);
+        BigDecimal discount = nz(discountAmount).max(BigDecimal.ZERO);
+        if (discount.compareTo(gross) > 0) {
+            throw new IllegalArgumentException(
+                "Chegirma umumiy summadan katta bo'lishi mumkin emas");
+        }
+
+        BigDecimal payable = gross.subtract(discount);
+
+        BigDecimal studentBalance = nz(student.getBalance());
+        BigDecimal balanceUsed = BigDecimal.ZERO;
+        if (Boolean.TRUE.equals(useBalance)) {
+            BigDecimal avail = studentBalance.max(BigDecimal.ZERO);
+            balanceUsed = avail.min(payable);
+        }
+
+        BigDecimal cashAmount = payable.subtract(balanceUsed);
+
+        return new PaymentCalculation(gross, discount, payable, balanceUsed, cashAmount,
+            studentBalance, studentBalance.subtract(balanceUsed));
+    }
+
+    /** Dry-run: hech narsa saqlanmaydi, createPayment bilan bir xil formula. */
+    @Transactional(readOnly = true)
+    public PaymentPreviewResponse previewPayment(PaymentPreviewRequest request) {
+        if (request.getStudentId() == null) {
+            throw new BadRequestException("O'quvchi tanlanmagan (studentId majburiy)");
+        }
+        Student student = studentRepository.findById(request.getStudentId())
+            .orElseThrow(() -> new ResourceNotFoundException(
+                "O'quvchi topilmadi (ID " + request.getStudentId() + ")"));
+
+        // groupId hisobga ta'sir qilmaydi — balans o'quvchi darajasida yuritiladi,
+        // shuning uchun guruhsiz ham to'g'ri ishlaydi.
+        PaymentCalculation calc = calculate(
+            student, request.getAmount(), request.getDiscountAmount(), request.getUseBalance());
+
+        return PaymentPreviewResponse.builder()
+            .gross(calc.gross())
+            .discount(calc.discount())
+            .payable(calc.payable())
+            .balanceUsed(calc.balanceUsed())
+            .cashAmount(calc.cashAmount())
+            .studentBalance(calc.studentBalance())
+            .balanceAfter(calc.balanceAfter())
+            .build();
     }
 
     private StudentGroup resolveEnrollment(Long studentId, Long groupId) {
@@ -223,11 +296,11 @@ public class PaymentService {
 
     /**
      * periodStart = sg.nextPaymentDate ?? sg.paymentStartDate ?? sg.joinDate
-     * months = max(1, totalCredit / monthlyFee) when fee &gt; 0
+     * months = max(1, payable / monthlyFee) when fee &gt; 0
      * periodEnd = periodStart + months - 1 day
      */
     private LocalDate[] resolvePaymentPeriod(Student student, StudentGroup sg, PaymentRequest request,
-                                             BigDecimal totalCredit) {
+                                             BigDecimal payable) {
         LocalDate periodStart = request.getPeriodFrom();
         LocalDate periodEnd = request.getPeriodTo();
 
@@ -253,7 +326,7 @@ public class PaymentService {
                 fee = PaymentScheduleService.resolveMonthlyFee(sg);
             }
             int months = 1;
-            BigDecimal credit = totalCredit != null ? totalCredit : request.getAmount();
+            BigDecimal credit = payable != null ? payable : request.getAmount();
             if (fee != null && fee.compareTo(BigDecimal.ZERO) > 0 && credit != null) {
                 months = credit.divide(fee, 0, RoundingMode.DOWN).intValue();
                 if (months < 1) {
@@ -371,6 +444,17 @@ public class PaymentService {
         return stats;
     }
 
+    /**
+     * Eski yozuvlarda payable/cashAmount ustunlari bo'sh: o'shanda amount kassaga
+     * tushgan summani bildirgan, ya'ni payable = amount + balanceUsed.
+     */
+    private static BigDecimal resolvePayable(Payment p) {
+        if (p.getPayableAmount() != null) {
+            return p.getPayableAmount();
+        }
+        return nz(p.getAmount()).add(nz(p.getBalanceUsed()));
+    }
+
     private static BigDecimal nz(BigDecimal v) {
         return v != null ? v : BigDecimal.ZERO;
     }
@@ -418,6 +502,8 @@ public class PaymentService {
             .discountAmount(p.getDiscountAmount() != null ? p.getDiscountAmount() : BigDecimal.ZERO)
             .bonusDiscount(p.getBonusDiscount() != null ? p.getBonusDiscount() : BigDecimal.ZERO)
             .balanceUsed(p.getBalanceUsed() != null ? p.getBalanceUsed() : BigDecimal.ZERO)
+            .payable(resolvePayable(p))
+            .cashAmount(p.getCashAmount() != null ? p.getCashAmount() : nz(p.getAmount()))
             .receiptNumber(p.getReceiptNumber())
             .formattedAmount(formatUzs(p.getAmount()))
             .paymentDate(p.getPaymentDate())
