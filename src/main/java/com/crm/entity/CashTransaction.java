@@ -53,6 +53,14 @@ public class CashTransaction {
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal amount;
 
+    /** Faqat CASH_AND_CARD uchun: summaning naqd qismi. Boshqa usullarda null. */
+    @Column(name = "cash_part", precision = 15, scale = 2)
+    private BigDecimal cashPart;
+
+    /** Faqat CASH_AND_CARD uchun: summaning karta qismi. Boshqa usullarda null. */
+    @Column(name = "card_part", precision = 15, scale = 2)
+    private BigDecimal cardPart;
+
     @Column(columnDefinition = "TEXT")
     private String note;
 

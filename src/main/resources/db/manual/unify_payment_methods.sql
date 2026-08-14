@@ -23,8 +23,9 @@ UPDATE cash_transactions SET payment_method = 'OTHER'
  WHERE payment_method = 'ONLINE';
 
 -- ---------------------------------------------------------------------------
--- 2. payroll.payment_method — matn ustuni, enum EMAS.
---    Eski qiymatlar: BANK_TRANSFER, CASH, CASH_AND_CARD, PLASTIC, ONLINE
+-- 2. payroll.payment_method — endi @Enumerated(STRING). Ustun tipi varchar
+--    bo'lib qoladi, ya'ni tip migratsiyasi shart emas — faqat qiymatlarni
+--    tozalash kerak. Eski qiymatlar: BANK_TRANSFER, PLASTIC, ONLINE va h.k.
 -- ---------------------------------------------------------------------------
 
 UPDATE payroll SET payment_method = 'BANK'
@@ -35,6 +36,13 @@ UPDATE payroll SET payment_method = 'CARD'
 
 UPDATE payroll SET payment_method = 'OTHER'
  WHERE payment_method = 'ONLINE';
+
+-- Tanib bo'lmaydigan qolgan qiymatlar -> NULL (to'lanmagan oylik uchun ruxsat etilgan).
+-- Bularsiz Hibernate satrni o'qiyotganda IllegalArgumentException beradi.
+UPDATE payroll SET payment_method = NULL
+ WHERE payment_method IS NOT NULL
+   AND payment_method NOT IN ('CASH','CARD','CLICK','PAYME','UZUM',
+                              'TERMINAL','BANK','CASH_AND_CARD','OTHER');
 
 -- ---------------------------------------------------------------------------
 -- 3. payments — V32__payment_methods.sql allaqachon ONLINE/CARD/BANK_TRANSFER
@@ -54,32 +62,28 @@ UPDATE payments SET payment_method = 'CARD'
 COMMIT;
 
 -- ---------------------------------------------------------------------------
--- 4. Tekshirish: yaroqsiz qiymat qolmaganini ko'rish.
---    Har uchala so'rov faqat yuqoridagi 9 ta nomni qaytarishi kerak.
+-- 4. Yakuniy tekshiruv: yaroqsiz qiymat qolmaganini ko'rish.
+--    Natijada faqat quyidagi 9 ta nom (va payroll uchun NULL) bo'lishi kerak:
+--    CASH, CARD, CLICK, PAYME, UZUM, TERMINAL, BANK, CASH_AND_CARD, OTHER
 -- ---------------------------------------------------------------------------
 
-SELECT payment_method, COUNT(*) FROM cash_transactions GROUP BY 1 ORDER BY 2 DESC;
-SELECT payment_method, COUNT(*) FROM payments           GROUP BY 1 ORDER BY 2 DESC;
-SELECT payment_method, COUNT(*) FROM payroll            GROUP BY 1 ORDER BY 2 DESC;
+SELECT 'payments' AS jadval, payment_method, COUNT(*) FROM payments GROUP BY 1,2
+UNION ALL
+SELECT 'cash_transactions', payment_method, COUNT(*) FROM cash_transactions GROUP BY 1,2
+UNION ALL
+SELECT 'payroll', payment_method, COUNT(*) FROM payroll GROUP BY 1,2
+ORDER BY 1, 2;
 
--- Yaroqsiz qiymatlarni bitta so'rovda topish:
-SELECT 'cash_transactions' AS tbl, payment_method, COUNT(*)
+-- ---------------------------------------------------------------------------
+-- 5. cash_transactions.cash_part / card_part ustunlarini Hibernate
+--    (ddl-auto: update) o'zi qo'shadi — qo'lda yaratish shart emas.
+--    Eski CASH_AND_CARD yozuvlarida ular NULL bo'lib qoladi; kod bunday
+--    yozuvlarni butun summa naqd deb hisoblaydi va log.warn yozadi.
+--    Ularni ko'rish uchun:
+-- ---------------------------------------------------------------------------
+
+SELECT id, transaction_date, amount, cash_part, card_part
   FROM cash_transactions
- WHERE payment_method IS NOT NULL
-   AND payment_method NOT IN ('CASH','CARD','CLICK','PAYME','UZUM','TERMINAL',
-                              'BANK','CASH_AND_CARD','OTHER')
- GROUP BY 1, 2
-UNION ALL
-SELECT 'payments', payment_method, COUNT(*)
-  FROM payments
- WHERE payment_method IS NOT NULL
-   AND payment_method NOT IN ('CASH','CARD','CLICK','PAYME','UZUM','TERMINAL',
-                              'BANK','CASH_AND_CARD','OTHER')
- GROUP BY 1, 2
-UNION ALL
-SELECT 'payroll', payment_method, COUNT(*)
-  FROM payroll
- WHERE payment_method IS NOT NULL
-   AND payment_method NOT IN ('CASH','CARD','CLICK','PAYME','UZUM','TERMINAL',
-                              'BANK','CASH_AND_CARD','OTHER')
- GROUP BY 1, 2;
+ WHERE payment_method = 'CASH_AND_CARD'
+   AND (cash_part IS NULL OR card_part IS NULL)
+ ORDER BY transaction_date DESC;

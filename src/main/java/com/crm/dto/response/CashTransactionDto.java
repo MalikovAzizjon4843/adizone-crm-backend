@@ -22,6 +22,9 @@ public class CashTransactionDto {
     private String teacherName;
     private String transactionName;
     private BigDecimal amount;
+    /** Faqat CASH_AND_CARD uchun to'ldiriladi. */
+    private BigDecimal cashPart;
+    private BigDecimal cardPart;
     private String note;
     private CashTransactionStatus status;
     private LocalDate periodMonth;

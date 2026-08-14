@@ -7,7 +7,6 @@ import com.crm.entity.Expense;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
 import com.crm.entity.enums.PaymentMethod;
-import com.crm.entity.enums.PaymentMethods;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -114,7 +113,13 @@ public class FinanceService {
                 "Xarajat: " + saved.getCategory(),
                 saved.getDescription(),
                 saved.getExpenseDate(),
-                creator);
+                creator,
+                null,
+                null,
+                null,
+                null,
+                request.getCashPart(),
+                request.getCardPart());
             saved.setCashRegister(cashTx.getCashRegister());
             saved = expenseRepository.save(saved);
         }
@@ -129,7 +134,7 @@ public class FinanceService {
 
     /** Eski "PLASTIC" nomi ham qo'llab-quvvatlanadi (-> CARD). Ko'rsatilmasa — naqd. */
     private static PaymentMethod resolveCashPaymentMethod(String paymentMethodForCash) {
-        return PaymentMethods.parseOrDefault(paymentMethodForCash, PaymentMethod.CASH);
+        return PaymentMethod.parseOrDefault(paymentMethodForCash, PaymentMethod.CASH);
     }
 
     @Transactional(readOnly = true)

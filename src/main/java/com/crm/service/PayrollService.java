@@ -10,7 +10,6 @@ import com.crm.entity.Payroll;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
 import com.crm.entity.enums.PaymentMethod;
-import com.crm.entity.enums.PaymentMethods;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
@@ -119,7 +118,7 @@ public class PayrollService {
                 payroll.setMonth(month);
                 payroll.setYear(year);
                 payroll.setStatus("PENDING");
-                payroll.setPaymentMethod(PaymentMethod.BANK.name());
+                payroll.setPaymentMethod(PaymentMethod.BANK);
             } else if (!overwrite) {
                 skipped++;
                 continue;
@@ -260,6 +259,7 @@ public class PayrollService {
                 }
 
                 PaymentMethod cashMethod = resolveCashPaymentMethod(payroll.getPaymentMethod(), null);
+                BigDecimal[] split = carrySplitForward(cashMethod, txs, finalNetSalary);
                 String teacherName = teacher.getFirstName() + " " + teacher.getLastName();
                 var cashTx = cashRegisterService.recordExpense(
                     payroll.getCashRegister().getId(),
@@ -272,7 +272,9 @@ public class PayrollService {
                     null,
                     teacher,
                     null,
-                    null);
+                    null,
+                    split[0],
+                    split[1]);
                 payroll.setCashRegister(cashTx.getCashRegister());
             }
         }
@@ -288,8 +290,8 @@ public class PayrollService {
     public PayrollResponse markAsPaid(Long id, PayrollPayDto payDto) {
         Payroll payroll = findById(id);
         payroll.setStatus("PAID");
-        String paymentMethod = normalizeMethodName(
-            payDto != null ? payDto.getPaymentMethod() : null, PaymentMethod.CASH);
+        PaymentMethod paymentMethod = payDto != null && payDto.getPaymentMethod() != null
+            ? payDto.getPaymentMethod() : PaymentMethod.CASH;
         payroll.setPaymentMethod(paymentMethod);
         payroll.setPaymentDate(LocalDate.now());
 
@@ -313,7 +315,9 @@ public class PayrollService {
                 null,
                 teacher,
                 null,
-                null);
+                null,
+                payDto.getCashPart(),
+                payDto.getCardPart());
             saved.setCashRegister(cashTx.getCashRegister());
             saved = payrollRepository.save(saved);
         }
@@ -327,20 +331,40 @@ public class PayrollService {
     }
 
     /**
-     * Payroll.paymentMethod hali ham matn ustuni. Eski nomlar (BANK_TRANSFER, PLASTIC,
-     * ONLINE) yagona enumga moslashtiriladi; tanilmasa naqd deb olinadi.
+     * Kassaga yoziladigan usul: paymentMethodForCash ustunlik qiladi (eski nomlar ham
+     * tushuniladi), aks holda oylikning o'z usuli, u ham yo'q bo'lsa — naqd.
      */
-    private static PaymentMethod resolveCashPaymentMethod(String paymentMethod, String paymentMethodForCash) {
-        PaymentMethod override = PaymentMethods.parseOrNull(paymentMethodForCash);
+    /**
+     * Oylik qayta hisoblanganda CASH_AND_CARD taqsimotini saqlab qoladi: naqd qism
+     * o'zgarmaydi (pul allaqachon berilgan), farq karta qismiga yoziladi. Eski
+     * yozuvda taqsimot bo'lmasa — butun summa naqd deb olinadi.
+     * Qaytaradi: {cashPart, cardPart}; SPLIT bo'lmasa ikkalasi ham null.
+     */
+    private static BigDecimal[] carrySplitForward(PaymentMethod method,
+                                                  List<CashTransaction> previous,
+                                                  BigDecimal newAmount) {
+        if (method.getCashBucket() != PaymentMethod.CashBucket.SPLIT) {
+            return new BigDecimal[]{null, null};
+        }
+        boolean hadSplit = previous.stream().anyMatch(t -> t.getCashPart() != null);
+        if (!hadSplit) {
+            return new BigDecimal[]{newAmount, BigDecimal.ZERO};
+        }
+        BigDecimal oldCash = previous.stream()
+            .map(CashTransaction::getCashPart)
+            .filter(java.util.Objects::nonNull)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal cash = oldCash.min(newAmount);
+        return new BigDecimal[]{cash, newAmount.subtract(cash)};
+    }
+
+    private static PaymentMethod resolveCashPaymentMethod(
+            PaymentMethod paymentMethod, String paymentMethodForCash) {
+        PaymentMethod override = PaymentMethod.parseOrNull(paymentMethodForCash);
         if (override != null) {
             return override;
         }
-        return PaymentMethods.parseOrDefault(paymentMethod, PaymentMethod.CASH);
-    }
-
-    /** Matnni yagona enum nomiga keltiradi — bazaga faqat yaroqli qiymat tushsin. */
-    private static String normalizeMethodName(String raw, PaymentMethod fallback) {
-        return PaymentMethods.parseOrDefault(raw, fallback).name();
+        return paymentMethod != null ? paymentMethod : PaymentMethod.CASH;
     }
 
     public Payroll findById(Long id) {
@@ -359,7 +383,7 @@ public class PayrollService {
         BigDecimal allowances = p.getAllowances();
         p.setNetSalary(basic.add(allowances));
         p.setPaymentDate(req.getPaymentDate());
-        p.setPaymentMethod(normalizeMethodName(req.getPaymentMethod(), PaymentMethod.BANK));
+        p.setPaymentMethod(PaymentMethod.parseOrDefault(req.getPaymentMethod(), PaymentMethod.BANK));
         p.setStatus(req.getStatus() != null ? req.getStatus() : "PENDING");
         p.setNotes(req.getNotes());
         if (req.getCreatedById() != null) {
@@ -393,7 +417,10 @@ public class PayrollService {
             .kpiApplied(p.getKpiApplied())
             .kpiAmount(p.getKpiAmount())
             .calculationDetails(p.getCalculationDetails())
-            .paymentDate(p.getPaymentDate()).paymentMethod(p.getPaymentMethod())
+            .paymentDate(p.getPaymentDate())
+            .paymentMethod(p.getPaymentMethod() != null ? p.getPaymentMethod().name() : null)
+            .paymentMethodLabel(p.getPaymentMethod() != null ? p.getPaymentMethod().getLabel() : null)
+            .paymentMethodIcon(p.getPaymentMethod() != null ? p.getPaymentMethod().getIcon() : null)
             .status(p.getStatus()).notes(p.getNotes())
             .createdByName(p.getCreatedBy() != null ? p.getCreatedBy().getUsername() : null)
             .cashRegisterId(p.getCashRegister() != null ? p.getCashRegister().getId() : null)

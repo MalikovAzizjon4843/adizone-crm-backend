@@ -18,4 +18,8 @@ public class ExpenseRequest {
     /** Kassaga yoziladigan usul (PaymentMethod nomi). Ko'rsatilmasa — CASH.
      *  Eski "PLASTIC" -> CARD. */
     private String paymentMethodForCash;
+    /** Faqat CASH_AND_CARD uchun: naqd qismi (cashPart + cardPart = amount). */
+    private BigDecimal cashPart;
+    /** Faqat CASH_AND_CARD uchun: karta qismi. */
+    private BigDecimal cardPart;
 }

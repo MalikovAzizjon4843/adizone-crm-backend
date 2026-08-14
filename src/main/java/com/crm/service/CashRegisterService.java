@@ -13,7 +13,6 @@ import com.crm.entity.Student;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
 import com.crm.entity.enums.PaymentMethod;
-import com.crm.entity.enums.PaymentMethods;
 import com.crm.entity.enums.CashRegisterStatus;
 import com.crm.entity.enums.CashTransactionStatus;
 import com.crm.entity.enums.CashTransactionType;
@@ -47,29 +46,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.time.LocalDate;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CashRegisterService {
-
-    /**
-     * Naqd balansga tushadigan usullar. Qolgan barcha usullar (CARD, CLICK, PAYME,
-     * UZUM, TERMINAL, BANK, OTHER) plastik — ya'ni naqdsiz — balansga tushadi.
-     * Ro'yxat enum bo'yicha aniqlanadi, qo'lda yozilgan matn bo'yicha emas.
-     */
-    private static final Set<PaymentMethod> CASH_BUCKET_METHODS =
-        EnumSet.of(PaymentMethod.CASH, PaymentMethod.CASH_AND_CARD);
-
-    /** Onlayn to'lov tizimlari — kassada "onlayn qabul qilish" yoqilgan bo'lishi shart. */
-    private static final Set<PaymentMethod> ONLINE_METHODS =
-        EnumSet.of(PaymentMethod.CLICK, PaymentMethod.PAYME, PaymentMethod.UZUM);
 
     private final CashRegisterRepository cashRegisterRepository;
     private final CashTransactionRepository cashTransactionRepository;
@@ -335,16 +322,33 @@ public class CashRegisterService {
             String transactionName,
             String note,
             LocalDate transactionDate) {
+        return recordIncome(cashRegisterId, amount, method, student, transactionName, note,
+            transactionDate, null, null);
+    }
+
+    @Transactional
+    public CashTransaction recordIncome(
+            Long cashRegisterId,
+            BigDecimal amount,
+            PaymentMethod method,
+            Student student,
+            String transactionName,
+            String note,
+            LocalDate transactionDate,
+            BigDecimal cashPart,
+            BigDecimal cardPart) {
 
         CashRegister register = findRegisterById(cashRegisterId);
         BigDecimal positiveAmount = requirePositiveAmount(amount);
         PaymentMethod cashMethod = requirePaymentMethod(method);
+        SplitParts parts = validateParts(cashMethod, positiveAmount, cashPart, cardPart);
 
-        if (ONLINE_METHODS.contains(cashMethod) && !register.isAcceptOnlinePayment()) {
+        if (cashMethod.isOnline() && !register.isAcceptOnlinePayment()) {
             throw new BadRequestException("Bu kassa onlayn to'lovlarni qabul qilmaydi");
         }
 
-        addToBalance(register, cashMethod, positiveAmount);
+        addToBalance(register, bucketAmounts(
+            cashMethod, positiveAmount, parts.cashPart(), parts.cardPart(), null));
         cashRegisterRepository.save(register);
 
         CashTransaction tx = new CashTransaction();
@@ -352,6 +356,8 @@ public class CashRegisterService {
         tx.setType(CashTransactionType.INCOME);
         tx.setPaymentMethod(cashMethod);
         tx.setAmount(positiveAmount);
+        tx.setCashPart(parts.cashPart());
+        tx.setCardPart(parts.cardPart());
         tx.setTransactionName(transactionName);
         tx.setNote(note);
         tx.setTransactionDate(transactionDate != null ? transactionDate : LocalDate.now());
@@ -377,7 +383,9 @@ public class CashRegisterService {
             student,
             dto.getTransactionType(),
             dto.getNote(),
-            dto.getTransactionDate());
+            dto.getTransactionDate(),
+            dto.getCashPart(),
+            dto.getCardPart());
 
         if (student != null && dto.getAmount() != null) {
             BigDecimal current = student.getBalance() != null
@@ -418,16 +426,38 @@ public class CashRegisterService {
             Teacher teacher,
             LocalDate periodMonth,
             BigDecimal totalAmount) {
+        return recordExpense(registerId, amount, method, transactionName, note, date, createdBy,
+            student, teacher, periodMonth, totalAmount, null, null);
+    }
+
+    @Transactional
+    public CashTransaction recordExpense(
+            Long registerId,
+            BigDecimal amount,
+            PaymentMethod method,
+            String transactionName,
+            String note,
+            LocalDate date,
+            User createdBy,
+            Student student,
+            Teacher teacher,
+            LocalDate periodMonth,
+            BigDecimal totalAmount,
+            BigDecimal cashPart,
+            BigDecimal cardPart) {
 
         CashRegister register = findRegisterById(registerId);
         BigDecimal positiveAmount = requirePositiveAmount(amount);
         PaymentMethod cashMethod = requirePaymentMethod(method);
+        SplitParts parts = validateParts(cashMethod, positiveAmount, cashPart, cardPart);
 
         CashTransaction tx = new CashTransaction();
         tx.setCashRegister(register);
         tx.setType(CashTransactionType.EXPENSE);
         tx.setPaymentMethod(cashMethod);
         tx.setAmount(positiveAmount);
+        tx.setCashPart(parts.cashPart());
+        tx.setCardPart(parts.cardPart());
         tx.setTransactionName(transactionName);
         tx.setNote(note);
         tx.setTransactionDate(date != null ? date : LocalDate.now());
@@ -443,7 +473,8 @@ public class CashRegisterService {
         tx.setTotalAmount(totalAmount);
         cashTransactionRepository.save(tx);
 
-        subtractFromBalanceAllowNegative(register, cashMethod, positiveAmount);
+        subtractFromBalanceAllowNegative(register, bucketAmounts(
+            cashMethod, positiveAmount, parts.cashPart(), parts.cardPart(), tx.getId()));
         cashRegisterRepository.save(register);
         return tx;
     }
@@ -466,7 +497,9 @@ public class CashRegisterService {
             student,
             null,
             dto.getPeriodMonth(),
-            dto.getTotalAmount());
+            dto.getTotalAmount(),
+            dto.getCashPart(),
+            dto.getCardPart());
 
         return toTransactionDto(tx);
     }
@@ -477,15 +510,9 @@ public class CashRegisterService {
             .orElseThrow(() -> new ResourceNotFoundException("CashTransaction", transactionId));
 
         CashRegister register = tx.getCashRegister();
-        PaymentMethod method = tx.getPaymentMethod();
-        BigDecimal amount = tx.getAmount();
 
-        if (isCashBucket(method)) {
-            register.setCashBalance(register.getCashBalance().add(amount));
-        } else {
-            register.setPlasticBalance(register.getPlasticBalance().add(amount));
-        }
-        register.setBalance(register.getPlasticBalance().add(register.getCashBalance()));
+        // Chiqim o'chirilyapti — summa chelaklarga qanday yozilgan bo'lsa, shunday qaytariladi.
+        addToBalance(register, bucketAmounts(tx));
         cashRegisterRepository.save(register);
 
         cashTransactionRepository.delete(tx);
@@ -504,9 +531,12 @@ public class CashRegisterService {
         CashRegister to = findRegisterById(dto.getToCashRegisterId());
         BigDecimal amount = requirePositiveAmount(dto.getAmount());
         PaymentMethod method = requirePaymentMethod(dto.getPaymentMethod());
+        SplitParts parts = validateParts(method, amount, dto.getCashPart(), dto.getCardPart());
+        BucketAmounts buckets =
+            bucketAmounts(method, amount, parts.cashPart(), parts.cardPart(), null);
 
-        subtractFromBalance(from, method, amount);
-        addToBalance(to, method, amount);
+        subtractFromBalance(from, buckets);
+        addToBalance(to, buckets);
         cashRegisterRepository.save(from);
         cashRegisterRepository.save(to);
 
@@ -519,6 +549,8 @@ public class CashRegisterService {
         outTx.setType(CashTransactionType.TRANSFER);
         outTx.setPaymentMethod(method);
         outTx.setAmount(amount);
+        outTx.setCashPart(parts.cashPart());
+        outTx.setCardPart(parts.cardPart());
         outTx.setTransactionName("Ko'chirish (chiqim)");
         outTx.setNote(dto.getNote());
         outTx.setTransactionDate(txDate);
@@ -530,6 +562,8 @@ public class CashRegisterService {
         inTx.setType(CashTransactionType.TRANSFER);
         inTx.setPaymentMethod(method);
         inTx.setAmount(amount);
+        inTx.setCashPart(parts.cashPart());
+        inTx.setCardPart(parts.cardPart());
         inTx.setTransactionName("Ko'chirish (kirim)");
         inTx.setNote(dto.getNote());
         inTx.setTransactionDate(txDate);
@@ -541,43 +575,108 @@ public class CashRegisterService {
         );
     }
 
-    /** Usul naqd balansga tegishlimi? Aks holda plastik (naqdsiz) balansga boradi. */
-    private static boolean isCashBucket(PaymentMethod method) {
-        return CASH_BUCKET_METHODS.contains(method);
-    }
+    // ------------------------------------------------------------------
+    // Chelaklar (bucket): taqsimot faqat PaymentMethod.getCashBucket() dan olinadi
+    // ------------------------------------------------------------------
 
-    private void addToBalance(CashRegister register, PaymentMethod method, BigDecimal amount) {
-        if (isCashBucket(method)) {
-            register.setCashBalance(register.getCashBalance().add(amount));
-        } else {
-            register.setPlasticBalance(register.getPlasticBalance().add(amount));
+    /** Bitta tranzaksiyaning naqd/naqdsiz balanslar bo'yicha taqsimoti. */
+    private record BucketAmounts(BigDecimal cash, BigDecimal nonCash) {}
+
+    /** CASH_AND_CARD uchun tekshirilgan qismlar; boshqa usullarda ikkalasi ham null. */
+    private record SplitParts(BigDecimal cashPart, BigDecimal cardPart) {
+        private static SplitParts none() {
+            return new SplitParts(null, null);
         }
-        recomputeBalance(register);
     }
 
-    private void subtractFromBalance(CashRegister register, PaymentMethod method, BigDecimal amount) {
-        if (isCashBucket(method)) {
-            if (register.getCashBalance().compareTo(amount) < 0) {
-                throw new BadRequestException("Naqd balans yetarli emas");
+    /**
+     * CASH_AND_CARD uchun summa taqsimotini tekshiradi.
+     * Boshqa usullar uchun yuborilgan qismlar e'tiborsiz qoldiriladi (null saqlanadi).
+     */
+    private static SplitParts validateParts(PaymentMethod method, BigDecimal amount,
+                                            BigDecimal cashPart, BigDecimal cardPart) {
+        if (method.getCashBucket() != PaymentMethod.CashBucket.SPLIT) {
+            return SplitParts.none();
+        }
+        if (cashPart == null || cardPart == null) {
+            throw new IllegalArgumentException(
+                "CASH_AND_CARD uchun naqd va karta summalari ko'rsatilishi shart");
+        }
+        if (cashPart.signum() < 0 || cardPart.signum() < 0) {
+            throw new IllegalArgumentException(
+                "Naqd va karta summalari manfiy bo'lishi mumkin emas");
+        }
+        if (cashPart.add(cardPart).compareTo(amount) != 0) {
+            throw new IllegalArgumentException(
+                "Naqd va karta summalari yig'indisi kassaga tushadigan summaga teng "
+                    + "bo'lishi kerak: " + formatAmount(cashPart) + " + " + formatAmount(cardPart)
+                    + " ≠ " + formatAmount(amount));
+        }
+        return new SplitParts(cashPart, cardPart);
+    }
+
+    /**
+     * Summani chelaklarga taqsimlaydi. Eski yozuvlarda CASH_AND_CARD bo'lib
+     * taqsimot saqlanmagan bo'lishi mumkin — bunday holda butun summa naqdga yoziladi.
+     */
+    private static BucketAmounts bucketAmounts(PaymentMethod method, BigDecimal amount,
+                                               BigDecimal cashPart, BigDecimal cardPart,
+                                               Long txId) {
+        if (method == null) {
+            return new BucketAmounts(amount, BigDecimal.ZERO);
+        }
+        return switch (method.getCashBucket()) {
+            case CASH -> new BucketAmounts(amount, BigDecimal.ZERO);
+            case NON_CASH -> new BucketAmounts(BigDecimal.ZERO, amount);
+            case SPLIT -> {
+                if (cashPart == null || cardPart == null) {
+                    log.warn("CASH_AND_CARD tranzaksiyasida summa taqsimoti yo'q (id={}), "
+                        + "butun summa naqd chelakka yozildi", txId);
+                    yield new BucketAmounts(amount, BigDecimal.ZERO);
+                }
+                yield new BucketAmounts(cashPart, cardPart);
             }
-            register.setCashBalance(register.getCashBalance().subtract(amount));
-        } else {
-            if (register.getPlasticBalance().compareTo(amount) < 0) {
-                throw new BadRequestException("Plastik balans yetarli emas");
-            }
-            register.setPlasticBalance(register.getPlasticBalance().subtract(amount));
-        }
+        };
+    }
+
+    /** Saqlangan tranzaksiya bo'yicha taqsimot (o'chirish/qaytarish uchun). */
+    private static BucketAmounts bucketAmounts(CashTransaction tx) {
+        return bucketAmounts(tx.getPaymentMethod(), tx.getAmount(),
+            tx.getCashPart(), tx.getCardPart(), tx.getId());
+    }
+
+    private void addToBalance(CashRegister register, BucketAmounts parts) {
+        register.setCashBalance(register.getCashBalance().add(parts.cash()));
+        register.setPlasticBalance(register.getPlasticBalance().add(parts.nonCash()));
         recomputeBalance(register);
     }
 
-    private void subtractFromBalanceAllowNegative(
-            CashRegister register, PaymentMethod method, BigDecimal amount) {
-        if (isCashBucket(method)) {
-            register.setCashBalance(register.getCashBalance().subtract(amount));
-        } else {
-            register.setPlasticBalance(register.getPlasticBalance().subtract(amount));
+    private void subtractFromBalance(CashRegister register, BucketAmounts parts) {
+        if (parts.cash().signum() > 0
+                && register.getCashBalance().compareTo(parts.cash()) < 0) {
+            throw new BadRequestException("Naqd balans yetarli emas");
         }
+        if (parts.nonCash().signum() > 0
+                && register.getPlasticBalance().compareTo(parts.nonCash()) < 0) {
+            throw new BadRequestException("Plastik balans yetarli emas");
+        }
+        register.setCashBalance(register.getCashBalance().subtract(parts.cash()));
+        register.setPlasticBalance(register.getPlasticBalance().subtract(parts.nonCash()));
         recomputeBalance(register);
+    }
+
+    private void subtractFromBalanceAllowNegative(CashRegister register, BucketAmounts parts) {
+        register.setCashBalance(register.getCashBalance().subtract(parts.cash()));
+        register.setPlasticBalance(register.getPlasticBalance().subtract(parts.nonCash()));
+        recomputeBalance(register);
+    }
+
+    /** 2000000 -> "2 000 000" */
+    private static String formatAmount(BigDecimal value) {
+        DecimalFormatSymbols symbols = new DecimalFormatSymbols(Locale.ROOT);
+        symbols.setGroupingSeparator(' ');
+        symbols.setDecimalSeparator('.');
+        return new DecimalFormat("#,##0.##", symbols).format(value);
     }
 
     private static void recomputeBalance(CashRegister register) {
@@ -639,7 +738,7 @@ public class CashRegisterService {
 
     /** Filtr uchun: eski nomlar (PLASTIC, ONLINE) ham tushuniladi. */
     private static PaymentMethod parsePaymentMethod(String method) {
-        return PaymentMethods.parseOrNull(method);
+        return PaymentMethod.parseOrNull(method);
     }
 
     private CashRegisterDto toRegisterDto(CashRegister r) {
@@ -680,6 +779,8 @@ public class CashRegisterService {
         }
         dto.setTransactionName(t.getTransactionName());
         dto.setAmount(t.getAmount());
+        dto.setCashPart(t.getCashPart());
+        dto.setCardPart(t.getCardPart());
         dto.setNote(t.getNote());
         dto.setStatus(t.getStatus());
         dto.setPeriodMonth(t.getPeriodMonth());

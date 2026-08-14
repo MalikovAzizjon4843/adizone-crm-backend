@@ -11,5 +11,9 @@ public class TransferDto {
     private Long toCashRegisterId;
     private BigDecimal amount;
     private PaymentMethod paymentMethod;
+    /** Faqat CASH_AND_CARD uchun: naqd qismi (cashPart + cardPart = amount). */
+    private BigDecimal cashPart;
+    /** Faqat CASH_AND_CARD uchun: karta qismi. */
+    private BigDecimal cardPart;
     private String note;
 }

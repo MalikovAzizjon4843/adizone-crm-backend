@@ -10,7 +10,6 @@ import com.crm.dto.response.SuspendedStudentResponse;
 import com.crm.entity.*;
 import com.crm.entity.enums.IncomeCategory;
 import com.crm.entity.enums.PaymentMethod;
-import com.crm.entity.enums.PaymentMethods;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.PaymentType;
 import com.crm.entity.enums.BalanceTransactionType;
@@ -172,7 +171,9 @@ public class PaymentService {
                     student,
                     "O'quvchi to'lovi",
                     "To'lov #" + saved.getReceiptNumber(),
-                    saved.getPaymentDate());
+                    saved.getPaymentDate(),
+                    request.getCashPart(),
+                    request.getCardPart());
                 saved.setCashRegister(cashTx.getCashRegister());
                 saved = paymentRepository.save(saved);
             }
@@ -439,7 +440,7 @@ public class PaymentService {
     private static PaymentMethod resolveCashPaymentMethod(PaymentRequest request) {
         if (request.getPaymentMethodForCash() != null
                 && !request.getPaymentMethodForCash().isBlank()) {
-            PaymentMethod override = PaymentMethods.parseOrNull(request.getPaymentMethodForCash());
+            PaymentMethod override = PaymentMethod.parseOrNull(request.getPaymentMethodForCash());
             if (override == null) {
                 throw new BadRequestException(
                     "Noto'g'ri paymentMethodForCash: " + request.getPaymentMethodForCash());

@@ -1,5 +1,6 @@
 package com.crm.entity;
 
+import com.crm.entity.enums.PaymentMethod;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
@@ -70,8 +71,10 @@ public class Payroll extends BaseEntity {
     @Column(name = "payment_date")
     private LocalDate paymentDate;
 
+    /** To'lanmagan oylik uchun null bo'lishi mumkin. */
+    @Enumerated(EnumType.STRING)
     @Column(name = "payment_method", length = 20)
-    private String paymentMethod = "BANK";
+    private PaymentMethod paymentMethod;
 
     @Column(length = 20)
     private String status = "PENDING";

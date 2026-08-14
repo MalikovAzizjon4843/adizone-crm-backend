@@ -28,7 +28,10 @@ public class PayrollResponse {
     private BigDecimal kpiAmount;
     private String calculationDetails;
     private LocalDate paymentDate;
+    /** PaymentMethod nomi (value); to'lanmagan oylikda null. */
     private String paymentMethod;
+    private String paymentMethodLabel;
+    private String paymentMethodIcon;
     private String status;
     private String notes;
     private String createdByName;
