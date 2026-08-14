@@ -33,6 +33,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -43,6 +44,9 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
+
+    /** PERIOD_CHARGE izohidagi sana formati. */
+    private static final DateTimeFormatter PERIOD_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
 
     private final PaymentRepository paymentRepository;
     private final StudentRepository studentRepository;
@@ -83,10 +87,11 @@ public class PaymentService {
         BigDecimal balanceUsed = calc.balanceUsed();
         BigDecimal cashAmount = calc.cashAmount();
 
-        // Davr hisobi payable asosida — balansdan qoplangan qism ham to'lov sanaladi.
-        LocalDate[] period = resolvePaymentPeriod(student, enrollment, request, payable);
-        LocalDate periodStart = period[0];
-        LocalDate periodEnd = period[1];
+        // Davr hisobi gross asosida — chegirma ham, balansdan qoplangan qism ham
+        // to'lov sanaladi (o'quvchi baribir o'sha davrni oladi).
+        PaymentPeriod period = resolvePaymentPeriod(student, enrollment, request, calc.gross());
+        LocalDate periodStart = period.periodStart();
+        LocalDate periodEnd = period.periodEnd();
 
         Payment payment = Payment.builder()
             .student(student)
@@ -110,33 +115,7 @@ public class PaymentService {
 
         Payment saved = paymentRepository.save(payment);
 
-        // Balans daftariga yoziladigan kredit: gross - balanceUsed.
-        // Chegirma ham kredit sifatida yoziladi, aks holda hisoblangan oylik
-        // to'liq yopilmay, o'quvchida chegirma miqdorida qarz qolib ketadi.
-        BigDecimal ledgerCredit = calc.gross().subtract(balanceUsed);
-
-        if (enrollment != null && ledgerCredit.compareTo(BigDecimal.ZERO) > 0) {
-            String payNote = "To'lov #" + saved.getReceiptNumber();
-            if (balanceUsed.compareTo(BigDecimal.ZERO) > 0) {
-                payNote += " (balansdan qoplandi: " + balanceUsed.toPlainString() + ")";
-            }
-            balanceTransactionService.record(
-                enrollment,
-                BalanceTransactionType.PAYMENT,
-                ledgerCredit,
-                saved.getId(),
-                payNote);
-        } else if (enrollment != null && ledgerCredit.compareTo(BigDecimal.ZERO) == 0
-                && balanceUsed.compareTo(BigDecimal.ZERO) > 0) {
-            // To'liq eski balansdan — o'zgarish 0, lekin audit uchun yozuv
-            balanceTransactionService.record(
-                enrollment,
-                BalanceTransactionType.PAYMENT,
-                BigDecimal.ZERO,
-                saved.getId(),
-                "To'lov #" + saved.getReceiptNumber()
-                    + " to'liq balansdan: " + balanceUsed.toPlainString());
-        }
+        writeLedgerForPayment(saved, enrollment, calc, period);
 
         if (shouldApplyBonuses(request)) {
             BigDecimal bpNet = bonusPenaltyService.applyPendingForStudent(
@@ -195,6 +174,73 @@ public class PaymentService {
         paymentScheduleService.recalculateForStudent(student);
 
         return toResponse(saved);
+    }
+
+    /**
+     * Balans daftariga ikki tomonlama yozuv.
+     *
+     * <pre>
+     * KREDIT (ikkala tur uchun): PAYMENT, amount = cashAmount — kassaga tushgan REAL pul.
+     *     Chegirma pul emas, shuning uchun kreditga kirmaydi.
+     * DEBET (faqat MONTHLY):     PERIOD_CHARGE, amount = -(months x monthlyFee - discount).
+     *     Chegirma bu yerda ayriladi — natijada u balansga NEYTRAL bo'ladi
+     *     ({@link PeriodChargeFormula}). PER_LESSON da debet davomat orqali
+     *     keladi (LESSON_CHARGE), bu yerda yozilmaydi.
+     * </pre>
+     */
+    private void writeLedgerForPayment(Payment saved, StudentGroup enrollment,
+                                       PaymentCalculation calc, PaymentPeriod period) {
+        if (enrollment == null) {
+            return;
+        }
+
+        BigDecimal balanceUsed = calc.balanceUsed();
+
+        // 1. KREDIT — cashAmount 0 bo'lsa ham audit uchun yozuv qoldiriladi
+        String payNote = "To'lov #" + saved.getReceiptNumber();
+        if (balanceUsed.compareTo(BigDecimal.ZERO) > 0) {
+            payNote += " (balansdan qoplandi: " + balanceUsed.toPlainString() + ")";
+        }
+        balanceTransactionService.record(
+            enrollment,
+            BalanceTransactionType.PAYMENT,
+            calc.cashAmount(),
+            saved.getId(),
+            payNote);
+
+        // 2. DEBET — faqat MONTHLY, faqat to'liq oy(lar) sotib olinganda
+        PaymentType paymentType = enrollment.getPaymentType() != null
+            ? enrollment.getPaymentType()
+            : PaymentType.MONTHLY;
+        if (paymentType != PaymentType.MONTHLY) {
+            return;
+        }
+
+        int months = period.chargeMonths();
+        BigDecimal debit = PeriodChargeFormula.debit(months, calc.discount(), period.monthlyFee());
+        if (debit.compareTo(BigDecimal.ZERO) <= 0) {
+            // gross < monthlyFee (davr sotib olinmadi) yoki chegirma davr qiymatini
+            // to'liq qopladi — ikkala holda ham debet yozilmaydi.
+            return;
+        }
+
+        String chargeNote = "Davr sotib olindi: " + formatDate(period.periodStart())
+            + " – " + formatDate(period.periodEnd())
+            + " (" + months + " oy)";
+        if (calc.discount().compareTo(BigDecimal.ZERO) > 0) {
+            chargeNote += ", chegirma: " + calc.discount().toPlainString();
+        }
+
+        balanceTransactionService.record(
+            enrollment,
+            BalanceTransactionType.PERIOD_CHARGE,
+            debit.negate(),
+            saved.getId(),
+            chargeNote);
+    }
+
+    private static String formatDate(LocalDate date) {
+        return date != null ? date.format(PERIOD_FMT) : "-";
     }
 
     private void applyPerLessonPaymentPeriod(Payment payment, StudentGroup sg, BigDecimal payable) {
@@ -295,12 +341,30 @@ public class PaymentService {
     }
 
     /**
-     * periodStart = sg.nextPaymentDate ?? sg.paymentStartDate ?? sg.joinDate
-     * months = max(1, payable / monthlyFee) when fee &gt; 0
-     * periodEnd = periodStart + months - 1 day
+     * To'lov davri va uning ledger qiymati.
+     *
+     * <p>{@code chargeMonths} — PERIOD_CHARGE debiti uchun HAQIQIY to'langan oylar soni,
+     * u {@code periodEnd} dagi kabi 1 ga clamp QILINMAYDI. Ikkalasi ataylab ajratilgan:
+     * {@code periodEnd} → nextPaymentDate zanjiri (eski xatti-harakat saqlanadi),
+     * {@code chargeMonths} → balans daftari. payable &lt; monthlyFee bo'lsa chargeMonths=0,
+     * ya'ni davr sotib olinmagan va pul balansda qoladi.
      */
-    private LocalDate[] resolvePaymentPeriod(Student student, StudentGroup sg, PaymentRequest request,
-                                             BigDecimal payable) {
+    private record PaymentPeriod(
+        LocalDate periodStart,
+        LocalDate periodEnd,
+        int chargeMonths,
+        BigDecimal monthlyFee) {}
+
+    /**
+     * <pre>
+     * periodStart  = request.periodFrom ?? sg.nextPaymentDate ?? sg.paymentStartDate ?? sg.joinDate
+     * chargeMonths = floor(gross / monthlyFee)          // 0 bo'lishi mumkin — ledger uchun
+     * periodEnd    = periodStart + max(chargeMonths, 1) - 1 kun
+     * </pre>
+     * Davr qo'lda berilgan bo'lsa (periodFrom + periodTo) chargeMonths o'sha davrdan olinadi.
+     */
+    private PaymentPeriod resolvePaymentPeriod(Student student, StudentGroup sg, PaymentRequest request,
+                                               BigDecimal gross) {
         LocalDate periodStart = request.getPeriodFrom();
         LocalDate periodEnd = request.getPeriodTo();
 
@@ -320,23 +384,27 @@ public class PaymentService {
             }
         }
 
+        BigDecimal fee = student.getMonthlyFee();
+        if ((fee == null || fee.compareTo(BigDecimal.ZERO) <= 0) && sg != null) {
+            fee = PaymentScheduleService.resolveMonthlyFee(sg);
+        }
+        fee = nz(fee);
+
+        BigDecimal credit = gross != null ? gross : request.getAmount();
+        int chargeMonths = PeriodChargeFormula.months(credit, fee);
+
         if (periodEnd == null) {
-            BigDecimal fee = student.getMonthlyFee();
-            if ((fee == null || fee.compareTo(BigDecimal.ZERO) <= 0) && sg != null) {
-                fee = PaymentScheduleService.resolveMonthlyFee(sg);
+            // periodEnd eski qoida bo'yicha: kamida 1 oy (nextPaymentDate zanjiri o'zgarmasin)
+            periodEnd = periodStart.plusMonths(Math.max(chargeMonths, 1)).minusDays(1);
+        } else if (request.getPeriodTo() != null && request.getPeriodFrom() != null) {
+            // Davr qo'lda berilgan — debet ham o'sha davrga mos bo'lsin
+            chargeMonths = (int) ChronoUnit.MONTHS.between(periodStart, periodEnd.plusDays(1));
+            if (chargeMonths < 0) {
+                chargeMonths = 0;
             }
-            int months = 1;
-            BigDecimal credit = payable != null ? payable : request.getAmount();
-            if (fee != null && fee.compareTo(BigDecimal.ZERO) > 0 && credit != null) {
-                months = credit.divide(fee, 0, RoundingMode.DOWN).intValue();
-                if (months < 1) {
-                    months = 1;
-                }
-            }
-            periodEnd = periodStart.plusMonths(months).minusDays(1);
         }
 
-        return new LocalDate[] { periodStart, periodEnd };
+        return new PaymentPeriod(periodStart, periodEnd, chargeMonths, fee);
     }
 
     @Transactional(readOnly = true)
