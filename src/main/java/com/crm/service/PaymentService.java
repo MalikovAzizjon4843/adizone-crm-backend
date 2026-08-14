@@ -437,10 +437,10 @@ public class PaymentService {
         LocalDate prevEnd = prev.atEndOfMonth();
 
         Map<String, Object> stats = new LinkedHashMap<>();
-        stats.put("totalCollected", nz(paymentRepository.sumAmountByStatus(PaymentStatus.PAID)));
+        stats.put("totalCollected", nz(paymentRepository.sumCashAmountByStatus(PaymentStatus.PAID)));
         stats.put("totalPending", nz(paymentRepository.sumAmountByStatus(PaymentStatus.PENDING)));
-        stats.put("thisMonth", nz(paymentRepository.sumPaidBetween(monthStart, monthEnd)));
-        stats.put("lastMonth", nz(paymentRepository.sumPaidBetween(prevStart, prevEnd)));
+        stats.put("thisMonth", nz(paymentRepository.sumCashPaidBetween(monthStart, monthEnd)));
+        stats.put("lastMonth", nz(paymentRepository.sumCashPaidBetween(prevStart, prevEnd)));
         return stats;
     }
 

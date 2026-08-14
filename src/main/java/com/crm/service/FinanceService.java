@@ -143,7 +143,7 @@ public class FinanceService {
         LocalDate end = to != null ? to : LocalDate.now();
 
         BigDecimal totalIncome = Optional.ofNullable(
-            paymentRepository.sumAmountByDateRange(start, end)
+            paymentRepository.sumCashAmountByDateRange(start, end)
         ).orElse(BigDecimal.ZERO);
 
         BigDecimal totalExpenses = Optional.ofNullable(

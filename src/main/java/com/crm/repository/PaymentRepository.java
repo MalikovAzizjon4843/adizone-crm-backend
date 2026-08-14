@@ -24,18 +24,24 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
 
     Page<Payment> findByStudentId(Long studentId, Pageable pageable);
 
-    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p WHERE p.paymentDate BETWEEN :from AND :to " +
-           "AND p.status = 'PAID'")
-    BigDecimal sumAmountByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);
+    /**
+     * Kassaga tushgan real pul. Eski satrlarda cash_amount NULL — o'shanda amount
+     * aynan naqd summani bildirgan, shuning uchun COALESCE.
+     */
+    @Query("SELECT COALESCE(SUM(COALESCE(p.cashAmount, p.amount)), 0) FROM Payment p " +
+           "WHERE p.paymentDate BETWEEN :from AND :to AND p.status = 'PAID'")
+    BigDecimal sumCashAmountByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);
 
-    @Query("SELECT EXTRACT(MONTH FROM p.paymentDate), EXTRACT(YEAR FROM p.paymentDate), SUM(p.amount) FROM Payment p " +
+    @Query("SELECT EXTRACT(MONTH FROM p.paymentDate), EXTRACT(YEAR FROM p.paymentDate), " +
+           "COALESCE(SUM(COALESCE(p.cashAmount, p.amount)), 0) FROM Payment p " +
            "WHERE p.status = 'PAID' AND p.paymentDate >= :from " +
            "GROUP BY EXTRACT(YEAR FROM p.paymentDate), EXTRACT(MONTH FROM p.paymentDate) " +
            "ORDER BY EXTRACT(YEAR FROM p.paymentDate), EXTRACT(MONTH FROM p.paymentDate)")
     List<Object[]> getMonthlyRevenue(@Param("from") LocalDate from);
 
     @Query(value = """
-        SELECT CAST(p.payment_date AS date) AS bucket_date, COALESCE(SUM(p.amount), 0) AS amount
+        SELECT CAST(p.payment_date AS date) AS bucket_date,
+               COALESCE(SUM(COALESCE(p.cash_amount, p.amount)), 0) AS amount
         FROM payments p
         WHERE p.status = 'PAID'
           AND p.payment_date BETWEEN :from AND :to
@@ -46,7 +52,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
 
     @Query(value = """
         SELECT CAST(DATE_TRUNC('month', p.payment_date) AS date) AS bucket_date,
-               COALESCE(SUM(p.amount), 0) AS amount
+               COALESCE(SUM(COALESCE(p.cash_amount, p.amount)), 0) AS amount
         FROM payments p
         WHERE p.status = 'PAID'
           AND p.payment_date BETWEEN :from AND :to
@@ -57,7 +63,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
 
     @Query(value = """
         SELECT CAST(DATE_TRUNC('year', p.payment_date) AS date) AS bucket_date,
-               COALESCE(SUM(p.amount), 0) AS amount
+               COALESCE(SUM(COALESCE(p.cash_amount, p.amount)), 0) AS amount
         FROM payments p
         WHERE p.status = 'PAID'
           AND p.payment_date BETWEEN :from AND :to
@@ -76,12 +82,19 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
 
     List<Payment> findAllByOrderByPaymentDateDesc();
 
+    /** Gross (o'quvchi to'lashi kerak bo'lgan qiymat) — kutilayotgan summalar uchun. */
     @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p WHERE p.status = :status")
     BigDecimal sumAmountByStatus(@Param("status") PaymentStatus status);
 
-    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p WHERE p.status = 'PAID' " +
-           "AND p.paymentDate BETWEEN :from AND :to")
-    BigDecimal sumPaidBetween(@Param("from") LocalDate from, @Param("to") LocalDate to);
+    /** Kassaga tushgan real pul. */
+    @Query("SELECT COALESCE(SUM(COALESCE(p.cashAmount, p.amount)), 0) FROM Payment p " +
+           "WHERE p.status = :status")
+    BigDecimal sumCashAmountByStatus(@Param("status") PaymentStatus status);
+
+    /** Kassaga tushgan real pul (davr bo'yicha). */
+    @Query("SELECT COALESCE(SUM(COALESCE(p.cashAmount, p.amount)), 0) FROM Payment p " +
+           "WHERE p.status = 'PAID' AND p.paymentDate BETWEEN :from AND :to")
+    BigDecimal sumCashPaidBetween(@Param("from") LocalDate from, @Param("to") LocalDate to);
 
     @Query("SELECT COUNT(p) FROM Payment p WHERE p.student.id = :studentId AND p.group.id = :groupId " +
            "AND p.paymentDate >= :start AND p.paymentDate <= :end AND p.status = 'PAID'")
@@ -136,16 +149,30 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
         @Param("to") LocalDate to,
         Pageable pageable);
 
-    @Query("SELECT COALESCE(SUM(p.amount), 0) FROM Payment p " +
-           "WHERE p.student.id = :studentId " +
-           "AND p.group.id = :groupId " +
-           "AND p.status = 'PAID'")
+    /**
+     * Gross: qarz hisobida totalShouldPay ham gross bo'lgani uchun bu ham gross
+     * bo'lishi shart, aks holda balansdan qoplangan qism soxta qarz bo'lib qoladi.
+     * Eski satrlarda payableAmount NULL — o'shanda amount naqd summani bildirgan.
+     */
+    @Query("""
+        SELECT COALESCE(SUM(
+            CASE WHEN p.payableAmount IS NULL
+                 THEN COALESCE(p.amount, 0) + COALESCE(p.balanceUsed, 0)
+                 ELSE COALESCE(p.amount, 0) END), 0)
+        FROM Payment p
+        WHERE p.student.id = :studentId
+          AND p.group.id = :groupId
+          AND p.status = 'PAID'
+        """)
     BigDecimal sumPaidByStudentAndGroup(
         @Param("studentId") Long studentId,
         @Param("groupId") Long groupId);
 
     @Query("""
-        SELECT COALESCE(SUM(COALESCE(p.amount, 0) + COALESCE(p.balanceUsed, 0)), 0)
+        SELECT COALESCE(SUM(
+            CASE WHEN p.payableAmount IS NULL
+                 THEN COALESCE(p.amount, 0) + COALESCE(p.balanceUsed, 0)
+                 ELSE COALESCE(p.amount, 0) END), 0)
         FROM Payment p
         WHERE p.studentGroup.id = :studentGroupId
           AND p.status = 'PAID'
@@ -153,7 +180,10 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
     BigDecimal sumCreditsByStudentGroupId(@Param("studentGroupId") Long studentGroupId);
 
     @Query("""
-        SELECT COALESCE(SUM(COALESCE(p.amount, 0) + COALESCE(p.balanceUsed, 0)), 0)
+        SELECT COALESCE(SUM(
+            CASE WHEN p.payableAmount IS NULL
+                 THEN COALESCE(p.amount, 0) + COALESCE(p.balanceUsed, 0)
+                 ELSE COALESCE(p.amount, 0) END), 0)
         FROM Payment p
         WHERE p.student.id = :studentId
           AND p.group.id = :groupId
@@ -165,7 +195,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
 
     /** Batch: userId, paymentCount, paymentSum */
     @Query("""
-        SELECT p.receivedBy.id, COUNT(p), COALESCE(SUM(p.amount), 0)
+        SELECT p.receivedBy.id, COUNT(p), COALESCE(SUM(COALESCE(p.cashAmount, p.amount)), 0)
         FROM Payment p
         WHERE p.receivedBy IS NOT NULL
           AND p.status = 'PAID'
@@ -177,7 +207,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
         @Param("to") LocalDate to);
 
     @Query("""
-        SELECT COUNT(p), COALESCE(SUM(p.amount), 0)
+        SELECT COUNT(p), COALESCE(SUM(COALESCE(p.cashAmount, p.amount)), 0)
         FROM Payment p
         WHERE p.receivedBy.id = :userId
           AND p.status = 'PAID'

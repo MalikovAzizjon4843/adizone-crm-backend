@@ -56,7 +56,7 @@ public class AnalyticsService {
         long debtorCount = studentGroupRepository.findDebtors(now).size();
 
         BigDecimal monthlyRevenue = Optional.ofNullable(
-            paymentRepository.sumAmountByDateRange(monthStart, monthEnd)
+            paymentRepository.sumCashAmountByDateRange(monthStart, monthEnd)
         ).orElse(BigDecimal.ZERO);
 
         BigDecimal monthlyExpenses = Optional.ofNullable(

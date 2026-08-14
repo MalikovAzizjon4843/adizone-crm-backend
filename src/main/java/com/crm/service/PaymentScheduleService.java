@@ -1004,9 +1004,18 @@ public class PaymentScheduleService {
                 fee = p.getStudent().getMonthlyFee();
             }
 
+            // Davr payable asosida: chegirma qoplamagan qism oy sonini oshirmasin.
+            // Eski satrlarda payableAmount NULL — o'shanda amount naqd summani
+            // bildirgan, shuning uchun balanceUsed qo'shiladi.
+            BigDecimal periodCredit = p.getPayableAmount() != null
+                ? p.getPayableAmount()
+                : (p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO)
+                    .add(p.getBalanceUsed() != null ? p.getBalanceUsed() : BigDecimal.ZERO);
+
             int months = 1;
-            if (fee != null && fee.compareTo(BigDecimal.ZERO) > 0 && p.getAmount() != null) {
-                months = p.getAmount().divide(fee, 0, java.math.RoundingMode.DOWN).intValue();
+            if (fee != null && fee.compareTo(BigDecimal.ZERO) > 0
+                    && periodCredit.compareTo(BigDecimal.ZERO) > 0) {
+                months = periodCredit.divide(fee, 0, java.math.RoundingMode.DOWN).intValue();
                 if (months < 1) {
                     months = 1;
                 }
