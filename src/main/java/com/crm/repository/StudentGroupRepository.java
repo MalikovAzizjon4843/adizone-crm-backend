@@ -1,6 +1,7 @@
 package com.crm.repository;
 
 import com.crm.entity.StudentGroup;
+import com.crm.entity.enums.PaymentType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -189,4 +190,16 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
     long countDistinctLeftBetween(
         @Param("from") LocalDate from,
         @Param("to") LocalDate to);
+
+    /**
+     * Ledger ta'miri uchun: MONTHLY enrollmentlar (paymentType NULL ham MONTHLY
+     * sanaladi — StudentGroup.onCreate shunday default beradi).
+     * Faqat ID — har biri alohida tranzaksiyada qayta o'qiladi.
+     */
+    @Query("""
+        SELECT sg.id FROM StudentGroup sg
+        WHERE sg.paymentType IS NULL OR sg.paymentType = :type
+        ORDER BY sg.id
+        """)
+    List<Long> findIdsByPaymentTypeOrNull(@Param("type") PaymentType type);
 }

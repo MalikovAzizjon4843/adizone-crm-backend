@@ -4,6 +4,7 @@ import com.crm.dto.response.ApiResponse;
 import com.crm.service.BalanceTransactionService;
 import com.crm.service.GroupService;
 import com.crm.service.LeadService;
+import com.crm.service.MonthlyLedgerRepairService;
 import com.crm.service.PaymentScheduleService;
 import com.crm.service.TeacherService;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +13,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
@@ -28,6 +30,7 @@ public class AdminRepairController {
     private final PaymentScheduleService paymentScheduleService;
     private final LeadService leadService;
     private final BalanceTransactionService balanceTransactionService;
+    private final MonthlyLedgerRepairService monthlyLedgerRepairService;
 
     @PostMapping("/link-teacher-users")
     public ResponseEntity<ApiResponse<Map<String, Object>>> linkTeacherUsers() {
@@ -69,6 +72,19 @@ public class AdminRepairController {
         return ResponseEntity.ok(ApiResponse.success(
             "Balans tekshiruvi",
             balanceTransactionService.verifyBalances()));
+    }
+
+    /**
+     * MONTHLY balans daftarini qayta quradi (yetishmagan PERIOD_CHARGE, noto'g'ri
+     * PAYMENT krediti, ortiqcha LESSON_CHARGE). Default dryRun=true — yozmaydi.
+     */
+    @PostMapping("/rebuild-monthly-ledger")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> rebuildMonthlyLedger(
+            @RequestParam(name = "dryRun", defaultValue = "true") boolean dryRun) {
+        return ResponseEntity.ok(ApiResponse.success(
+            dryRun ? "MONTHLY ledger tahlili (dryRun — hech narsa yozilmadi)"
+                   : "MONTHLY ledger qayta qurildi",
+            monthlyLedgerRepairService.rebuildMonthlyLedger(dryRun)));
     }
 
     /**
