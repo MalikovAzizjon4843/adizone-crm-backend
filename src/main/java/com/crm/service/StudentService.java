@@ -1069,10 +1069,15 @@ public class StudentService {
             throw new BadRequestException("O'quvchi bu guruhda allaqachon active");
         }
 
+        // paymentStartDate ixtiyoriy — yuborilmasa bugundan boshlanadi
+        LocalDate paymentStartDate = request.getPaymentStartDate() != null
+            ? request.getPaymentStartDate()
+            : LocalDate.now();
+
         String previousStatus = student.getStatus().name();
         student.setStatus(StudentStatus.ACTIVE);
         student.setPaymentStatus(PaymentStatus.PENDING);
-        student.setPaymentStartDate(request.getPaymentStartDate());
+        student.setPaymentStartDate(paymentStartDate);
         // balance saqlanadi
         studentRepository.save(student);
 
@@ -1084,8 +1089,8 @@ public class StudentService {
             .student(student)
             .group(group)
             .joinDate(LocalDate.now())
-            .paymentStartDate(request.getPaymentStartDate())
-            .nextPaymentDate(request.getPaymentStartDate())
+            .paymentStartDate(paymentStartDate)
+            .nextPaymentDate(paymentStartDate)
             .isTrial(false)
             .isActive(true)
             .monthlyPriceOverride(fee)

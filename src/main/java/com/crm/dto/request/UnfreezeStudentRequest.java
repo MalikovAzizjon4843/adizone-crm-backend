@@ -9,6 +9,11 @@ import java.time.LocalDate;
 public class UnfreezeStudentRequest {
     @NotNull
     private Long groupId;
-    @NotNull
+
+    /**
+     * Ixtiyoriy — yuborilmasa bugungi sana olinadi
+     * ({@code StudentService.unfreezeStudent}). Muzlatishdan chiqarilgan o'quvchi
+     * uchun to'lov davri odatda bugundan boshlanadi, shuning uchun majburiy emas.
+     */
     private LocalDate paymentStartDate;
 }
