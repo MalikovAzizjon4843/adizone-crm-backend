@@ -58,10 +58,17 @@ public class BalanceExpectationService {
     private static final List<AttendanceStatus> BILLABLE_STATUSES =
         List.of(AttendanceStatus.PRESENT, AttendanceStatus.ABSENT, AttendanceStatus.LATE);
 
-    /** Qayta hisoblanmaydigan, o'z holicha olinadigan yozuvlar. */
+    /**
+     * Qayta hisoblanmaydigan, o'z holicha olinadigan yozuvlar.
+     *
+     * <p>FREEZE bu yerda YO'Q. Muzlatish ilgari balansni {@code paid - used} bo'yicha
+     * qayta hisoblab ledgerga majburan yozardi; u PERIOD_CHARGE larni ko'rmagani uchun
+     * gross to'lovni balansga aylantirib, yo'qdan pul yaratardi. MONTHLY dagi har qanday
+     * FREEZE yozuvi shu sababli XATO deb qaraladi va kutilgan balansga qo'shilmaydi.
+     * PER_LESSON da esa u haqiqiy hisob edi — pastda alohida qo'shiladi.
+     * UNFREEZE ham pastda alohida ishlanadi (u ko'chirish, hisob emas).
+     */
     private static final Set<BalanceTransactionType> CARRIED_TYPES = EnumSet.of(
-        BalanceTransactionType.FREEZE,
-        BalanceTransactionType.UNFREEZE,
         BalanceTransactionType.PERIOD_REFUND,
         BalanceTransactionType.MANUAL_ADJUST);
 
@@ -85,8 +92,8 @@ public class BalanceExpectationService {
         BigDecimal expected,
         BigDecimal recorded) {}
 
-    /** MONTHLY guruhda yozilgan LESSON_CHARGE / LESSON_REFUND. */
-    public record StrayLessonCharge(
+    /** Bo'lmasligi kerak bo'lgan ledger yozuvi (MONTHLY da LESSON_CHARGE yoki FREEZE). */
+    public record StrayLedgerEntry(
         Long transactionId,
         BalanceTransactionType type,
         BigDecimal amount,
@@ -116,7 +123,9 @@ public class BalanceExpectationService {
         BigDecimal diff,
         List<MissingPeriodCharge> missingPeriodCharges,
         List<WrongCredit> wrongCredits,
-        List<StrayLessonCharge> strayLessonCharges,
+        List<StrayLedgerEntry> strayLessonCharges,
+        List<StrayLedgerEntry> legacyFreezeEntries,
+        boolean hasLegacyFreezeTransfer,
         List<UnlinkedPayment> unlinkedPayments) {
 
         public boolean hasIssue() {
@@ -124,15 +133,23 @@ public class BalanceExpectationService {
                 || !missingPeriodCharges.isEmpty()
                 || !wrongCredits.isEmpty()
                 || !strayLessonCharges.isEmpty()
+                || !legacyFreezeEntries.isEmpty()
                 || !unlinkedPayments.isEmpty();
         }
 
         /**
-         * Bog'lanmagan to'lov bo'lsa kutilgan balans TO'LIQ EMAS —
-         * avtomatik tuzatish qilinmasligi kerak.
+         * Avtomatik tuzatish faqat kutilgan balans TO'LIQ bo'lganda mumkin.
+         *
+         * <p>Ikki holatda to'liq emas:
+         * <ul>
+         *   <li>bog'lanmagan to'lov bor — kassaga tushgan pul hisobga kirmagan;</li>
+         *   <li>MONTHLY guruhda UNFREEZE bor — u ko'chirgan summa xato FREEZE dan
+         *       kelib chiqqan, lekin uni qaysi enrollmentga qaytarish kerakligini
+         *       avtomatik hal qilib bo'lmaydi (ikki enrollment orasida taqsimlangan).</li>
+         * </ul>
          */
         public boolean safeToApply() {
-            return unlinkedPayments.isEmpty();
+            return unlinkedPayments.isEmpty() && !hasLegacyFreezeTransfer;
         }
     }
 
@@ -148,7 +165,9 @@ public class BalanceExpectationService {
         Set<Long> chargedPayments = new HashSet<>();
         BigDecimal carriedLedger = BigDecimal.ZERO;
         BigDecimal ledgerSum = BigDecimal.ZERO;
-        List<StrayLessonCharge> strays = new ArrayList<>();
+        List<StrayLedgerEntry> strays = new ArrayList<>();
+        List<StrayLedgerEntry> legacyFreezes = new ArrayList<>();
+        boolean hasLegacyFreezeTransfer = false;
 
         for (BalanceTransaction t : txs) {
             BigDecimal amount = nz(t.getAmount());
@@ -167,8 +186,28 @@ public class BalanceExpectationService {
                 }
                 case LESSON_CHARGE, LESSON_REFUND -> {
                     if (type != PaymentType.PER_LESSON) {
-                        strays.add(new StrayLessonCharge(
+                        strays.add(new StrayLedgerEntry(
                             t.getId(), t.getType(), amount, t.getCreatedAt(), t.getNote()));
+                    }
+                }
+                case FREEZE -> {
+                    if (type == PaymentType.PER_LESSON) {
+                        // PER_LESSON da muzlatish hisobi haqiqiy edi — o'z holicha olinadi
+                        carriedLedger = carriedLedger.add(amount);
+                    } else {
+                        // MONTHLY: xato yozuv, kutilgan balansga kirmaydi
+                        legacyFreezes.add(new StrayLedgerEntry(
+                            t.getId(), t.getType(), amount, t.getCreatedAt(), t.getNote()));
+                    }
+                }
+                case UNFREEZE -> {
+                    // UNFREEZE balansni enrollmentlar orasida KO'CHIRADI, yaratmaydi —
+                    // shuning uchun o'z holicha olinadi. Lekin MONTHLY da u ko'chirgan
+                    // summa xato FREEZE dan kelgan bo'lishi mumkin, buni avtomatik
+                    // yechib bo'lmaydi (safeToApply ga qarang).
+                    carriedLedger = carriedLedger.add(amount);
+                    if (type != PaymentType.PER_LESSON) {
+                        hasLegacyFreezeTransfer = true;
                     }
                 }
                 default -> {
@@ -242,6 +281,8 @@ public class BalanceExpectationService {
             missing,
             wrongCredits,
             strays,
+            legacyFreezes,
+            hasLegacyFreezeTransfer,
             unlinked);
     }
 

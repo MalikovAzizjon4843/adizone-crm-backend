@@ -56,6 +56,7 @@ public class MonthlyLedgerRepairWorker {
         row.put("missingPeriodCharges", exp.missingPeriodCharges());
         row.put("wrongCredits", exp.wrongCredits());
         row.put("strayLessonCharges", exp.strayLessonCharges());
+        row.put("legacyFreezeEntries", exp.legacyFreezeEntries());
         row.put("unlinkedPayments", exp.unlinkedPayments());
         row.put("hasIssue", exp.hasIssue());
         row.put("applied", false);
@@ -65,11 +66,14 @@ public class MonthlyLedgerRepairWorker {
         }
 
         if (!exp.safeToApply()) {
-            // student_group_id bo'sh to'lov bor — kutilgan balans to'liq emas.
-            // Avtomatik tuzatish balansni noto'g'ri kamaytirib yuborardi.
+            // Kutilgan balans to'liq emas — avtomatik tuzatish uni buzardi.
             row.put("skipped", true);
-            row.put("skipReason", "student_group_id bo'sh to'lov(lar) bor ("
-                + exp.unlinkedPayments().size() + " ta) — avval ularni enrollmentga bog'lang");
+            row.put("skipReason", !exp.unlinkedPayments().isEmpty()
+                ? "student_group_id bo'sh to'lov(lar) bor (" + exp.unlinkedPayments().size()
+                    + " ta) — avval ularni enrollmentga bog'lang"
+                : "MONTHLY guruhda UNFREEZE yozuvi bor — eski FREEZE ko'chirgan summani "
+                    + "qaysi enrollmentga qaytarish kerakligi avtomatik aniqlanmaydi, "
+                    + "qo'lda MANUAL_ADJUST qiling");
             return row;
         }
 
@@ -96,6 +100,7 @@ public class MonthlyLedgerRepairWorker {
             + " | yetishmagan davr debeti: " + exp.missingPeriodCharges().size()
             + ", noto'g'ri kredit: " + exp.wrongCredits().size()
             + ", ortiqcha dars debeti: " + exp.strayLessonCharges().size()
+            + ", xato muzlatish yozuvi: " + exp.legacyFreezeEntries().size()
             + " | kassa: " + exp.cashIn().toPlainString()
             + ", davrlar: " + exp.periodCost().toPlainString();
     }

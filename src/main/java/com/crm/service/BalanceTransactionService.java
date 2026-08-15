@@ -170,6 +170,8 @@ public class BalanceTransactionService {
             row.put("missingPeriodCharges", exp.missingPeriodCharges());
             row.put("wrongCredits", exp.wrongCredits());
             row.put("strayLessonCharges", exp.strayLessonCharges());
+            row.put("legacyFreezeEntries", exp.legacyFreezeEntries());
+            row.put("hasLegacyFreezeTransfer", exp.hasLegacyFreezeTransfer());
             row.put("unlinkedPayments", exp.unlinkedPayments());
             mismatched.add(row);
         }
