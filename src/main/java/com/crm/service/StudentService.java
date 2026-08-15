@@ -914,16 +914,23 @@ public class StudentService {
             sg.setPaymentStatus("FROZEN");
             sg.setLessonsUsed(row.getLessonsUsed());
 
-            BigDecimal currentSgBalance = sg.getBalance() != null ? sg.getBalance() : BigDecimal.ZERO;
-            BigDecimal delta = groupBalance.subtract(currentSgBalance);
-            String note = "Muzlatish hisobi (paid - used): " + groupBalance.toPlainString()
-                + (request.getNote() != null ? " | " + request.getNote() : "");
-            balanceTransactionService.record(
-                sg,
-                com.crm.entity.enums.BalanceTransactionType.FREEZE,
-                delta,
-                null,
-                note);
+            PaymentType type = sg.getPaymentType() != null
+                ? sg.getPaymentType() : PaymentType.MONTHLY;
+
+            // MONTHLY: balans ledgerdan olinadi, delta har doim 0 — yozuv ortiqcha.
+            // PER_LESSON: eski mantiq saqlanadi.
+            if (type == PaymentType.PER_LESSON) {
+                BigDecimal currentSgBalance = nzAmount(sg.getBalance());
+                BigDecimal delta = groupBalance.subtract(currentSgBalance);
+                String note = "Muzlatish hisobi (paid - used): " + groupBalance.toPlainString()
+                    + (request.getNote() != null ? " | " + request.getNote() : "");
+                balanceTransactionService.record(
+                    sg,
+                    com.crm.entity.enums.BalanceTransactionType.FREEZE,
+                    delta,
+                    null,
+                    note);
+            }
 
             studentGroupRepository.save(sg);
         }
@@ -970,8 +977,16 @@ public class StudentService {
     }
 
     /**
-     * Freeze/preview umumiy hisob.
-     * paid yo'q bo'lsa balans=0 (xato emas).
+     * Freeze/preview umumiy hisob — preview va freeze AYNAN shu metodni ishlatadi.
+     *
+     * <p><b>MONTHLY:</b> balans QAYTA HISOBLANMAYDI, ledgerdagi joriy qiymat olinadi.
+     * Eski {@code paid - used} formulasi PERIOD_CHARGE larni ko'rmaydi va gross to'lovni
+     * (chegirma + balansdan qoplangan qism bilan birga) balansga aylantirib yuboradi —
+     * shu sababli muzlatish yo'qdan pul yaratardi.
+     *
+     * <p><b>PER_LESSON:</b> eski {@code paid - used} mantiqi saqlanadi (u yerda
+     * LESSON_CHARGE davomat bo'yicha to'g'ri ishlaydi), faqat {@code paid} endi gross
+     * emas, kassaga tushgan real pul.
      */
     private FreezeBreakdownResult computeFreezeBreakdown(Long studentId, List<StudentGroup> enrollments) {
         List<AttendanceStatus> billable = List.of(
@@ -985,23 +1000,35 @@ public class StudentService {
                 ? sg.getPaymentStartDate()
                 : (sg.getJoinDate() != null ? sg.getJoinDate() : today);
 
-            BigDecimal lessonPrice = paymentScheduleService.resolveFreezeLessonPrice(sg, from, today);
             int lessonsAttended = (int) attendanceRepository.countByStudentAndGroupAndStatusesSince(
                 studentId, sg.getGroup().getId(), billable, from);
 
-            BigDecimal used = lessonPrice.multiply(BigDecimal.valueOf(lessonsAttended));
-            BigDecimal paid = paymentRepository.sumCreditsByStudentGroupId(sg.getId());
-            if (paid == null || paid.compareTo(BigDecimal.ZERO) == 0) {
-                paid = paymentRepository.sumCreditsByStudentAndGroup(studentId, sg.getGroup().getId());
-            }
-            if (paid == null) {
-                paid = BigDecimal.ZERO;
+            PaymentType type = sg.getPaymentType() != null
+                ? sg.getPaymentType() : PaymentType.MONTHLY;
+
+            BigDecimal lessonPrice;
+            BigDecimal paid;
+            BigDecimal used;
+            BigDecimal groupBalance;
+
+            if (type == PaymentType.MONTHLY) {
+                groupBalance = nzAmount(sg.getBalance());
+                paid = nzAmount(paymentRepository.sumCashByStudentGroupId(sg.getId()));
+                // used — ko'rsatish uchun hosila: paid - used = balance bo'lib tursin
+                used = paid.subtract(groupBalance);
+                // MONTHLY da dars narxi qo'llanilmaydi (u aslida oylik summa edi)
+                lessonPrice = BigDecimal.ZERO;
+            } else {
+                lessonPrice = paymentScheduleService.resolveFreezeLessonPrice(sg, from, today);
+                used = lessonPrice.multiply(BigDecimal.valueOf(lessonsAttended));
+                paid = nzAmount(paymentRepository.sumCashByStudentGroupId(sg.getId()));
+                if (paid.compareTo(BigDecimal.ZERO) == 0) {
+                    paid = nzAmount(paymentRepository.sumCashByStudentAndGroup(
+                        studentId, sg.getGroup().getId()));
+                }
+                groupBalance = paid.subtract(used).max(BigDecimal.ZERO);
             }
 
-            BigDecimal groupBalance = paid.subtract(used);
-            if (groupBalance.compareTo(BigDecimal.ZERO) < 0) {
-                groupBalance = BigDecimal.ZERO;
-            }
             total = total.add(groupBalance);
 
             breakdowns.add(FreezeStudentResponse.FrozenGroupBreakdown.builder()
@@ -1017,6 +1044,10 @@ public class StudentService {
         }
 
         return new FreezeBreakdownResult(total, breakdowns);
+    }
+
+    private static BigDecimal nzAmount(BigDecimal v) {
+        return v != null ? v : BigDecimal.ZERO;
     }
 
     private record FreezeBreakdownResult(

@@ -216,6 +216,31 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
         @Param("studentId") Long studentId,
         @Param("groupId") Long groupId);
 
+    /**
+     * Kassaga tushgan REAL pul (enrollment bo'yicha). sumCreditsByStudentGroupId dan
+     * farqi: u gross qaytaradi — chegirma va balansdan qoplangan qism ham kiradi,
+     * shuning uchun balans hisobiga yaramaydi.
+     */
+    @Query("""
+        SELECT COALESCE(SUM(COALESCE(p.cashAmount, p.amount)), 0)
+        FROM Payment p
+        WHERE p.studentGroup.id = :studentGroupId
+          AND p.status = 'PAID'
+        """)
+    BigDecimal sumCashByStudentGroupId(@Param("studentGroupId") Long studentGroupId);
+
+    /** Kassaga tushgan real pul (student+group juftligi bo'yicha). */
+    @Query("""
+        SELECT COALESCE(SUM(COALESCE(p.cashAmount, p.amount)), 0)
+        FROM Payment p
+        WHERE p.student.id = :studentId
+          AND p.group.id = :groupId
+          AND p.status = 'PAID'
+        """)
+    BigDecimal sumCashByStudentAndGroup(
+        @Param("studentId") Long studentId,
+        @Param("groupId") Long groupId);
+
     /** Batch: userId, paymentCount, paymentSum */
     @Query("""
         SELECT p.receivedBy.id, COUNT(p), COALESCE(SUM(COALESCE(p.cashAmount, p.amount)), 0)
