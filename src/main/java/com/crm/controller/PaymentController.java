@@ -6,6 +6,7 @@ import com.crm.dto.response.*;
 import com.crm.service.PaymentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -20,6 +21,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/payments")
 @RequiredArgsConstructor
+@Slf4j
 public class PaymentController {
 
     private final PaymentService paymentService;
@@ -40,8 +42,15 @@ public class PaymentController {
             @RequestParam(required=false) String to) {
         Page<PaymentResponse> rows = paymentService.getAllPayments(
             page, size, studentId, groupId, status, from, to);
-        PaymentSummary summary = paymentService.getPaymentsSummary(
-            studentId, groupId, status, from, to);
+
+        // Aggregat qo'shimcha ma'lumot — u yiqilsa ham ro'yxat ochilishi SHART.
+        // Frontend meta yo'q bo'lsa "—" ko'rsatadi.
+        PaymentSummary summary = null;
+        try {
+            summary = paymentService.getPaymentsSummary(studentId, groupId, status, from, to);
+        } catch (Exception e) {
+            log.error("To'lovlar aggregati hisoblanmadi (ro'yxat meta'siz qaytarildi)", e);
+        }
         return ResponseEntity.ok(ApiResponse.successWithMeta(rows, summary));
     }
 
