@@ -8,6 +8,7 @@ import com.crm.dto.response.ExpectedPaymentsResponse;
 import com.crm.dto.response.PaymentHistoryResponse;
 import com.crm.dto.response.PaymentPreviewResponse;
 import com.crm.dto.response.PaymentResponse;
+import com.crm.dto.response.PaymentSummary;
 import com.crm.dto.response.SuspendedStudentResponse;
 import com.crm.entity.*;
 import com.crm.entity.enums.IncomeCategory;
@@ -18,6 +19,12 @@ import com.crm.entity.enums.BalanceTransactionType;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -58,6 +65,7 @@ public class PaymentService {
     private final BonusPenaltyService bonusPenaltyService;
     private final PaymentScheduleService paymentScheduleService;
     private final BalanceTransactionService balanceTransactionService;
+    private final EntityManager entityManager;
 
     @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
@@ -441,6 +449,17 @@ public class PaymentService {
         return paymentRepository.findAll(spec, pageable).map(this::toResponse);
     }
 
+    /**
+     * Filtrga mos BARCHA qatorlar bo'yicha aggregat — sahifadagi qatorlardan emas.
+     * {@link #getAllPayments} bilan AYNAN bir xil Specification ishlatiladi, shuning
+     * uchun filtr mantiqi ikki joyda ajralib keta olmaydi.
+     */
+    @Transactional(readOnly = true)
+    public PaymentSummary getPaymentsSummary(
+            Long studentId, Long groupId, String status, String from, String to) {
+        return summarize(buildPaymentSpec(studentId, groupId, status, from, to));
+    }
+
     private Specification<Payment> buildPaymentSpec(
             Long studentId, Long groupId, String status, String from, String to) {
 
@@ -467,6 +486,32 @@ public class PaymentService {
             spec = spec.and((root, q, cb) -> cb.lessThanOrEqualTo(root.get("paymentDate"), td));
         }
         return spec;
+    }
+
+    /** Bitta so'rov: SUM(gross), SUM(naqd), COUNT — hammasi filtr bo'yicha. */
+    private PaymentSummary summarize(Specification<Payment> spec) {
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<Object[]> cq = cb.createQuery(Object[].class);
+        Root<Payment> root = cq.from(Payment.class);
+
+        Predicate predicate = spec != null ? spec.toPredicate(root, cq, cb) : null;
+        if (predicate != null) {
+            cq.where(predicate);
+        }
+
+        Expression<BigDecimal> gross = root.get("amount");
+        // Eski satrlarda cash_amount NULL — o'shanda amount naqd summa edi
+        Expression<BigDecimal> cash = cb.coalesce(
+            root.<BigDecimal>get("cashAmount"), root.<BigDecimal>get("amount"));
+
+        cq.multiselect(cb.sum(gross), cb.sum(cash), cb.count(root));
+
+        Object[] row = entityManager.createQuery(cq).getSingleResult();
+        return PaymentSummary.builder()
+            .totalAmount(nz((BigDecimal) row[0]))
+            .totalCashAmount(nz((BigDecimal) row[1]))
+            .totalCount(row[2] != null ? (Long) row[2] : 0L)
+            .build();
     }
 
     private static LocalDate parseDateOrNull(String value) {

@@ -24,6 +24,10 @@ public class PaymentController {
 
     private final PaymentService paymentService;
 
+    /**
+     * data — avvalgidek Page (struktura o'zgarmagan).
+     * meta — filtrga mos BARCHA qatorlar bo'yicha aggregat, sahifadan emas.
+     */
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<Page<PaymentResponse>>> getAll(
@@ -34,10 +38,11 @@ public class PaymentController {
             @RequestParam(required=false) String status,
             @RequestParam(required=false) String from,
             @RequestParam(required=false) String to) {
-        return ResponseEntity.ok(ApiResponse.success(
-            paymentService.getAllPayments(
-                page, size, studentId, groupId,
-                status, from, to)));
+        Page<PaymentResponse> rows = paymentService.getAllPayments(
+            page, size, studentId, groupId, status, from, to);
+        PaymentSummary summary = paymentService.getPaymentsSummary(
+            studentId, groupId, status, from, to);
+        return ResponseEntity.ok(ApiResponse.successWithMeta(rows, summary));
     }
 
     @GetMapping("/stats")
