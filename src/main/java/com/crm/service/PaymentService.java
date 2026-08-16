@@ -437,24 +437,18 @@ public class PaymentService {
             String from, String to) {
 
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Specification<Payment> spec = buildPaymentSpec(studentId, groupId, status, from, to);
+        return paymentRepository.findAll(spec, pageable).map(this::toResponse);
+    }
 
-        LocalDate fromDate = (from == null || from.isBlank()) ? null : LocalDate.parse(from);
-        LocalDate toDate = (to == null || to.isBlank()) ? null : LocalDate.parse(to);
+    private Specification<Payment> buildPaymentSpec(
+            Long studentId, Long groupId, String status, String from, String to) {
 
-        PaymentStatus statusEnum = null;
-        if (status != null && !status.isBlank()) {
-            try {
-                statusEnum = PaymentStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
-            } catch (IllegalArgumentException ignored) {
-                statusEnum = null;
-            }
-        }
-
+        final LocalDate fd = parseDateOrNull(from);
+        final LocalDate td = parseDateOrNull(to);
+        final PaymentStatus st = parseStatusOrNull(status);
         final Long sId = studentId;
         final Long gId = groupId;
-        final PaymentStatus st = statusEnum;
-        final LocalDate fd = fromDate;
-        final LocalDate td = toDate;
 
         Specification<Payment> spec = Specification.where(null);
         if (sId != null) {
@@ -472,8 +466,22 @@ public class PaymentService {
         if (td != null) {
             spec = spec.and((root, q, cb) -> cb.lessThanOrEqualTo(root.get("paymentDate"), td));
         }
+        return spec;
+    }
 
-        return paymentRepository.findAll(spec, pageable).map(this::toResponse);
+    private static LocalDate parseDateOrNull(String value) {
+        return (value == null || value.isBlank()) ? null : LocalDate.parse(value);
+    }
+
+    private static PaymentStatus parseStatusOrNull(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        try {
+            return PaymentStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     @Transactional(readOnly = true)
