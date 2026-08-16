@@ -22,7 +22,6 @@ import com.crm.repository.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
-import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import lombok.RequiredArgsConstructor;
@@ -488,28 +487,51 @@ public class PaymentService {
         return spec;
     }
 
-    /** Bitta so'rov: SUM(gross), SUM(naqd), COUNT — hammasi filtr bo'yicha. */
+    /**
+     * SUM(gross), SUM(naqd), COUNT — hammasi filtr bo'yicha.
+     *
+     * <p>DIQQAT: bu yerda COALESCE ISHLATILMAYDI. Hibernate 6 da
+     * {@code cb.sum(cb.coalesce(...))} yiqiladi — coalesce ning node tipi
+     * {@code SqmBasicValuedSimplePath} bo'lib qoladi, SUM esa
+     * {@code ReturnableType} kutadi va ClassCastException chiqadi
+     * (butun GET /api/payments 500 bergan edi).
+     *
+     * <p>Shuning uchun {@code SUM(COALESCE(cash_amount, amount))} ikkiga bo'lingan:
+     * <pre>
+     * naqd = SUM(cash_amount)              // SQL SUM NULL larni o'zi tashlab ketadi
+     *      + SUM(amount) WHERE cash_amount IS NULL   // eski satrlar: amount = naqd edi
+     * </pre>
+     * Ikkala so'rov ham AYNAN bir xil {@code Specification} obyektidan foydalanadi,
+     * ikkinchisiga faqat {@code cash_amount IS NULL} qo'shiladi.
+     */
     private PaymentSummary summarize(Specification<Payment> spec) {
         CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+
+        // 1) gross, cash_amount to'ldirilgan satrlar bo'yicha naqd, jami soni
         CriteriaQuery<Object[]> cq = cb.createQuery(Object[].class);
         Root<Payment> root = cq.from(Payment.class);
-
         Predicate predicate = spec != null ? spec.toPredicate(root, cq, cb) : null;
         if (predicate != null) {
             cq.where(predicate);
         }
-
-        Expression<BigDecimal> gross = root.get("amount");
-        // Eski satrlarda cash_amount NULL — o'shanda amount naqd summa edi
-        Expression<BigDecimal> cash = cb.coalesce(
-            root.<BigDecimal>get("cashAmount"), root.<BigDecimal>get("amount"));
-
-        cq.multiselect(cb.sum(gross), cb.sum(cash), cb.count(root));
-
+        cq.multiselect(
+            cb.sum(root.<BigDecimal>get("amount")),
+            cb.sum(root.<BigDecimal>get("cashAmount")),
+            cb.count(root));
         Object[] row = entityManager.createQuery(cq).getSingleResult();
+
+        // 2) eski satrlar (cash_amount NULL) — o'shanda amount naqd summani bildirgan
+        CriteriaQuery<BigDecimal> legacyCq = cb.createQuery(BigDecimal.class);
+        Root<Payment> legacyRoot = legacyCq.from(Payment.class);
+        Predicate legacyOnly = cb.isNull(legacyRoot.get("cashAmount"));
+        Predicate legacySpec = spec != null ? spec.toPredicate(legacyRoot, legacyCq, cb) : null;
+        legacyCq.where(legacySpec != null ? cb.and(legacySpec, legacyOnly) : legacyOnly);
+        legacyCq.select(cb.sum(legacyRoot.<BigDecimal>get("amount")));
+        BigDecimal legacyCash = nz(entityManager.createQuery(legacyCq).getSingleResult());
+
         return PaymentSummary.builder()
             .totalAmount(nz((BigDecimal) row[0]))
-            .totalCashAmount(nz((BigDecimal) row[1]))
+            .totalCashAmount(nz((BigDecimal) row[1]).add(legacyCash))
             .totalCount(row[2] != null ? (Long) row[2] : 0L)
             .build();
     }
