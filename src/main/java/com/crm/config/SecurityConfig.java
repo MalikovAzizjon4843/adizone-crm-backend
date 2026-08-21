@@ -59,7 +59,12 @@ public class SecurityConfig {
                 ).permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/files/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/leads/public").permitAll()
-                .requestMatchers("/api/settings/**").permitAll()
+                // Faqat shu bitta yo'l ochiq — login sahifasi o'quv yilini ko'rsatadi.
+                // Butun /api/settings/** ni ochiq qoldirmaymiz: kelajakda qo'shiladigan
+                // POST/PUT avtomatik ravishda ommaviy bo'lib qolmasin.
+                .requestMatchers(HttpMethod.GET, "/api/settings/academic-year").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/settings/**").authenticated()
+                .requestMatchers("/api/settings/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/actuator/health").permitAll()
                 // ── Teacher-accessible reads (before broader / catch-alls) ──
                 .requestMatchers(HttpMethod.GET, "/api/timetable/grid")
