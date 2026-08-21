@@ -9,7 +9,7 @@ import java.time.LocalDate;
 
 @Data
 public class HomeworkRequest {
-    @NotBlank(message = "Title is required")
+    @NotBlank(message = "{homework.title.required}")
     private String title;
     private String description;
     private Long subjectId;
@@ -17,7 +17,7 @@ public class HomeworkRequest {
     private Long groupId;
     private Long teacherId;
     private LocalDate assignedDate;
-    @NotNull(message = "Due date is required")
+    @NotNull(message = "{homework.dueDate.required}")
     private LocalDate dueDate;
     private BigDecimal marks;
 }

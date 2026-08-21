@@ -9,7 +9,7 @@ import java.time.LocalDate;
 
 @Data
 public class SalaryRuleRequest {
-    @NotNull
+    @NotNull(message = "{salaryRule.role.required}")
     private UserRole role;
     private Long userId;
     private BigDecimal baseSalary;

@@ -6,6 +6,6 @@ import lombok.Data;
 @Data
 public class LeadCommentRequest {
 
-    @NotBlank(message = "Izoh matni majburiy")
+    @NotBlank(message = "{leadComment.text.required}")
     private String text;
 }

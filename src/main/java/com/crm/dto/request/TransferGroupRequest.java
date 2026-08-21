@@ -8,7 +8,7 @@ public class TransferGroupRequest {
     /** Optional — if set, closes this active enrollment. */
     private Long fromGroupId;
 
-    @NotNull(message = "toGroupId majburiy")
+    @NotNull(message = "{transferGroup.toGroupId.required}")
     private Long toGroupId;
 
     private String reason;

@@ -11,20 +11,20 @@ import java.time.LocalDate;
 @Data
 public class StudentCreateAndAddRequest {
 
-    @NotBlank(message = "Ism majburiy")
+    @NotBlank(message = "{studentCreateAndAdd.firstName.required}")
     private String firstName;
 
-    @NotBlank(message = "Familiya majburiy")
+    @NotBlank(message = "{studentCreateAndAdd.lastName.required}")
     private String lastName;
 
-    @NotBlank(message = "Telefon majburiy")
+    @NotBlank(message = "{studentCreateAndAdd.phone.required}")
     private String phone;
 
     private String gender;
     private String marketingSource;
     private String parentPhone;
 
-    @NotNull(message = "To'lov boshlanish sanasi majburiy")
+    @NotNull(message = "{studentCreateAndAdd.paymentStartDate.required}")
     private LocalDate paymentStartDate;
 
     /** MONTHLY uchun tavsiya etiladi; PER_LESSON da ixtiyoriy */

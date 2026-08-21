@@ -6,9 +6,9 @@ import java.time.LocalDate;
 import java.util.List;
 @Data
 public class AttendanceRequest {
-    @NotNull private Long groupId;
-    @NotNull private LocalDate date;
-    @NotNull private List<StudentAttendanceItem> attendances;
+    @NotNull(message = "{attendance.groupId.required}") private Long groupId;
+    @NotNull(message = "{attendance.date.required}") private LocalDate date;
+    @NotNull(message = "{attendance.attendances.required}") private List<StudentAttendanceItem> attendances;
     @Data
     public static class StudentAttendanceItem {
         private Long studentId;

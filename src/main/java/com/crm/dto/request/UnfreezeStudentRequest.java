@@ -7,7 +7,7 @@ import java.time.LocalDate;
 
 @Data
 public class UnfreezeStudentRequest {
-    @NotNull
+    @NotNull(message = "{unfreezeStudent.groupId.required}")
     private Long groupId;
 
     /**

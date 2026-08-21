@@ -10,14 +10,14 @@ import java.time.LocalDate;
 
 @Data
 public class PayrollRequest {
-    @NotNull(message = "Teacher ID is required")
+    @NotNull(message = "{payroll.teacherId.required}")
     private Long teacherId;
 
-    @NotNull(message = "Month is required")
-    @Min(1) @Max(12)
+    @NotNull(message = "{payroll.month.required}")
+    @Min(1, message = "{payroll.month.min}") @Max(12, message = "{payroll.month.max}")
     private Integer month;
 
-    @NotNull(message = "Year is required")
+    @NotNull(message = "{payroll.year.required}")
     private Integer year;
 
     private BigDecimal basicSalary;

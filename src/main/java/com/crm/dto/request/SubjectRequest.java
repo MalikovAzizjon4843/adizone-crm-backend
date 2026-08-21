@@ -5,7 +5,7 @@ import lombok.Data;
 
 @Data
 public class SubjectRequest {
-    @NotBlank(message = "Subject name is required")
+    @NotBlank(message = "{subject.subjectName.required}")
     private String subjectName;
     private String subjectCode;
     private Long classId;

@@ -9,7 +9,7 @@ import java.time.LocalTime;
 
 @Data
 public class ExamRequest {
-    @NotBlank(message = "Exam name is required")
+    @NotBlank(message = "{exam.examName.required}")
     private String examName;
     private String examType;
     /** Akademik sinf (ixtiyoriy) */

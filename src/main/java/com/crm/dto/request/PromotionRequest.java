@@ -7,7 +7,7 @@ import java.time.LocalDate;
 
 @Data
 public class PromotionRequest {
-    @NotNull(message = "Student ID is required")
+    @NotNull(message = "{promotion.studentId.required}")
     private Long studentId;
     private Long fromClassId;
     private Long toClassId;

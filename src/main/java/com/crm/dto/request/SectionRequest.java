@@ -5,7 +5,7 @@ import lombok.Data;
 
 @Data
 public class SectionRequest {
-    @NotBlank(message = "Section name is required")
+    @NotBlank(message = "{section.sectionName.required}")
     private String sectionName;
     private Long classId;
     private Long teacherId;

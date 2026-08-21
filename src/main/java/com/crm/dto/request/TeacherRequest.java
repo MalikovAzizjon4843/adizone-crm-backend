@@ -10,13 +10,13 @@ import java.util.List;
 @Data
 public class TeacherRequest {
 
-    @NotBlank(message = "First name is required")
+    @NotBlank(message = "{teacher.firstName.required}")
     private String firstName;
 
-    @NotBlank(message = "Last name is required")
+    @NotBlank(message = "{teacher.lastName.required}")
     private String lastName;
 
-    @NotBlank(message = "Phone is required")
+    @NotBlank(message = "{teacher.phone.required}")
     private String phone;
 
     private String email;

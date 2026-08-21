@@ -14,13 +14,13 @@ public class LeaveSubmitRequest {
     /** Frontend o‘qituvchi tanlaydi — user bilan bog‘langan {@link com.crm.entity.User} qidiriladi */
     private Long teacherId;
 
-    @NotBlank(message = "Leave type is required")
+    @NotBlank(message = "{leaveSubmit.leaveType.required}")
     private String leaveType;
 
-    @NotNull(message = "From date is required")
+    @NotNull(message = "{leaveSubmit.fromDate.required}")
     private LocalDate fromDate;
 
-    @NotNull(message = "To date is required")
+    @NotNull(message = "{leaveSubmit.toDate.required}")
     private LocalDate toDate;
 
     private String reason;

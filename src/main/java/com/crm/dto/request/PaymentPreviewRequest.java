@@ -8,7 +8,7 @@ import java.math.BigDecimal;
 /** To'lovni saqlamasdan oldindan hisoblash so'rovi. */
 @Data
 public class PaymentPreviewRequest {
-    @NotNull
+    @NotNull(message = "{paymentPreview.studentId.required}")
     private Long studentId;
     private Long groupId;
     /** To'liq summa — chegirma ham, balans ham ayrilmagan. null/manfiy -> 0. */

@@ -1,5 +1,6 @@
 package com.crm.service;
 
+import com.crm.config.Messages;
 import com.crm.dto.request.BalanceAdjustRequest;
 import com.crm.dto.request.FreezeStudentRequest;
 import com.crm.dto.request.StudentParentRequest;
@@ -44,6 +45,7 @@ import java.util.stream.Collectors;
 public class StudentService {
 
     private final StudentRepository studentRepository;
+    private final Messages messages;
     private final StudentParentRepository studentParentRepository;
     private final ParentRepository parentRepository;
     private final StudentGroupRepository studentGroupRepository;
@@ -123,7 +125,8 @@ public class StudentService {
     @Transactional
     public StudentResponse createStudent(StudentRequest request) {
         if (studentRepository.findByPhone(request.getPhone()).isPresent()) {
-            throw new DuplicateResourceException("Student with phone already exists: " + request.getPhone());
+            throw new DuplicateResourceException(
+                messages.get("student.phone.duplicate", request.getPhone()));
         }
 
         Student student = buildFromRequest(new Student(), request, true);
@@ -175,7 +178,9 @@ public class StudentService {
 
         studentRepository.findByPhone(request.getPhone())
             .filter(s -> !s.getId().equals(id))
-            .ifPresent(s -> { throw new DuplicateResourceException("Phone already used by another student"); });
+            .ifPresent(s -> {
+                throw new DuplicateResourceException(messages.get("student.phone.usedByOther"));
+            });
 
         buildFromRequest(student, request, false);
 
@@ -321,16 +326,17 @@ public class StudentService {
     @Transactional
     public StudentDetailResponse transferGroup(Long studentId, TransferGroupRequest request) {
         if (request.getToGroupId() == null) {
-            throw new BadRequestException("toGroupId majburiy");
+            throw new BadRequestException(messages.get("student.transfer.targetRequired"));
         }
 
         Student student = findById(studentId);
         Group toGroup = groupRepository.findById(request.getToGroupId())
-            .orElseThrow(() -> new ResourceNotFoundException("Group", request.getToGroupId()));
+            .orElseThrow(() -> new ResourceNotFoundException(
+                messages.get("error.group.notFound", request.getToGroupId())));
 
         if (studentGroupRepository.existsByStudentIdAndGroupIdAndIsActiveTrue(
                 studentId, request.getToGroupId())) {
-            throw new BadRequestException("O'quvchi bu guruhda bor");
+            throw new BadRequestException(messages.get("student.transfer.alreadyInGroup"));
         }
 
         String reason = request.getReason() != null && !request.getReason().isBlank()
@@ -353,7 +359,7 @@ public class StudentService {
 
         long current = studentGroupRepository.countByGroupIdAndIsActiveTrue(toGroup.getId());
         if (toGroup.getMaxStudents() != null && current >= toGroup.getMaxStudents()) {
-            throw new BadRequestException("Guruh to'lgan! Max: " + toGroup.getMaxStudents());
+            throw new BadRequestException(messages.get("group.full", toGroup.getMaxStudents()));
         }
 
         LocalDate joinDate = LocalDate.now();
@@ -396,15 +402,17 @@ public class StudentService {
     @Transactional
     public StudentResponse createAndAddStudentToGroup(Long groupId, StudentCreateAndAddRequest req) {
         Group group = groupRepository.findById(groupId)
-            .orElseThrow(() -> new ResourceNotFoundException("Group", groupId));
+            .orElseThrow(() -> new ResourceNotFoundException(
+                messages.get("error.group.notFound", groupId)));
 
         long current = studentGroupRepository.countByGroupIdAndIsActiveTrue(groupId);
         if (group.getMaxStudents() != null && current >= group.getMaxStudents()) {
-            throw new BadRequestException("Guruh to'lgan! Max: " + group.getMaxStudents());
+            throw new BadRequestException(messages.get("group.full", group.getMaxStudents()));
         }
 
         if (studentRepository.findByPhone(req.getPhone()).isPresent()) {
-            throw new DuplicateResourceException("Student with phone already exists: " + req.getPhone());
+            throw new DuplicateResourceException(
+                messages.get("student.phone.duplicate", req.getPhone()));
         }
 
         Student student = new Student();
@@ -430,7 +438,7 @@ public class StudentService {
         }
         if (paymentType == PaymentType.MONTHLY && (req.getMonthlyFee() == null)
                 && (group.getCourse() == null || group.getCourse().getMonthlyPrice() == null)) {
-            throw new BadRequestException("Oylik to'lov summasi majburiy");
+            throw new BadRequestException(messages.get("student.monthlyFee.required"));
         }
         student.setMonthlyFee(fee);
 
@@ -566,7 +574,8 @@ public class StudentService {
 
     public Student findById(Long id) {
         return studentRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("Student", id));
+            .orElseThrow(() -> new ResourceNotFoundException(
+                messages.get("error.student.notFound", id)));
     }
 
     private Student buildFromRequest(Student s, StudentRequest req, boolean isCreate) {
@@ -668,7 +677,7 @@ public class StudentService {
         }
         long current = studentGroupRepository.countByGroupIdAndIsActiveTrue(groupId);
         if (group.getMaxStudents() != null && current >= group.getMaxStudents()) {
-            throw new BadRequestException("Guruh to'lgan! Max: " + group.getMaxStudents());
+            throw new BadRequestException(messages.get("group.full", group.getMaxStudents()));
         }
         LocalDate joinDate = LocalDate.now();
         BigDecimal fee = group.getCourse() != null && group.getCourse().getMonthlyPrice() != null
@@ -893,7 +902,7 @@ public class StudentService {
     public FreezeStudentResponse freezeStudent(Long studentId, FreezeStudentRequest request) {
         Student student = findById(studentId);
         if (student.getStatus() == StudentStatus.FROZEN) {
-            throw new BadRequestException("O'quvchi allaqachon muzlatilgan");
+            throw new BadRequestException(messages.get("student.freeze.already"));
         }
 
         List<StudentGroup> enrollments = resolveFreezeEnrollments(studentId, request);
@@ -965,13 +974,14 @@ public class StudentService {
         if (request != null && request.getGroupId() != null) {
             StudentGroup sg = studentGroupRepository
                 .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, request.getGroupId())
-                .orElseThrow(() -> new ResourceNotFoundException("StudentGroup", request.getGroupId()));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                    messages.get("error.studentGroup.notFound", request.getGroupId())));
             enrollments = List.of(sg);
         } else {
             enrollments = studentGroupRepository.findActiveByStudentId(studentId);
         }
         if (enrollments.isEmpty()) {
-            throw new BadRequestException("Muzlatish uchun active guruh yo'q");
+            throw new BadRequestException(messages.get("student.freeze.noActiveGroup"));
         }
         return enrollments;
     }
@@ -1058,15 +1068,16 @@ public class StudentService {
     public StudentDetailResponse unfreezeStudent(Long studentId, UnfreezeStudentRequest request) {
         Student student = findById(studentId);
         if (student.getStatus() != StudentStatus.FROZEN) {
-            throw new BadRequestException("O'quvchi muzlatilgan emas");
+            throw new BadRequestException(messages.get("student.unfreeze.notFrozen"));
         }
 
         Group group = groupRepository.findById(request.getGroupId())
-            .orElseThrow(() -> new ResourceNotFoundException("Group", request.getGroupId()));
+            .orElseThrow(() -> new ResourceNotFoundException(
+                messages.get("error.group.notFound", request.getGroupId())));
 
         if (studentGroupRepository.findByStudentIdAndGroupIdAndIsActiveTrue(studentId, group.getId())
                 .isPresent()) {
-            throw new BadRequestException("O'quvchi bu guruhda allaqachon active");
+            throw new BadRequestException(messages.get("student.unfreeze.alreadyActive"));
         }
 
         // paymentStartDate ixtiyoriy — yuborilmasa bugundan boshlanadi

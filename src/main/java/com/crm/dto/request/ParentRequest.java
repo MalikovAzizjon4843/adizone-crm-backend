@@ -6,10 +6,10 @@ import lombok.Data;
 @Data
 public class ParentRequest {
 
-    @NotBlank
+    @NotBlank(message = "{parent.fullName.required}")
     private String fullName;
 
-    @NotBlank
+    @NotBlank(message = "{parent.phone.required}")
     private String phone;
 
     private String address;

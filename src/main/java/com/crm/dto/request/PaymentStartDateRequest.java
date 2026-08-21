@@ -7,7 +7,7 @@ import java.time.LocalDate;
 
 @Data
 public class PaymentStartDateRequest {
-    @NotNull
+    @NotNull(message = "{paymentStartDate.paymentStartDate.required}")
     private LocalDate paymentStartDate;
     /** Optional — true = TRIAL, false = to'lovli; null = o'zgartirilmaydi */
     private Boolean isTrial;

@@ -8,9 +8,9 @@ import java.time.LocalDateTime;
 
 @Data
 public class NoticeRequest {
-    @NotBlank(message = "Title is required")
+    @NotBlank(message = "{notice.title.required}")
     private String title;
-    @NotBlank(message = "Content is required")
+    @NotBlank(message = "{notice.content.required}")
     private String content;
     private LocalDate noticeDate;
     /** ALL, TEACHERS, STUDENTS, PARENTS */

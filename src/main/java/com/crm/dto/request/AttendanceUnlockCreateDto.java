@@ -6,10 +6,10 @@ import java.time.LocalDate;
 
 @Data
 public class AttendanceUnlockCreateDto {
-    @NotNull(message = "Group ID is required")
+    @NotNull(message = "{attendanceUnlock.groupId.required}")
     private Long groupId;
 
-    @NotNull(message = "Attendance date is required")
+    @NotNull(message = "{attendanceUnlock.attendanceDate.required}")
     private LocalDate attendanceDate;
 
     private String note;

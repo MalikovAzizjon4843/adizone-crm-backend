@@ -5,7 +5,7 @@ import lombok.Data;
 
 @Data
 public class ClassroomRequest {
-    @NotBlank
+    @NotBlank(message = "{classroom.roomNumber.required}")
     private String roomNumber;
     private Integer capacity;
     /** THEORY, PRACTICE, LAB, OTHER */

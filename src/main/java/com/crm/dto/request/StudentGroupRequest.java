@@ -9,9 +9,9 @@ import java.time.LocalDate;
 
 @Data
 public class StudentGroupRequest {
-    @NotNull
+    @NotNull(message = "{studentGroup.studentId.required}")
     private Long studentId;
-    @NotNull
+    @NotNull(message = "{studentGroup.groupId.required}")
     private Long groupId;
     private LocalDate joinDate;
     /** true = 1-dars bepul (TRIAL); default false = to'lovli (PENDING) */

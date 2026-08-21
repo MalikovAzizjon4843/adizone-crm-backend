@@ -8,10 +8,10 @@ import java.math.BigDecimal;
 
 @Data
 public class BalanceAdjustRequest {
-    @NotNull
+    @NotNull(message = "{balanceAdjust.groupId.required}")
     private Long groupId;
-    @NotNull
+    @NotNull(message = "{balanceAdjust.amount.required}")
     private BigDecimal amount;
-    @NotBlank(message = "Sabab majburiy")
+    @NotBlank(message = "{balanceAdjust.note.required}")
     private String note;
 }

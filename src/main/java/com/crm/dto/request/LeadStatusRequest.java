@@ -6,6 +6,6 @@ import lombok.Data;
 @Data
 public class LeadStatusRequest {
 
-    @NotBlank(message = "Status majburiy")
+    @NotBlank(message = "{leadStatus.status.required}")
     private String status;
 }

@@ -15,19 +15,19 @@ import java.util.List;
 @Data
 public class StudentRequest {
 
-    @NotBlank(message = "Ism majburiy")
+    @NotBlank(message = "{student.firstName.required}")
     private String firstName;
 
-    @NotBlank(message = "Familiya majburiy")
+    @NotBlank(message = "{student.lastName.required}")
     private String lastName;
 
-    @NotBlank(message = "Telefon majburiy")
+    @NotBlank(message = "{student.phone.required}")
     private String phone;
 
-    @NotBlank(message = "Holat majburiy")
+    @NotBlank(message = "{student.status.required}")
     private String status;
 
-    @NotBlank(message = "Qayerdan kelganligi majburiy")
+    @NotBlank(message = "{student.marketingSource.required}")
     private String marketingSource;
 
     private String admissionNumber;

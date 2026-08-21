@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 
 @Data
 public class HomeworkSubmissionRequest {
-    @NotNull(message = "Student ID is required")
+    @NotNull(message = "{homeworkSubmission.studentId.required}")
     private Long studentId;
     private LocalDateTime submittedAt;
     private String fileUrl;

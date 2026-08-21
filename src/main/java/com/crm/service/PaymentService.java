@@ -1,5 +1,6 @@
 package com.crm.service;
 
+import com.crm.config.Messages;
 import com.crm.dto.request.PaymentPreviewRequest;
 import com.crm.dto.request.PaymentRequest;
 import com.crm.dto.response.DebtorResponse;
@@ -55,6 +56,7 @@ public class PaymentService {
     private static final DateTimeFormatter PERIOD_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
 
     private final PaymentRepository paymentRepository;
+    private final Messages messages;
     private final StudentRepository studentRepository;
     private final GroupRepository groupRepository;
     private final StudentGroupRepository studentGroupRepository;
@@ -69,7 +71,8 @@ public class PaymentService {
     @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
         Student student = studentRepository.findById(request.getStudentId())
-            .orElseThrow(() -> new ResourceNotFoundException("Student", request.getStudentId()));
+            .orElseThrow(() -> new ResourceNotFoundException(
+                messages.get("error.student.notFound", request.getStudentId())));
 
         String username = SecurityContextHolder.getContext().getAuthentication().getName();
         User receiver = userRepository.findByUsername(username).orElse(null);
@@ -83,7 +86,8 @@ public class PaymentService {
         Group group = enrollment != null ? enrollment.getGroup() : null;
         if (group == null && request.getGroupId() != null) {
             group = groupRepository.findById(request.getGroupId())
-                .orElseThrow(() -> new ResourceNotFoundException("Group", request.getGroupId()));
+                .orElseThrow(() -> new ResourceNotFoundException(
+                    messages.get("error.group.notFound", request.getGroupId())));
         }
 
         // Butun hisob shu yerda — frontend XOM ma'lumot yuboradi (gross, discount, useBalance).
@@ -291,8 +295,7 @@ public class PaymentService {
         BigDecimal gross = nz(amount).max(BigDecimal.ZERO);
         BigDecimal discount = nz(discountAmount).max(BigDecimal.ZERO);
         if (discount.compareTo(gross) > 0) {
-            throw new IllegalArgumentException(
-                "Chegirma umumiy summadan katta bo'lishi mumkin emas");
+            throw new IllegalArgumentException(messages.get("payment.discount.tooLarge"));
         }
 
         BigDecimal payable = gross.subtract(discount);
@@ -314,11 +317,11 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public PaymentPreviewResponse previewPayment(PaymentPreviewRequest request) {
         if (request.getStudentId() == null) {
-            throw new BadRequestException("O'quvchi tanlanmagan (studentId majburiy)");
+            throw new BadRequestException(messages.get("payment.student.required"));
         }
         Student student = studentRepository.findById(request.getStudentId())
             .orElseThrow(() -> new ResourceNotFoundException(
-                "O'quvchi topilmadi (ID " + request.getStudentId() + ")"));
+                messages.get("error.student.notFound", request.getStudentId())));
 
         // groupId hisobga ta'sir qilmaydi — balans o'quvchi darajasida yuritiladi,
         // shuning uchun guruhsiz ham to'g'ri ishlaydi.
@@ -671,8 +674,8 @@ public class PaymentService {
                 && !request.getPaymentMethodForCash().isBlank()) {
             PaymentMethod override = PaymentMethod.parseOrNull(request.getPaymentMethodForCash());
             if (override == null) {
-                throw new BadRequestException(
-                    "Noto'g'ri paymentMethodForCash: " + request.getPaymentMethodForCash());
+                throw new BadRequestException(messages.get(
+                    "payment.methodForCash.invalid", request.getPaymentMethodForCash()));
             }
             return override;
         }

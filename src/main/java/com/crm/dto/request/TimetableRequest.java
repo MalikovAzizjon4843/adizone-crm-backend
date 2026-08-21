@@ -22,10 +22,10 @@ public class TimetableRequest {
     /** Yangi format: bir necha kun */
     private List<String> daysOfWeek;
 
-    @NotNull(message = "Start time is required")
+    @NotNull(message = "{timetable.startTime.required}")
     private LocalTime startTime;
 
-    @NotNull(message = "End time is required")
+    @NotNull(message = "{timetable.endTime.required}")
     private LocalTime endTime;
 
     private String academicYear;

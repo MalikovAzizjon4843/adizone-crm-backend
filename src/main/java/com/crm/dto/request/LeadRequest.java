@@ -6,10 +6,10 @@ import lombok.Data;
 @Data
 public class LeadRequest {
 
-    @NotBlank(message = "Ism majburiy")
+    @NotBlank(message = "{lead.fullName.required}")
     private String fullName;
 
-    @NotBlank(message = "Telefon majburiy")
+    @NotBlank(message = "{lead.phone.required}")
     private String phone;
 
     private String parentPhone;

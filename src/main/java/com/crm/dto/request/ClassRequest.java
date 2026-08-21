@@ -5,7 +5,7 @@ import lombok.Data;
 
 @Data
 public class ClassRequest {
-    @NotBlank(message = "Class name is required")
+    @NotBlank(message = "{class.className.required}")
     private String className;
     private String classCode;
 }

@@ -1,5 +1,6 @@
 package com.crm.service;
 
+import com.crm.config.Messages;
 import com.crm.dto.request.LoginRequest;
 import com.crm.dto.request.RegisterRequest;
 import com.crm.dto.response.AuthResponse;
@@ -30,6 +31,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class AuthService {
+    private final Messages messages;
 
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -47,7 +49,7 @@ public class AuthService {
             new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
         );
         User user = userRepository.findByUsername(request.getUsername())
-            .orElseThrow(() -> new BadRequestException("User not found"));
+            .orElseThrow(() -> new BadRequestException(messages.get("error.auth.userNotFound")));
 
         user.setLastLogin(LocalDateTime.now());
         userRepository.save(user);
@@ -83,12 +85,12 @@ public class AuthService {
     public AuthResponse refreshToken(String refreshTokenValue) {
         RefreshToken refreshToken = refreshTokenRepository
             .findByTokenAndIsRevokedFalse(refreshTokenValue)
-            .orElseThrow(() -> new UnauthorizedException("Invalid refresh token"));
+            .orElseThrow(() -> new UnauthorizedException(messages.get("error.auth.invalidRefreshToken")));
 
         if (refreshToken.getExpiresAt().isBefore(LocalDateTime.now())) {
             refreshToken.setIsRevoked(true);
             refreshTokenRepository.save(refreshToken);
-            throw new UnauthorizedException("Refresh token expired");
+            throw new UnauthorizedException(messages.get("error.auth.refreshTokenExpired"));
         }
 
         User user = refreshToken.getUser();
@@ -159,7 +161,7 @@ public class AuthService {
 
     public UserResponse getCurrentUser(String username) {
         User user = userRepository.findByUsername(username)
-            .orElseThrow(() -> new BadRequestException("User not found"));
+            .orElseThrow(() -> new BadRequestException(messages.get("error.auth.userNotFound")));
 
         return UserResponse.builder()
             .id(user.getId())

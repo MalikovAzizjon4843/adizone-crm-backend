@@ -11,14 +11,14 @@ import java.time.LocalDate;
 
 @Data
 public class BonusPenaltyCreateDto {
-    @NotNull
+    @NotNull(message = "{bonusPenalty.kind.required}")
     private BonusPenaltyKind kind;
-    @NotNull
+    @NotNull(message = "{bonusPenalty.targetType.required}")
     private BonusTargetType targetType;
     private Long studentId;
     private Long teacherId;
-    @NotNull
-    @DecimalMin("0.01")
+    @NotNull(message = "{bonusPenalty.amount.required}")
+    @DecimalMin("0.01", message = "{bonusPenalty.amount.min}")
     private BigDecimal amount;
     private String reason;
     private LocalDate effectiveDate;

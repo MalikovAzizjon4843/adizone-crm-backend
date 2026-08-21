@@ -10,17 +10,17 @@ import java.util.List;
 
 @Data
 public class GroupRequest {
-    @NotBlank
+    @NotBlank(message = "{group.groupName.required}")
     private String groupName;
-    @NotNull
+    @NotNull(message = "{group.courseId.required}")
     private Long courseId;
     private Long teacherId;
     private String room;
     /** Default classroom for the group (fallback for schedule days / auto-timetable). */
     private Long classroomId;
-    @Min(1)
+    @Min(1, message = "{group.maxStudents.min}")
     private Integer maxStudents = 20;
-    @NotNull
+    @NotNull(message = "{group.startDate.required}")
     private LocalDate startDate;
     private LocalDate endDate;
     private String notes;
