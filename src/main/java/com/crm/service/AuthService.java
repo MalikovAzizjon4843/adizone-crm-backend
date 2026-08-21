@@ -2,12 +2,10 @@ package com.crm.service;
 
 import com.crm.config.Messages;
 import com.crm.dto.request.LoginRequest;
-import com.crm.dto.request.RegisterRequest;
 import com.crm.dto.response.AuthResponse;
 import com.crm.dto.response.UserResponse;
 import com.crm.entity.RefreshToken;
 import com.crm.entity.User;
-import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.UnauthorizedException;
@@ -31,9 +29,9 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class AuthService {
-    private final Messages messages;
 
     private final UserRepository userRepository;
+    private final Messages messages;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtils jwtUtils;
@@ -123,40 +121,6 @@ public class AuthService {
                 rt.setIsRevoked(true);
                 refreshTokenRepository.save(rt);
             });
-    }
-
-    @Transactional
-    public UserResponse register(RegisterRequest request) {
-        if (userRepository.existsByUsername(request.getUsername())) {
-            throw new BadRequestException("Bu username allaqachon band");
-        }
-        if (!request.getPassword().equals(request.getConfirmPassword())) {
-            throw new BadRequestException("Parollar mos kelmadi");
-        }
-
-        User user = User.builder()
-            .username(request.getUsername())
-            .password(passwordEncoder.encode(request.getPassword()))
-            .firstName(request.getFirstName())
-            .lastName(request.getFirstName())
-            .role(UserRole.ADMIN)
-            .isActive(true)
-            .build();
-
-        user = userRepository.save(user);
-
-        return UserResponse.builder()
-            .id(user.getId())
-            .username(user.getUsername())
-            .email(user.getEmail())
-            .firstName(user.getFirstName())
-            .lastName(user.getLastName())
-            .phone(user.getPhone())
-            .role(user.getRole())
-            .isActive(user.getIsActive())
-            .createdAt(user.getCreatedAt())
-            .photoUrl(user.getPhotoUrl())
-            .build();
     }
 
     public UserResponse getCurrentUser(String username) {

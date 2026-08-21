@@ -3,8 +3,11 @@ package com.crm.controller;
 import com.crm.dto.request.ChangePasswordRequest;
 import com.crm.dto.request.CreateUserRequest;
 import com.crm.dto.request.UpdateUserRequest;
+import com.crm.dto.request.UserStatusRequest;
 import com.crm.dto.response.ApiResponse;
+import com.crm.dto.response.PasswordResetResponse;
 import com.crm.dto.response.UserResponse;
+import com.crm.dto.response.UsernamePreviewResponse;
 import com.crm.entity.User;
 import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
@@ -40,30 +43,52 @@ public class UserController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<UserResponse>> createUser(
             @Valid @RequestBody CreateUserRequest request) {
-        Optional<User> existing = userRepository.findByUsername(request.getUsername());
-        if (existing.isPresent()) {
-            UserResponse response = toResponse(existing.get());
-            return ResponseEntity.ok(
-                ApiResponse.<UserResponse>builder()
-                    .success(true)
-                    .message("ALREADY_EXISTS")
-                    .data(response)
-                    .build()
-            );
+        // Login qo'lda yuborilgan va band bo'lsa — eski xulq saqlanadi.
+        if (request.getUsername() != null && !request.getUsername().isBlank()) {
+            Optional<User> existing = userRepository.findByUsername(request.getUsername());
+            if (existing.isPresent()) {
+                return ResponseEntity.ok(
+                    ApiResponse.<UserResponse>builder()
+                        .success(true)
+                        .message("ALREADY_EXISTS")
+                        .data(toResponse(existing.get()))
+                        .build()
+                );
+            }
         }
-        User user = User.builder()
-            .firstName(request.getFirstName())
-            .lastName(request.getLastName())
-            .username(request.getUsername())
-            .password(passwordEncoder.encode(request.getPassword()))
-            .role(request.getRole() != null ? request.getRole() : UserRole.TEACHER)
-            .phone(request.getPhone())
-            .email(request.getEmail())
-            .isActive(request.getIsActive())
-            .build();
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success("User yaratildi",
-                toResponse(userRepository.save(user))));
+            .body(ApiResponse.success("User yaratildi", userService.createUser(request)));
+    }
+
+    /** Frontend forma to'ldirilayotganda loginni oldindan ko'rsatishi uchun. */
+    @GetMapping("/username-preview")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<UsernamePreviewResponse>> previewUsername(
+            @RequestParam(required = false) String firstName,
+            @RequestParam(required = false) String lastName) {
+        return ResponseEntity.ok(ApiResponse.success(
+            userService.previewUsername(firstName, lastName)));
+    }
+
+    /** Admin vaqtinchalik parol beradi; ochiq parol faqat shu javobda qaytadi. */
+    @PostMapping("/{id}/reset-password")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<PasswordResetResponse>> resetPassword(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(
+            "Parol tiklandi", userService.resetPassword(id)));
+    }
+
+    @PatchMapping("/{id}/status")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<UserResponse>> setStatus(
+            @PathVariable Long id,
+            @Valid @RequestBody UserStatusRequest request) {
+        UserResponse updated = userService.setActive(id, request.getActive());
+        return ResponseEntity.ok(ApiResponse.success(
+            Boolean.TRUE.equals(request.getActive()) ? "Foydalanuvchi faollashtirildi"
+                : "Foydalanuvchi nofaol qilindi",
+            updated));
     }
 
     @PostMapping("/create-for-teacher/{teacherId}")
@@ -72,14 +97,13 @@ public class UserController {
             @PathVariable Long teacherId,
             @RequestBody CreateUserRequest request) {
 
-        Optional<User> existing = userRepository.findByUsername(request.getUsername());
-        if (existing.isPresent()) {
-            UserResponse response = userService.createForTeacher(teacherId, request);
+        if (request.getUsername() != null && !request.getUsername().isBlank()
+                && userRepository.findByUsername(request.getUsername()).isPresent()) {
             return ResponseEntity.ok(
                 ApiResponse.<UserResponse>builder()
                     .success(true)
                     .message("ALREADY_EXISTS")
-                    .data(response)
+                    .data(userService.createForTeacher(teacherId, request))
                     .build()
             );
         }
@@ -95,22 +119,27 @@ public class UserController {
             @PathVariable Long studentId,
             @RequestBody CreateUserRequest request) {
 
-        Optional<User> existing = userRepository.findByUsername(request.getUsername());
-        if (existing.isPresent()) {
-            UserResponse response = toResponse(existing.get());
-            return ResponseEntity.ok(
-                ApiResponse.<UserResponse>builder()
-                    .success(true)
-                    .message("ALREADY_EXISTS")
-                    .data(response)
-                    .build()
-            );
+        if (request.getUsername() != null && !request.getUsername().isBlank()) {
+            Optional<User> existing = userRepository.findByUsername(request.getUsername());
+            if (existing.isPresent()) {
+                return ResponseEntity.ok(
+                    ApiResponse.<UserResponse>builder()
+                        .success(true)
+                        .message("ALREADY_EXISTS")
+                        .data(toResponse(existing.get()))
+                        .build()
+                );
+            }
         }
+
+        String username = request.getUsername() != null && !request.getUsername().isBlank()
+            ? request.getUsername()
+            : userService.generateUsername(request.getFirstName(), request.getLastName());
 
         User user = User.builder()
             .firstName(request.getFirstName())
             .lastName(request.getLastName())
-            .username(request.getUsername())
+            .username(username)
             .password(passwordEncoder.encode(request.getPassword()))
             .role(UserRole.STUDENT)
             .phone(request.getPhone())
@@ -146,9 +175,10 @@ public class UserController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<UserResponse>> updateUser(
             @PathVariable Long id,
-            @RequestBody UpdateUserRequest request) {
+            @Valid @RequestBody UpdateUserRequest request) {
         User user = userRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("User", id));
+        userService.validateEmailAndPhoneForUpdate(request.getEmail(), request.getPhone(), id);
         if (request.getFirstName() != null) user.setFirstName(request.getFirstName());
         if (request.getLastName() != null) user.setLastName(request.getLastName());
         if (request.getEmail() != null) user.setEmail(request.getEmail());
@@ -194,12 +224,15 @@ public class UserController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('SUPER_ADMIN')")
+    /**
+     * Soft-delete: yozuv o'chirilmaydi, faqat nofaol qilinadi va sessiyalar yopiladi.
+     * To'lovlar/davomat tarixi foydalanuvchiga bog'liq bo'lgani uchun jismoniy
+     * o'chirish qo'llanmaydi.
+     */
     public ResponseEntity<ApiResponse<Void>> deleteUser(@PathVariable Long id) {
-        User user = userRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("User", id));
-        user.setIsActive(false);
-        userRepository.save(user);
-        return ResponseEntity.ok(ApiResponse.success("User deactivated", null));
+        userService.setActive(id, false);
+        return ResponseEntity.ok(ApiResponse.success(
+            "Foydalanuvchi nofaol qilindi (ma'lumotlari saqlanadi)", null));
     }
 
     private UserResponse toResponse(User u) {

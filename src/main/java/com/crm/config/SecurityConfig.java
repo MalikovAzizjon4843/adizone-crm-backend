@@ -50,9 +50,10 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                 // ── Public endpoints (no JWT needed) ──
+                // Ochiq registratsiya YO'Q: xodimni faqat SUPER_ADMIN/ADMIN
+                // POST /api/users orqali yaratadi.
                 .requestMatchers(
                     "/api/auth/login",
-                    "/api/auth/register",
                     "/api/auth/refresh",
                     "/api/auth/logout"
                 ).permitAll()
