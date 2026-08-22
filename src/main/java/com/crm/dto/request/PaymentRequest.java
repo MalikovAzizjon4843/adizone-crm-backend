@@ -14,7 +14,7 @@ public class PaymentRequest {
     private Long studentId;
     private Long groupId;
     @NotNull(message = "{payment.amount.required}")
-    @DecimalMin("0.0", message = "{payment.amount.min}")
+    @DecimalMin(value = "0.0", message = "{payment.amount.min}")
     private BigDecimal amount;
     private PaymentMethod paymentMethod = PaymentMethod.CASH;
     private LocalDate paymentDate;

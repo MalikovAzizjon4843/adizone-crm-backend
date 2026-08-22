@@ -18,7 +18,7 @@ public class GroupRequest {
     private String room;
     /** Default classroom for the group (fallback for schedule days / auto-timetable). */
     private Long classroomId;
-    @Min(1, message = "{group.maxStudents.min}")
+    @Min(value = 1, message = "{group.maxStudents.min}")
     private Integer maxStudents = 20;
     @NotNull(message = "{group.startDate.required}")
     private LocalDate startDate;

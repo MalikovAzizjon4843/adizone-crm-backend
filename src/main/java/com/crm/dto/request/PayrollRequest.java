@@ -14,7 +14,7 @@ public class PayrollRequest {
     private Long teacherId;
 
     @NotNull(message = "{payroll.month.required}")
-    @Min(1, message = "{payroll.month.min}") @Max(12, message = "{payroll.month.max}")
+    @Min(value = 1, message = "{payroll.month.min}") @Max(value = 12, message = "{payroll.month.max}")
     private Integer month;
 
     @NotNull(message = "{payroll.year.required}")

@@ -18,7 +18,7 @@ public class BonusPenaltyCreateDto {
     private Long studentId;
     private Long teacherId;
     @NotNull(message = "{bonusPenalty.amount.required}")
-    @DecimalMin("0.01", message = "{bonusPenalty.amount.min}")
+    @DecimalMin(value = "0.01", message = "{bonusPenalty.amount.min}")
     private BigDecimal amount;
     private String reason;
     private LocalDate effectiveDate;

@@ -8,7 +8,7 @@ import java.time.LocalDate;
 public class ExpenseRequest {
     @NotNull(message = "{expense.category.required}") private ExpenseCategory category;
     @NotBlank(message = "{expense.title.required}") private String title;
-    @NotNull(message = "{expense.amount.required}") @DecimalMin("0.01", message = "{expense.amount.min}") private BigDecimal amount;
+    @NotNull(message = "{expense.amount.required}") @DecimalMin(value = "0.01", message = "{expense.amount.min}") private BigDecimal amount;
     @NotNull(message = "{expense.expenseDate.required}") private LocalDate expenseDate;
     private Long teacherId;
     private String description;
