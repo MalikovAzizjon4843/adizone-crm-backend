@@ -669,7 +669,7 @@ public class PaymentService {
      * ilgari hammasi PLASTIC ga aylanardi. Naqd/plastik balans taqsimotini
      * CashRegisterService o'zi enum bo'yicha hal qiladi.
      */
-    private static PaymentMethod resolveCashPaymentMethod(PaymentRequest request) {
+    private PaymentMethod resolveCashPaymentMethod(PaymentRequest request) {
         if (request.getPaymentMethodForCash() != null
                 && !request.getPaymentMethodForCash().isBlank()) {
             PaymentMethod override = PaymentMethod.parseOrNull(request.getPaymentMethodForCash());
