@@ -1,5 +1,6 @@
 package com.crm.controller;
 
+import com.crm.config.Messages;
 import com.crm.dto.request.NoticeRequest;
 import com.crm.dto.response.*;
 import com.crm.service.NoticeService;
@@ -19,6 +20,7 @@ import java.util.Map;
 public class NoticeController {
 
     private final NoticeService noticeService;
+    private final Messages messages;
 
     @GetMapping
     @PreAuthorize("isAuthenticated()")
@@ -84,10 +86,11 @@ public class NoticeController {
         return ResponseEntity.ok(ApiResponse.success("Notice updated", noticeService.updateNotice(id, request)));
     }
 
+    /** Jismoniy o'chiradi — e'lon ro'yxatda umuman qolmaydi. */
     @DeleteMapping("/{id:\\d+}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deleteNotice(@PathVariable Long id) {
         noticeService.deleteNotice(id);
-        return ResponseEntity.ok(ApiResponse.success("Notice unpublished", null));
+        return ResponseEntity.ok(ApiResponse.success(messages.get("notice.deleted"), null));
     }
 }

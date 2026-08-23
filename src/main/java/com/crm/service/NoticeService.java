@@ -1,5 +1,6 @@
 package com.crm.service;
 
+import com.crm.config.Messages;
 import com.crm.dto.request.NoticeRequest;
 import com.crm.dto.response.NoticeResponse;
 import com.crm.dto.response.PageResponse;
@@ -29,6 +30,7 @@ public class NoticeService {
 
     private final NoticeRepository noticeRepository;
     private final NoticeReadRepository noticeReadRepository;
+    private final Messages messages;
     private final UserRepository userRepository;
     private final TeacherAccessService teacherAccessService;
 
@@ -127,12 +129,18 @@ public class NoticeService {
         return toResponse(noticeRepository.save(notice), readIds);
     }
 
+    /**
+     * Jismoniy o'chirish. E'lon vaqtinchalik ma'lumot — tarixi saqlanmaydi.
+     *
+     * <p>Avval notice_reads tozalanadi: uning notice_id ustuni NOT NULL FK,
+     * shuning uchun o'qilganlik yozuvi bor e'lonni to'g'ridan-to'g'ri o'chirib
+     * bo'lmaydi. Bitta bulk DELETE — yozuvlar entity sifatida yuklanmaydi.
+     */
     @Transactional
     public void deleteNotice(Long id) {
         Notice notice = findById(id);
-        notice.setIsActive(false);
-        notice.setIsPublished(false);
-        noticeRepository.save(notice);
+        noticeReadRepository.deleteByNoticeId(id);
+        noticeRepository.delete(notice);
     }
 
     @Transactional
@@ -173,7 +181,8 @@ public class NoticeService {
 
     public Notice findById(Long id) {
         return noticeRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("Notice", id));
+            .orElseThrow(() -> new ResourceNotFoundException(
+                messages.get("error.notice.notFound", id)));
     }
 
     private LocalDateTime resolveExpiresAt(NoticeRequest request) {
