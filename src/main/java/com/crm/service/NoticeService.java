@@ -89,11 +89,10 @@ public class NoticeService {
             notice.setCreatedBy(userRepository.findById(request.getCreatedById())
                 .orElseThrow(() -> new ResourceNotFoundException("User", request.getCreatedById())));
         } else {
-            try {
-                notice.setCreatedBy(teacherAccessService.getCurrentUserOrThrow());
-            } catch (Exception ignored) {
-                // optional on create
-            }
+            // Endpoint SUPER_ADMIN/ADMIN bilan himoyalangan, ya'ni autentifikatsiya
+            // qilingan foydalanuvchi doim bor. Ilgari bu chaqiruv try/catch ichida
+            // edi va xato yutilib, createdBy NULL bo'lib qolardi.
+            notice.setCreatedBy(teacherAccessService.getCurrentUserOrThrow());
         }
 
         return toResponse(noticeRepository.save(notice), Set.of());
