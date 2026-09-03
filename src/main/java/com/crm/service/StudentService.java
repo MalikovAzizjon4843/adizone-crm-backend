@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.Audited;
 import com.crm.config.Messages;
 import com.crm.dto.request.BalanceAdjustRequest;
 import com.crm.dto.request.FreezeStudentRequest;
@@ -123,6 +125,10 @@ public class StudentService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.CREATE, entity = "Student",
+        summary = "'Yangi o''quvchi qo''shildi: ' + #result.firstName + ' ' + #result.lastName",
+        entityId = "#result.id",
+        label = "#result.firstName + ' ' + #result.lastName")
     public StudentResponse createStudent(StudentRequest request) {
         if (studentRepository.findByPhone(request.getPhone()).isPresent()) {
             throw new DuplicateResourceException(
@@ -173,6 +179,10 @@ public class StudentService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "Student",
+        summary = "'O''quvchi ma''lumoti o''zgartirildi: ' + #result.firstName + ' ' + #result.lastName",
+        entityId = "#id",
+        label = "#result.firstName + ' ' + #result.lastName")
     public StudentResponse updateStudent(Long id, StudentRequest request) {
         Student student = findById(id);
 
@@ -324,6 +334,9 @@ public class StudentService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "Student",
+        summary = "'O''quvchi boshqa guruhga ko''chirildi'",
+        entityId = "#studentId")
     public StudentDetailResponse transferGroup(Long studentId, TransferGroupRequest request) {
         if (request.getToGroupId() == null) {
             throw new BadRequestException(messages.get("student.transfer.targetRequired"));
@@ -400,6 +413,10 @@ public class StudentService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.CREATE, entity = "Student",
+        summary = "'Yangi o''quvchi guruhga qo''shildi: ' + #result.firstName + ' ' + #result.lastName",
+        entityId = "#result.id",
+        label = "#result.firstName + ' ' + #result.lastName")
     public StudentResponse createAndAddStudentToGroup(Long groupId, StudentCreateAndAddRequest req) {
         Group group = groupRepository.findById(groupId)
             .orElseThrow(() -> new ResourceNotFoundException(
@@ -492,6 +509,7 @@ public class StudentService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.DELETE, entity = "Student", entityId = "#id")
     public void deleteStudent(Long id) {
         Student student = findById(id);
         student.setStatus(StudentStatus.LEFT);
@@ -899,6 +917,9 @@ public class StudentService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "Student",
+        summary = "'O''quvchi muzlatildi'",
+        entityId = "#studentId")
     public FreezeStudentResponse freezeStudent(Long studentId, FreezeStudentRequest request) {
         Student student = findById(studentId);
         if (student.getStatus() == StudentStatus.FROZEN) {
@@ -1065,6 +1086,9 @@ public class StudentService {
         List<FreezeStudentResponse.FrozenGroupBreakdown> breakdowns) {}
 
     @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "Student",
+        summary = "'O''quvchi muzlatishdan chiqarildi'",
+        entityId = "#studentId")
     public StudentDetailResponse unfreezeStudent(Long studentId, UnfreezeStudentRequest request) {
         Student student = findById(studentId);
         if (student.getStatus() != StudentStatus.FROZEN) {

@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.Audited;
 import com.crm.dto.request.GroupRequest;
 import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.response.GroupLessonDaysResponse;
@@ -198,6 +200,9 @@ public class GroupService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.CREATE, entity = "Group",
+        summary = "'Yangi guruh yaratildi: ' + #result.groupName",
+        entityId = "#result.id", label = "#result.groupName")
     public GroupResponse createGroup(GroupRequest request) {
         Course course = courseService.findById(request.getCourseId());
 
@@ -231,6 +236,9 @@ public class GroupService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "Group",
+        summary = "'Guruh o''zgartirildi: ' + #result.groupName",
+        entityId = "#id", label = "#result.groupName")
     public GroupResponse updateGroup(Long id, GroupRequest request) {
         Group group = findById(id);
         Course course = courseService.findById(request.getCourseId());
@@ -479,6 +487,9 @@ public class GroupService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "Group",
+        summary = "'Guruh holati o''zgardi: ' + #result.groupName + ' -> ' + #status",
+        entityId = "#id", label = "#result.groupName")
     public GroupResponse updateStatus(Long id, String status) {
         Group group = findById(id);
         GroupStatus parsed;
@@ -494,6 +505,7 @@ public class GroupService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.DELETE, entity = "Group", entityId = "#id")
     public void deleteGroup(Long id) {
         Group group = findById(id);
         group.setStatus(GroupStatus.CANCELLED);
@@ -501,6 +513,9 @@ public class GroupService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.CREATE, entity = "StudentGroup",
+        summary = "'O''quvchi guruhga qo''shildi'",
+        entityId = "#request.groupId")
     public void addStudentToGroup(StudentGroupRequest request) {
         Student student = studentRepository.findById(request.getStudentId())
             .orElseThrow(() -> new ResourceNotFoundException("Student", request.getStudentId()));
@@ -577,6 +592,9 @@ public class GroupService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.DELETE, entity = "StudentGroup",
+        summary = "'O''quvchi guruhdan chiqarildi'",
+        entityId = "#groupId")
     public void removeStudentFromGroup(Long studentId, Long groupId) {
         StudentGroup sg = studentGroupRepository.findByStudentIdAndGroupIdAndIsActiveTrue(studentId, groupId)
             .orElseThrow(() -> new ResourceNotFoundException("Student is not in this group"));
@@ -587,6 +605,9 @@ public class GroupService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.DELETE, entity = "StudentGroup",
+        summary = "'O''quvchi guruhdan chiqarildi: ' + #reason",
+        entityId = "#groupId")
     public void removeStudentFromGroup(Long groupId, Long studentId,
             String reason, String notes) {
         StudentGroup sg = studentGroupRepository

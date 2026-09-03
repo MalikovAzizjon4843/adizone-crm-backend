@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.Audited;
 import com.crm.dto.request.AttendanceRequest;
 import com.crm.dto.response.AttendanceResponse;
 import com.crm.dto.response.MissingAttendanceResponse;
@@ -48,6 +50,9 @@ public class AttendanceService {
     private final BalanceTransactionService balanceTransactionService;
 
     @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "Attendance",
+        summary = "'Davomat belgilandi: ' + #result.size() + ' o''quvchi'",
+        entityId = "#request.groupId")
     public List<AttendanceResponse> markAttendance(AttendanceRequest request) {
         Group group = groupRepository.findById(request.getGroupId())
             .orElseThrow(() -> new ResourceNotFoundException("Group", request.getGroupId()));

@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.Audited;
 import com.crm.config.Messages;
 import com.crm.dto.request.PaymentPreviewRequest;
 import com.crm.dto.request.PaymentRequest;
@@ -69,6 +71,10 @@ public class PaymentService {
     private final EntityManager entityManager;
 
     @Transactional
+    @Audited(action = AuditAction.PAYMENT, entity = "Payment",
+        summary = "'To''lov qabul qilindi: ' + #result.formattedAmount + ' (' + #result.receiptNumber + ')'",
+        entityId = "#result.id",
+        label = "#result.studentName")
     public PaymentResponse createPayment(PaymentRequest request) {
         Student student = studentRepository.findById(request.getStudentId())
             .orElseThrow(() -> new ResourceNotFoundException(

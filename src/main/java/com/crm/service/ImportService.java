@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.Audited;
 import com.crm.dto.response.ImportResult;
 import com.crm.entity.Course;
 import com.crm.entity.Group;
@@ -92,6 +94,8 @@ public class ImportService {
     private final StudentImportRowService studentImportRowService;
 
     /** Haqiqiy import — qatorlar bazaga yoziladi. */
+    @Audited(action = AuditAction.IMPORT, entity = "Student",
+        summary = "'O''quvchilar import qilindi: ' + #result.imported + '/' + #result.totalRows")
     public ImportResult importStudents(MultipartFile file) {
         return process(file, false);
     }

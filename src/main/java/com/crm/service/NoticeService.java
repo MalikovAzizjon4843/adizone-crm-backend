@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.Audited;
 import com.crm.config.Messages;
 import com.crm.dto.request.NoticeRequest;
 import com.crm.dto.response.NoticeResponse;
@@ -137,6 +139,7 @@ public class NoticeService {
      * bo'lmaydi. Bitta bulk DELETE — yozuvlar entity sifatida yuklanmaydi.
      */
     @Transactional
+    @Audited(action = AuditAction.DELETE, entity = "Notice", entityId = "#id")
     public void deleteNotice(Long id) {
         Notice notice = findById(id);
         noticeReadRepository.deleteByNoticeId(id);

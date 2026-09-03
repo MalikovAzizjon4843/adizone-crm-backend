@@ -1,5 +1,8 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.AuditContext;
+import com.crm.audit.Audited;
 import com.crm.config.Messages;
 import com.crm.dto.request.CreateUserRequest;
 import com.crm.dto.response.PasswordResetResponse;
@@ -76,6 +79,9 @@ public class UserService {
     // ------------------------------------------------------------------
 
     @Transactional
+    @Audited(action = AuditAction.CREATE, entity = "User",
+        summary = "'Yangi foydalanuvchi yaratildi: ' + #result.username",
+        entityId = "#result.id", label = "#result.username")
     public UserResponse createUser(CreateUserRequest request) {
         String username = resolveUsername(request);
         validateEmailAndPhone(request.getEmail(), request.getPhone(), null);
@@ -98,6 +104,9 @@ public class UserService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.CREATE, entity = "User",
+        summary = "'O''qituvchiga hisob yaratildi: ' + #result.username",
+        entityId = "#result.id", label = "#result.username")
     public UserResponse createForTeacher(Long teacherId, CreateUserRequest request) {
         Teacher teacher = teacherRepository.findById(teacherId)
             .orElseThrow(() -> new ResourceNotFoundException(
@@ -270,6 +279,9 @@ public class UserService {
      * QAYTARILADI (admin xodimga og'zaki aytadi) va hech qachon logga yozilmaydi.
      */
     @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "User",
+        summary = "'Parol tiklandi'",
+        entityId = "#userId")
     public PasswordResetResponse resetPassword(Long userId) {
         User target = userRepository.findById(userId)
             .orElseThrow(() -> new ResourceNotFoundException(
@@ -311,11 +323,15 @@ public class UserService {
     // ------------------------------------------------------------------
 
     @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "User",
+        summary = "(#active ? 'Foydalanuvchi faollashtirildi: ' : 'Foydalanuvchi nofaol qilindi: ') + #result.username",
+        entityId = "#userId", label = "#result.username")
     public UserResponse setActive(Long userId, boolean active) {
         User target = userRepository.findById(userId)
             .orElseThrow(() -> new ResourceNotFoundException(
                 messages.get("error.user.notFound", userId)));
         User actor = requireCurrentUser();
+        AuditContext.change("isActive", target.getIsActive(), active);
 
         if (!active) {
             if (actor.getId().equals(target.getId())) {

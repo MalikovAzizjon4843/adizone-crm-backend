@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.Audited;
 import com.crm.dto.request.LeadAssignRequest;
 import com.crm.dto.request.LeadCommentRequest;
 import com.crm.dto.request.LeadConvertRequest;
@@ -198,6 +200,9 @@ public class LeadService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.CREATE, entity = "Student",
+        summary = "'Lead o''quvchiga aylantirildi'",
+        entityId = "#result.id")
     public LeadConvertResponse convertToStudent(Long id, LeadConvertRequest request) {
         Lead lead = leadRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Lead", id));

@@ -1,5 +1,8 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.AuditContext;
+import com.crm.audit.Audited;
 import com.crm.entity.enums.PaymentType;
 import com.crm.repository.StudentGroupRepository;
 import lombok.RequiredArgsConstructor;
@@ -38,7 +41,13 @@ public class MonthlyLedgerRepairService {
     /**
      * @param dryRun true (DEFAULT) — hech narsa yozilmaydi, faqat hisobot qaytariladi
      */
+    @Audited(action = AuditAction.REPAIR, entity = "Balance",
+        summary = "'MONTHLY daftar qayta qurildi'")
     public Map<String, Object> rebuildMonthlyLedger(boolean dryRun) {
+        if (dryRun) {
+            // Tahlil rejimi hech narsani o'zgartirmaydi — kuzatishga arzimaydi
+            AuditContext.skip();
+        }
         List<Long> ids = studentGroupRepository.findIdsByPaymentTypeOrNull(PaymentType.MONTHLY);
 
         int checked = 0;

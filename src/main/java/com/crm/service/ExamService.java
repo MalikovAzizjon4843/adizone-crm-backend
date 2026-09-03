@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.Audited;
 import com.crm.dto.request.ExamRequest;
 import com.crm.dto.request.ExamResultRequest;
 import com.crm.dto.response.*;
@@ -169,6 +171,9 @@ public class ExamService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "ExamResult",
+        summary = "'Imtihon natijasi tahrirlandi'",
+        entityId = "#resultId")
     public ExamResultResponse updateResult(Long examId, Long resultId, ExamResultRequest request) {
         Exam exam = findExamById(examId);
         assertExamAccess(exam);

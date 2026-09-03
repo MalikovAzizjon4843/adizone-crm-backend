@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.Audited;
 import com.crm.dto.request.CashRegisterCreateDto;
 import com.crm.dto.request.ExpenseCreateDto;
 import com.crm.dto.request.IncomeCreateDto;
@@ -370,6 +372,9 @@ public class CashRegisterService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.PAYMENT, entity = "CashRegister",
+        summary = "'Kassaga kirim: ' + #dto.amount",
+        entityId = "#cashRegisterId")
     public CashTransactionDto addIncome(Long cashRegisterId, IncomeCreateDto dto) {
         Student student = null;
         if (dto.getStudentId() != null) {
@@ -480,6 +485,9 @@ public class CashRegisterService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.PAYMENT, entity = "CashRegister",
+        summary = "'Kassadan chiqim: ' + #dto.amount",
+        entityId = "#cashRegisterId")
     public CashTransactionDto addExpense(Long cashRegisterId, ExpenseCreateDto dto) {
         Student student = null;
         if (dto.getStudentId() != null) {
@@ -505,6 +513,9 @@ public class CashRegisterService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.DELETE, entity = "CashTransaction",
+        summary = "'Kassa chiqimi o''chirildi'",
+        entityId = "#transactionId")
     public void deleteExpense(Long transactionId) {
         CashTransaction tx = cashTransactionRepository.findById(transactionId)
             .orElseThrow(() -> new ResourceNotFoundException("CashTransaction", transactionId));
@@ -519,6 +530,8 @@ public class CashRegisterService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.PAYMENT, entity = "CashRegister",
+        summary = "'Kassalar o''rtasida o''tkazma: ' + #dto.amount")
     public List<CashTransactionDto> transfer(TransferDto dto) {
         if (dto.getFromCashRegisterId() == null || dto.getToCashRegisterId() == null) {
             throw new BadRequestException("Manba va maqsad kassalari ko'rsatilishi shart");

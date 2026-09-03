@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.Audited;
 import com.crm.dto.request.PayrollPayDto;
 import com.crm.dto.request.PayrollRequest;
 import com.crm.dto.response.PageResponse;
@@ -167,6 +169,9 @@ public class PayrollService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.CREATE, entity = "Payroll",
+        summary = "'Oylik hisoblandi: ' + #result.teacherName",
+        entityId = "#result.id", label = "#result.teacherName")
     public PayrollResponse createPayroll(PayrollRequest request) {
         if (payrollRepository.findByTeacherIdAndMonthAndYear(
                 request.getTeacherId(), request.getMonth(), request.getYear()).isPresent()) {
@@ -197,6 +202,9 @@ public class PayrollService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "Payroll",
+        summary = "'Oylik o''zgartirildi: ' + #result.teacherName",
+        entityId = "#id", label = "#result.teacherName")
     public PayrollResponse updatePayroll(Long id, PayrollRequest request) {
         Payroll payroll;
         boolean isNew = false;
@@ -287,6 +295,9 @@ public class PayrollService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.PAYMENT, entity = "Payroll",
+        summary = "'Oylik to''landi: ' + #result.teacherName",
+        entityId = "#id", label = "#result.teacherName")
     public PayrollResponse markAsPaid(Long id, PayrollPayDto payDto) {
         Payroll payroll = findById(id);
         payroll.setStatus("PAID");

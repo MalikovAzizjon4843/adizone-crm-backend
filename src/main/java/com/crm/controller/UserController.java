@@ -1,5 +1,7 @@
 package com.crm.controller;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.Audited;
 import com.crm.dto.request.ChangePasswordRequest;
 import com.crm.dto.request.CreateUserRequest;
 import com.crm.dto.request.UpdateUserRequest;
@@ -173,6 +175,9 @@ public class UserController {
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @Audited(action = AuditAction.UPDATE, entity = "User",
+        summary = "'Foydalanuvchi o''zgartirildi'",
+        entityId = "#id")
     public ResponseEntity<ApiResponse<UserResponse>> updateUser(
             @PathVariable Long id,
             @Valid @RequestBody UpdateUserRequest request) {

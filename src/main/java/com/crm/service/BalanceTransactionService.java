@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.Audited;
 import com.crm.dto.response.BalanceHistoryItemDto;
 import com.crm.entity.BalanceTransaction;
 import com.crm.entity.Student;
@@ -185,6 +187,9 @@ public class BalanceTransactionService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "Balance",
+        summary = "'Balans qo''lda tuzatildi: ' + #amount + ' (' + #note + ')'",
+        entityId = "#studentId")
     public BalanceHistoryItemDto manualAdjust(Long studentId, Long groupId, BigDecimal amount, String note) {
         if (note == null || note.isBlank()) {
             throw new BadRequestException("Sabab majburiy");
