@@ -40,6 +40,11 @@ server:
     context-path: /
 
 app:
+  audit:
+    # false — AuditAspect umuman yuklanmaydi, hech narsa loglanmaydi
+    enabled: true
+    # Shu kundan eski loglar har kecha 03:30 da o'chiriladi (0 — hech qachon)
+    retention-days: 90
   upload:
     dir: /opt/crm/uploads
   base-url: https://api.adizone.uz
