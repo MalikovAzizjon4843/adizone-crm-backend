@@ -3,6 +3,7 @@ package com.crm.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -33,6 +34,19 @@ public class StudentStatusHistory {
 
     @Column(columnDefinition = "TEXT")
     private String notes;
+
+    /**
+     * Muzlatish paytidagi balans. Ilgari bu son {@code notes} matni ichiga
+     * qo'shib yuborilardi va frontend uni regex bilan ajratib olardi.
+     * Eski yozuvlarda null — o'sha qatorlar uchun frontend eski izohni
+     * o'z holicha ko'rsatadi.
+     */
+    @Column(name = "balance_snapshot", precision = 12, scale = 2)
+    private BigDecimal balanceSnapshot;
+
+    /** Kelajakdagi strukturaviy qo'shimchalar uchun. Hozircha null. */
+    @Column(name = "meta_json", columnDefinition = "TEXT")
+    private String metaJson;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "changed_by")

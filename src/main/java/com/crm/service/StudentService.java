@@ -976,8 +976,12 @@ public class StudentService {
         history.setFromStatus(previousStatus);
         history.setToStatus(StudentStatus.FROZEN.name());
         history.setReason(request.getReason() != null ? request.getReason() : "FROZEN");
-        history.setNotes("Muzlatish balansi: " + calc.totalBalance().toPlainString()
-            + (request.getNote() != null ? " | " + request.getNote() : ""));
+        // Summa endi alohida ustunda — izoh faqat matn bo'lib qoladi va
+        // frontend uni regex bilan ajratib olishga majbur emas.
+        history.setBalanceSnapshot(calc.totalBalance());
+        history.setNotes(request.getNote() != null && !request.getNote().isBlank()
+            ? "Muzlatildi | " + request.getNote()
+            : "Muzlatildi");
         history.setChangedAt(LocalDateTime.now());
         studentStatusHistoryRepository.save(history);
 
