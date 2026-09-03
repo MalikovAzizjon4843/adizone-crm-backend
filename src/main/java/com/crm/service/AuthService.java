@@ -1,5 +1,9 @@
 package com.crm.service;
 
+import com.crm.audit.AuditAction;
+import com.crm.audit.AuditContext;
+import com.crm.audit.AuditRecorder;
+import com.crm.audit.Audited;
 import com.crm.config.Messages;
 import com.crm.dto.request.LoginRequest;
 import com.crm.dto.response.AuthResponse;
@@ -32,6 +36,7 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final Messages messages;
+    private final AuditRecorder auditRecorder;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtils jwtUtils;
@@ -42,12 +47,28 @@ public class AuthService {
     private long refreshExpiration;
 
     @Transactional
+    @Audited(action = AuditAction.LOGIN, entity = "User",
+        summary = "'Tizimga kirdi: ' + #result.username",
+        entityId = "#result.userId",
+        label = "#result.username")
     public AuthResponse login(LoginRequest request) {
-        authenticationManager.authenticate(
-            new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
-        );
+        try {
+            authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
+            );
+        } catch (RuntimeException e) {
+            // Muvaffaqiyatsiz urinish ham qayd qilinadi. @Audited buni ushlay olmaydi:
+            // metod exception bilan tugagani uchun aspect ataylab log yozmaydi.
+            recordFailedLogin(request.getUsername(), e);
+            throw e;
+        }
         User user = userRepository.findByUsername(request.getUsername())
             .orElseThrow(() -> new BadRequestException(messages.get("error.auth.userNotFound")));
+
+        // SecurityContext bu bosqichda hali bo'sh — JWT filtri keyingi so'rovlarda
+        // to'ldiradi. Kim kirganini shu yerda o'zimiz bilamiz, aspectga beramiz.
+        AuditContext.actor(user.getId(), user.getUsername(),
+            user.getRole() != null ? user.getRole().name() : null);
 
         user.setLastLogin(LocalDateTime.now());
         userRepository.save(user);
@@ -77,6 +98,23 @@ public class AuthService {
             .role(user.getRole())
             .expiresIn(86400L)
             .build();
+    }
+
+    /** Parol hech qachon logga tushmaydi — faqat login va sabab. */
+    private void recordFailedLogin(String username, RuntimeException cause) {
+        try {
+            auditRecorder.record(com.crm.entity.AuditLog.builder()
+                .createdAt(LocalDateTime.now())
+                .username(username)
+                .action(AuditAction.LOGIN_FAILED)
+                .entityType("User")
+                .entityLabel(username)
+                .summary("Tizimga kirish muvaffaqiyatsiz: " + username
+                    + " (" + cause.getClass().getSimpleName() + ")")
+                .build());
+        } catch (Exception ignored) {
+            // Audit hech qachon login oqimini buzmasligi kerak
+        }
     }
 
     @Transactional
