@@ -11,8 +11,11 @@ import com.crm.dto.response.LeadConvertResponse;
 import com.crm.dto.response.LeadOperatorResponse;
 import com.crm.dto.response.LeadResponse;
 import com.crm.dto.response.LeadStatsResponse;
+import com.crm.dto.response.LeadStatusHistoryResponse;
 import com.crm.dto.response.PageResponse;
+import com.crm.dto.response.TaskResponse;
 import com.crm.service.LeadService;
+import com.crm.service.TaskService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -25,14 +28,33 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.util.List;
 
+/**
+ * Lidlar API.
+ *
+ * <p>Ruxsat sinf darajasida beriladi: ADMIN/SUPER_ADMIN hamma lidni ko'radi,
+ * SALES_MANAGER faqat o'ziga biriktirilganini — doira {@code LeadService}
+ * ichida {@code LeadAccessService} orqali majburlanadi, endpointlarda
+ * qo'shimcha shart yozilmaydi.
+ *
+ * <p>Agregat endpointlar ({@code /stats}, {@code /operators}, {@code /export})
+ * metod darajasida toraytirilgan: ular butun bazani ko'rsatadi, shuning uchun
+ * operatorga berilmaydi.
+ *
+ * <p>ADMINISTRATOR ataylab yo'q — u ADMIN bilan bir xil bo'lgani uchun
+ * olib tashlanadi.
+ */
 @RestController
 @RequestMapping("/api/leads")
 @RequiredArgsConstructor
+@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','SALES_MANAGER')")
 public class LeadController {
 
     private final LeadService leadService;
+    private final TaskService taskService;
 
+    /** Ochiq forma — sinf darajasidagi rol tekshiruvi bu yerda bekor qilinadi. */
     @PostMapping("/public")
+    @PreAuthorize("permitAll()")
     public ResponseEntity<ApiResponse<LeadResponse>> createPublicLead(
             @Valid @RequestBody LeadRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -41,7 +63,6 @@ public class LeadController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<PageResponse<LeadResponse>>> getAll(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -86,11 +107,11 @@ public class LeadController {
     }
 
     @GetMapping("/{id:\\d+}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<LeadResponse>> getById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(leadService.getById(id)));
     }
 
+    /** Operatorni almashtirish faqat adminda — operator o'zidan lidni olib tashlay olmaydi. */
     @PatchMapping("/{id:\\d+}/assign")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<LeadResponse>> assignLead(
@@ -102,7 +123,6 @@ public class LeadController {
     }
 
     @PatchMapping("/{id:\\d+}/status")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<LeadResponse>> updateStatus(
             @PathVariable Long id,
             @Valid @RequestBody LeadStatusRequest request) {
@@ -112,7 +132,6 @@ public class LeadController {
     }
 
     @PostMapping("/{id:\\d+}/comments")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<LeadCommentResponse>> addComment(
             @PathVariable Long id,
             @Valid @RequestBody LeadCommentRequest request) {
@@ -122,7 +141,6 @@ public class LeadController {
     }
 
     @GetMapping("/{id:\\d+}/comments")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<PageResponse<LeadCommentResponse>>> getComments(
             @PathVariable Long id,
             @RequestParam(defaultValue = "0") int page,
@@ -130,8 +148,20 @@ public class LeadController {
         return ResponseEntity.ok(ApiResponse.success(leadService.getComments(id, page, size)));
     }
 
+    /** Lid kartasidagi vazifalar: ochiqlar yuqorida, keyin yopilganlar. */
+    @GetMapping("/{id:\\d+}/tasks")
+    public ResponseEntity<ApiResponse<List<TaskResponse>>> getTasks(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(taskService.getByLead(id)));
+    }
+
+    /** Bosqich o'tishlari tarixi — yangidan eskiga. */
+    @GetMapping("/{id:\\d+}/history")
+    public ResponseEntity<ApiResponse<List<LeadStatusHistoryResponse>>> getHistory(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(leadService.getHistory(id)));
+    }
+
     @PostMapping("/{id:\\d+}/convert")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<LeadConvertResponse>> convertToStudent(
             @PathVariable Long id,
             @RequestBody(required = false) LeadConvertRequest request) {

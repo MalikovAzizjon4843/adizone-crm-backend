@@ -1,6 +1,7 @@
 package com.crm.service;
 
 import com.crm.audit.AuditAction;
+import com.crm.audit.AuditContext;
 import com.crm.audit.Audited;
 import com.crm.dto.request.LeadAssignRequest;
 import com.crm.dto.request.LeadCommentRequest;
@@ -13,12 +14,16 @@ import com.crm.dto.response.LeadOperatorResponse;
 import com.crm.dto.response.LeadOperatorStatsResponse;
 import com.crm.dto.response.LeadResponse;
 import com.crm.dto.response.LeadStatsResponse;
+import com.crm.dto.response.LeadStatusHistoryResponse;
 import com.crm.dto.response.PageResponse;
 import com.crm.entity.Lead;
 import com.crm.entity.LeadComment;
+import com.crm.entity.LeadStatusHistory;
 import com.crm.entity.Student;
+import com.crm.entity.Task;
 import com.crm.entity.User;
 import com.crm.entity.enums.LeadStatus;
+import com.crm.entity.enums.LeadTaskState;
 import com.crm.entity.enums.MarketingSource;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.StudentStatus;
@@ -28,6 +33,7 @@ import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.LeadCommentRepository;
 import com.crm.repository.LeadRepository;
+import com.crm.repository.LeadStatusHistoryRepository;
 import com.crm.repository.StudentRepository;
 import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +43,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,6 +56,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -62,12 +68,19 @@ public class LeadService {
 
     private final LeadRepository leadRepository;
     private final LeadCommentRepository leadCommentRepository;
+    private final LeadStatusHistoryRepository leadStatusHistoryRepository;
     private final StudentRepository studentRepository;
     private final StudentService studentService;
     private final GroupService groupService;
     private final UserRepository userRepository;
+    private final TaskService taskService;
+    private final LeadAccessService leadAccessService;
 
     @Transactional
+    @Audited(action = AuditAction.CREATE, entity = "Lead",
+        summary = "'Yangi lid: ' + #result.fullName",
+        entityId = "#result.id",
+        label = "#result.fullName")
     public LeadResponse createLead(LeadRequest request) {
         Lead lead = Lead.builder()
                 .fullName(request.getFullName())
@@ -93,24 +106,82 @@ public class LeadService {
             int page, int size, String status, String search,
             Long assignedUserId, Boolean unassigned,
             String fromDate, String toDate) {
+        // SALES_MANAGER uchun operator filtri majburlab qo'yiladi: so'rovdagi
+        // assignedUserId ham, unassigned ham e'tiborga olinmaydi.
+        Optional<Long> scope = leadAccessService.resolveOperatorScope();
+        Long effectiveUserId = scope.orElse(assignedUserId);
+        Boolean effectiveUnassigned = scope.isPresent() ? null : unassigned;
+
         int safeSize = Math.min(Math.max(size, 1), 100);
         int safePage = Math.max(page, 0);
         Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by("createdAt").descending());
-        Specification<Lead> spec = buildLeadSpec(status, search, assignedUserId, unassigned, fromDate, toDate);
+        Specification<Lead> spec = buildLeadSpec(
+            status, search, effectiveUserId, effectiveUnassigned, fromDate, toDate);
         Page<Lead> leads = leadRepository.findAll(spec, pageable);
         return toPageResponse(leads);
     }
 
     @Transactional(readOnly = true)
     public LeadResponse getById(Long id) {
-        return toResponse(leadRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Lead", id)));
+        Lead lead = leadRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Lead", id));
+        leadAccessService.assertCanAccessLead(lead);
+        return toResponse(lead);
+    }
+
+    /**
+     * Lid bosqichlari tarixi — yangidan eskiga.
+     *
+     * <p>{@code daysInPreviousStatus} shu yerda hisoblanadi: yozuvlar ketma-ket
+     * bo'lgani uchun ikki o'tish orasidagi farq oldingi bosqichda o'tirgan
+     * vaqtni beradi. Eng eski yozuvda null — lid yaratilgan paytdan
+     * birinchi o'tishgacha bo'lgan davr uchun tarix yozuvi yo'q.
+     */
+    @Transactional(readOnly = true)
+    public List<LeadStatusHistoryResponse> getHistory(Long id) {
+        Lead lead = leadRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Lead", id));
+        leadAccessService.assertCanAccessLead(lead);
+
+        List<LeadStatusHistory> rows =
+            leadStatusHistoryRepository.findByLead_IdOrderByChangedAtDesc(id);
+        List<LeadStatusHistoryResponse> result = new java.util.ArrayList<>(rows.size());
+        for (int i = 0; i < rows.size(); i++) {
+            LeadStatusHistory row = rows.get(i);
+            Long days = null;
+            if (i + 1 < rows.size()) {
+                days = java.time.Duration.between(
+                    rows.get(i + 1).getChangedAt(), row.getChangedAt()).toDays();
+            }
+            result.add(LeadStatusHistoryResponse.builder()
+                .id(row.getId())
+                .fromStatus(row.getFromStatus())
+                .fromStatusLabel(row.getFromStatus() != null
+                    ? translateStatus(row.getFromStatus()) : null)
+                .toStatus(row.getToStatus())
+                .toStatusLabel(translateStatus(row.getToStatus()))
+                .changedById(row.getChangedBy() != null ? row.getChangedBy().getId() : null)
+                .changedByName(row.getChangedBy() != null
+                    ? formatUserName(row.getChangedBy()) : null)
+                .changedAt(row.getChangedAt())
+                .note(row.getNote())
+                .daysInPreviousStatus(days)
+                .build());
+        }
+        return result;
     }
 
     @Transactional
+    @Audited(action = AuditAction.ASSIGN, entity = "Lead",
+        summary = "'Lid operatori: ' + (#result.assignedUserName ?: 'biriktirilmagan')",
+        entityId = "#result.id",
+        label = "#result.fullName")
     public LeadResponse assignLead(Long id, LeadAssignRequest request) {
         Lead lead = leadRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Lead", id));
+        leadAccessService.assertCanAccessLead(lead);
+        String previousOperator = lead.getAssignedUser() != null
+                ? formatUserName(lead.getAssignedUser()) : null;
 
         if (request.getUserId() == null) {
             lead.setAssignedUser(null);
@@ -128,16 +199,30 @@ public class LeadService {
             lead.setAssignedUser(user);
             lead.setAssignedAt(LocalDateTime.now());
         }
+        AuditContext.change("assignedUser", previousOperator,
+                lead.getAssignedUser() != null ? formatUserName(lead.getAssignedUser()) : null);
         return toResponse(leadRepository.save(lead));
     }
 
     @Transactional
+    @Audited(action = AuditAction.STATUS_CHANGE, entity = "Lead",
+        summary = "'Lid bosqichi: ' + #result.status",
+        entityId = "#result.id",
+        label = "#result.fullName")
     public LeadResponse updateStatus(Long id, String status) {
         Lead lead = leadRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Lead", id));
+        leadAccessService.assertCanAccessLead(lead);
 
         LeadStatus newStatus = parseStatus(status);
+        LeadStatus oldStatus = lead.getStatus();
         lead.setStatus(newStatus);
+
+        // Bir xil bosqichga qayta o'tish tarixni ham, auditni ham to'ldirmasin
+        if (oldStatus != newStatus) {
+            AuditContext.change("status", oldStatus, newStatus);
+            recordStatusChange(lead, oldStatus, newStatus, null);
+        }
 
         if (newStatus == LeadStatus.ONLINE_PAID || newStatus == LeadStatus.OFFLINE_PAID) {
             addSystemComment(lead, PAYMENT_COMMENT_TEXT);
@@ -147,9 +232,14 @@ public class LeadService {
     }
 
     @Transactional
+    @Audited(action = AuditAction.COMMENT, entity = "Lead",
+        summary = "'Lidga izoh yozildi'",
+        entityId = "#leadId")
     public LeadCommentResponse addComment(Long leadId, LeadCommentRequest request) {
         Lead lead = leadRepository.findById(leadId)
                 .orElseThrow(() -> new ResourceNotFoundException("Lead", leadId));
+        leadAccessService.assertCanAccessLead(lead);
+        AuditContext.label(lead.getFullName());
         User author = getCurrentUser();
         if (author == null) {
             throw new BadRequestException("Foydalanuvchi aniqlanmadi");
@@ -169,6 +259,7 @@ public class LeadService {
         if (!leadRepository.existsById(leadId)) {
             throw new ResourceNotFoundException("Lead", leadId);
         }
+        leadAccessService.assertCanAccessLead(leadId);
         int safeSize = Math.min(Math.max(size, 1), 100);
         int safePage = Math.max(page, 0);
         Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by("createdAt").descending());
@@ -206,6 +297,7 @@ public class LeadService {
     public LeadConvertResponse convertToStudent(Long id, LeadConvertRequest request) {
         Lead lead = leadRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Lead", id));
+        leadAccessService.assertCanAccessLead(lead);
 
         if (Boolean.TRUE.equals(lead.getConverted())
                 || lead.getStatus() == LeadStatus.CONVERTED
@@ -272,10 +364,16 @@ public class LeadService {
         student = studentRepository.findById(studentId)
             .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
 
+        LeadStatus statusBeforeConvert = lead.getStatus();
         lead.setStudent(student);
         lead.setConverted(true);
         lead.setStatus(LeadStatus.CONVERTED);
         leadRepository.save(lead);
+
+        if (statusBeforeConvert != LeadStatus.CONVERTED) {
+            recordStatusChange(lead, statusBeforeConvert, LeadStatus.CONVERTED,
+                "O'quvchiga aylantirildi");
+        }
 
         return LeadConvertResponse.builder()
             .id(student.getId())
@@ -417,6 +515,21 @@ public class LeadService {
         }
     }
 
+    /**
+     * Bosqich o'tishini tarixga yozadi. Muallif aniqlanmasa ham yozuv
+     * yaratiladi — {@code changedBy} null bo'ladi (masalan kelajakdagi
+     * avtomatik o'tishlar uchun), chunki o'tish fakti muallifdan muhimroq.
+     */
+    private void recordStatusChange(Lead lead, LeadStatus from, LeadStatus to, String note) {
+        leadStatusHistoryRepository.save(LeadStatusHistory.builder()
+                .lead(lead)
+                .fromStatus(from)
+                .toStatus(to)
+                .changedBy(getCurrentUser())
+                .note(note)
+                .build());
+    }
+
     private void addSystemComment(Lead lead, String text) {
         User author = getCurrentUser();
         if (author == null) {
@@ -431,9 +544,12 @@ public class LeadService {
         leadCommentRepository.save(comment);
     }
 
+    /**
+     * Joriy foydalanuvchi yoki null. Null bo'lishi mumkin: {@code /api/leads/public}
+     * autentifikatsiyasiz chaqiriladi.
+     */
     private User getCurrentUser() {
-        String username = SecurityContextHolder.getContext().getAuthentication().getName();
-        return userRepository.findByUsername(username).orElse(null);
+        return leadAccessService.currentUserOrNull();
     }
 
     private MarketingSource parseMarketingSource(String src) {
@@ -453,13 +569,20 @@ public class LeadService {
                 .collect(Collectors.toList());
         Map<Long, Long> commentCounts = loadCommentCounts(leadIds);
         Map<Long, String> lastComments = loadLastCommentTexts(leadIds);
+        // Sahifadagi barcha lidlarning eng yaqin ochiq vazifasi — bitta so'rov.
+        // Denormalizatsiya (leads.next_task_due_at) ataylab qilinmadi:
+        // converted/status juftligi allaqachon sinxrondan chiqib ketgan.
+        Map<Long, Task> nextTasks = taskService.loadNextOpenTasks(leadIds);
+        LocalDateTime now = LocalDateTime.now();
 
         return PageResponse.<LeadResponse>builder()
                 .content(leads.getContent().stream()
                         .map(lead -> toResponse(
                                 lead,
                                 commentCounts.getOrDefault(lead.getId(), 0L),
-                                lastComments.get(lead.getId())))
+                                lastComments.get(lead.getId()),
+                                nextTasks.get(lead.getId()),
+                                now))
                         .collect(Collectors.toList()))
                 .pageNumber(leads.getNumber())
                 .pageSize(leads.getSize())
@@ -496,10 +619,13 @@ public class LeadService {
         if (!latest.isEmpty()) {
             lastCommentText = latest.get(0).getText();
         }
-        return toResponse(lead, commentsCount, lastCommentText);
+        Task nextTask = taskService.loadNextOpenTasks(List.of(lead.getId())).get(lead.getId());
+        return toResponse(lead, commentsCount, lastCommentText, nextTask, LocalDateTime.now());
     }
 
-    private LeadResponse toResponse(Lead lead, long commentsCount, String lastCommentText) {
+    private LeadResponse toResponse(
+            Lead lead, long commentsCount, String lastCommentText,
+            Task nextTask, LocalDateTime now) {
         String studentName = null;
         if (lead.getStudent() != null) {
             studentName = (lead.getStudent().getFirstName() != null ? lead.getStudent().getFirstName() : "")
@@ -528,6 +654,11 @@ public class LeadService {
                 .assignedAt(lead.getAssignedAt())
                 .commentsCount(commentsCount)
                 .lastCommentText(lastCommentText)
+                .nextTaskDueAt(nextTask != null ? nextTask.getDueAt() : null)
+                .nextTaskTitle(nextTask != null ? nextTask.getTitle() : null)
+                .taskState(nextTask != null
+                        ? LeadTaskState.resolve(nextTask.getDueAt(), now)
+                        : LeadTaskState.NONE)
                 .createdAt(lead.getCreatedAt())
                 .updatedAt(lead.getUpdatedAt())
                 .build();

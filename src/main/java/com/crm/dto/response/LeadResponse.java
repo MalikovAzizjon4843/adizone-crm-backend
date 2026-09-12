@@ -1,6 +1,7 @@
 package com.crm.dto.response;
 
 import com.crm.entity.enums.LeadStatus;
+import com.crm.entity.enums.LeadTaskState;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -33,6 +34,16 @@ public class LeadResponse {
     private LocalDateTime assignedAt;
     private long commentsCount;
     private String lastCommentText;
+
+    /**
+     * Eng yaqin OCHIQ vazifa. Saqlanmaydi — har so'rovda batch so'rov bilan
+     * yuklanadi (qarang {@code TaskService.loadNextOpenTasks}).
+     */
+    private LocalDateTime nextTaskDueAt;
+    private String nextTaskTitle;
+    /** Kanban kartasidagi rangli nuqta: NONE/PLANNED/TODAY/OVERDUE. */
+    private LeadTaskState taskState;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
