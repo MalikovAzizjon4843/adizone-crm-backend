@@ -455,9 +455,12 @@ public class TaskService {
     }
 
     /**
-     * To'liq huquq bo'lmasa vazifa o'ziga biriktirilgan yoki o'zi yaratgan
-     * bo'lishi kerak. Muallifni ham qo'shish shart: operator boshqa odamga
-     * vazifa yozib, keyin uni tahrirlay olmasligi mantiqsiz bo'lardi.
+     * To'liq huquq bo'lmasa vazifa FAQAT o'ziga biriktirilgan bo'lishi kerak.
+     *
+     * <p>Muallif tekshiruvi ataylab yo'q: admin vazifani {@code /reassign}
+     * bilan boshqa odamga o'tkazgach, eski muallif {@code TaskResponse}
+     * ichidagi lid ma'lumotini ko'rishda davom etardi. Mas'ullik o'tgach
+     * ko'rish huquqi ham o'tadi.
      */
     private void assertCanAccessTask(Task task) {
         if (leadAccessService.hasFullAccess()) {
@@ -466,9 +469,7 @@ public class TaskService {
         User current = leadAccessService.getCurrentUserOrThrow();
         boolean isAssignee = task.getAssignedTo() != null
             && current.getId().equals(task.getAssignedTo().getId());
-        boolean isAuthor = task.getCreatedBy() != null
-            && current.getId().equals(task.getCreatedBy().getId());
-        if (!isAssignee && !isAuthor) {
+        if (!isAssignee) {
             throw new ForbiddenException("Bu vazifa sizga tegishli emas");
         }
     }
