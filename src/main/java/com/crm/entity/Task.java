@@ -12,10 +12,13 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * Operator vazifasi (zadacha). Lidga YOKI o'quvchiga bog'lanadi — ikkalasiga
- * emas, birortasiga ham emas. Bu qoida servis darajasida tekshiriladi
- * ({@code TaskService.resolveTarget}), chunki {@code EnumCheckConstraintCleaner}
- * baza CHECK constraintlarini tozalab yuboradi.
+ * Operator vazifasi (zadacha). Lidga YOKI o'quvchiga bog'lanadi, yoki
+ * ikkalasiga ham emas — mustaqil vazifa ("bugun hisobotni yuboraman").
+ * Taqiqlanadigan yagona holat — ikkalasi birga to'ldirilishi.
+ *
+ * <p>Bu cheklov {@code TaskCreateRequest} dagi {@code @AssertTrue} da va
+ * {@code TaskService.create()} da tekshiriladi, bazada emas:
+ * {@code EnumCheckConstraintCleaner} CHECK constraintlarni tozalab yuboradi.
  *
  * <p><b>{@code allDay} va {@code dueAt}:</b> "kun davomida" vazifa uchun
  * {@code dueAt} shu kunning 23:59 ga normallashtiriladi

@@ -12,8 +12,9 @@ import lombok.NoArgsConstructor;
  * qo'shing" oynasini ko'rsatadi — amoCRM ham shunday qiladi va aynan shu
  * narsa lidning "Без задач" ro'yxatiga tushib qolishiga yo'l qo'ymaydi.
  *
- * <p>O'quvchiga bog'langan vazifada {@code leadId} null, {@code leadHasOpenTask}
- * esa {@code false} — frontend bu holatda taklifni ko'rsatmaydi.
+ * <p>Lidga bog'lanmagan vazifada (o'quvchi vazifasi yoki mustaqil vazifa)
+ * {@code leadId} null, {@code leadHasOpenTask} esa {@code false} — frontend
+ * bu holatda taklifni ko'rsatmaydi.
  */
 @Data
 @Builder

@@ -3,6 +3,7 @@ package com.crm.service;
 import com.crm.audit.AuditAction;
 import com.crm.audit.AuditContext;
 import com.crm.audit.Audited;
+import com.crm.config.Messages;
 import com.crm.dto.request.TaskCompleteRequest;
 import com.crm.dto.request.TaskCreateRequest;
 import com.crm.dto.request.TaskPostponeRequest;
@@ -71,6 +72,7 @@ public class TaskService {
     private final StudentRepository studentRepository;
     private final UserRepository userRepository;
     private final LeadAccessService leadAccessService;
+    private final Messages messages;
 
     // ── Yozish ───────────────────────────────────────────────────────────
 
@@ -83,11 +85,13 @@ public class TaskService {
         User current = leadAccessService.getCurrentUserOrThrow();
         Optional<Long> scope = leadAccessService.resolveOperatorScope();
 
+        // DTO dagi @AssertTrue bilan bir xil shart. Takrorlanishi ataylab:
+        // servis boshqa chaqiruv nuqtasidan ham chaqirilishi mumkin, xabar esa
+        // ikkalasida bitta kalitdan keladi.
         Lead lead = null;
         Student student = null;
         if (request.getLeadId() != null && request.getStudentId() != null) {
-            throw new BadRequestException(
-                "Vazifa lidga yoki o'quvchiga bog'lanadi — ikkalasiga birga emas");
+            throw new BadRequestException(messages.get("task.target.single"));
         }
         if (request.getLeadId() != null) {
             lead = leadRepository.findById(request.getLeadId())
@@ -96,9 +100,8 @@ public class TaskService {
         } else if (request.getStudentId() != null) {
             student = studentRepository.findById(request.getStudentId())
                 .orElseThrow(() -> new ResourceNotFoundException("Student", request.getStudentId()));
-        } else {
-            throw new BadRequestException("leadId yoki studentId majburiy");
         }
+        // Ikkalasi ham null — mustaqil vazifa, hech qanday obyektga bog'lanmaydi
 
         User assignee = resolveAssignee(request.getAssignedTo(), current, scope);
         boolean allDay = Boolean.TRUE.equals(request.getAllDay());
