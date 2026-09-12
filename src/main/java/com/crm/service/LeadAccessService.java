@@ -29,9 +29,6 @@ import java.util.Set;
  * <p>Boshqa rol shu servisga yetib kelsa — 403. Bu "ochiq qolib ketish"
  * xavfini yopadi: {@code SecurityConfig} da yangi rol qo'shilsa ham u
  * jimgina hamma lidni ko'ra olmaydi, balki xato oladi.
- *
- * <p>ADMINISTRATOR roli ataylab yo'q — u ADMIN bilan bir xil bo'lgani uchun
- * olib tashlanadi, shuning uchun yangi kodga kiritilmaydi.
  */
 @Service
 @RequiredArgsConstructor

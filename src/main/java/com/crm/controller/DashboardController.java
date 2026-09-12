@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/dashboard")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ADMINISTRATOR')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
 public class DashboardController {
 
     private final DashboardService dashboardService;

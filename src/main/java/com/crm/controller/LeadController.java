@@ -39,9 +39,6 @@ import java.util.List;
  * <p>Agregat endpointlar ({@code /stats}, {@code /operators}, {@code /export})
  * metod darajasida toraytirilgan: ular butun bazani ko'rsatadi, shuning uchun
  * operatorga berilmaydi.
- *
- * <p>ADMINISTRATOR ataylab yo'q — u ADMIN bilan bir xil bo'lgani uchun
- * olib tashlanadi.
  */
 @RestController
 @RequestMapping("/api/leads")

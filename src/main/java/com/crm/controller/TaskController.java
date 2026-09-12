@@ -23,9 +23,6 @@ import org.springframework.web.bind.annotation.*;
  * {@link PreAuthorize}: ADMIN va SUPER_ADMIN hamma vazifani, SALES_MANAGER
  * faqat o'ziga tegishlisini ko'radi (doira {@code TaskService} ichida,
  * {@code LeadAccessService} orqali).
- *
- * <p>ADMINISTRATOR ataylab yo'q — u ADMIN bilan bir xil bo'lgani uchun
- * olib tashlanadi.
  */
 @RestController
 @RequestMapping("/api/tasks")

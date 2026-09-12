@@ -28,7 +28,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/cash-registers")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ADMINISTRATOR','ACCOUNTANT')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
 public class CashRegisterController {
 
     private final CashRegisterService cashRegisterService;
