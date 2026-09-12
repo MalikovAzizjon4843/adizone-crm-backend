@@ -103,6 +103,10 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMINISTRATOR", "ACCOUNTANT")
                 .requestMatchers("/api/leads/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMINISTRATOR", "SALES_MANAGER")
+                // Vazifalar — ADMINISTRATOR yo'q: u ADMIN bilan bir xil bo'lgani
+                // uchun olib tashlanadi, shuning uchun yangi yo'llarga qo'shilmaydi.
+                .requestMatchers("/api/tasks/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER")
                 .requestMatchers("/api/promotions/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ADMINISTRATOR")
                 .requestMatchers("/api/parents/**")

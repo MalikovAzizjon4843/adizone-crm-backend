@@ -1,5 +1,8 @@
 package com.crm.entity.enums;
 
+import java.util.EnumSet;
+import java.util.Set;
+
 public enum LeadStatus {
     NEW,
     DAY_1_WORKED,
@@ -12,6 +15,26 @@ public enum LeadStatus {
     OFFLINE_PAID,
     CONVERTED,
     REJECTED;
+
+    /**
+     * Yopilgan bosqichlar — lid ustida ish tugagan. Ochiq lidlarni sanaydigan
+     * joylarda ro'yxatni qo'lda takrorlamaslik uchun shu yerda.
+     *
+     * <p>Voronka dinamik bo'lganda bu to'plam {@code LeadStage.systemCode}
+     * (WON/LOST) bilan almashtiriladi — o'sha paytda o'zgartirish kerak
+     * bo'lgan yagona joy.
+     */
+    private static final Set<LeadStatus> CLOSED = EnumSet.of(CONVERTED, REJECTED);
+
+    /** Lid ustida ish tugaganmi? */
+    public boolean isClosed() {
+        return CLOSED.contains(this);
+    }
+
+    /** Yopilgan bosqichlar — so'rov parametri sifatida ishlatish uchun. */
+    public static Set<LeadStatus> closed() {
+        return CLOSED;
+    }
 
     public static LeadStatus fromString(String value) {
         if (value == null || value.isBlank()) {

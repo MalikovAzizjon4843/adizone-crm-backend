@@ -75,6 +75,38 @@ public interface LeadRepository extends JpaRepository<Lead, Long>, JpaSpecificat
         @Param("from") java.time.LocalDateTime from,
         @Param("toExclusive") java.time.LocalDateTime toExclusive);
 
+    /**
+     * Ochiq vazifasi yo'q, yopilmagan lidlar soni — amoCRM'dagi "Без задач".
+     * Bu eng muhim ko'rsatkich: lid tizimda turgan, lekin uni oldinga
+     * suradigan hech qanday rejalashtirilgan qadam yo'q.
+     *
+     * <p>{@code closedStatuses} — {@link com.crm.entity.enums.LeadStatus#closed()}.
+     */
+    @Query("""
+        SELECT COUNT(l) FROM Lead l
+        WHERE l.status NOT IN :closedStatuses
+          AND NOT EXISTS (
+            SELECT 1 FROM Task t
+            WHERE t.lead = l
+              AND t.status = com.crm.entity.enums.TaskStatus.OPEN)
+        """)
+    long countOpenLeadsWithoutTask(
+        @Param("closedStatuses") java.util.Collection<LeadStatus> closedStatuses);
+
+    /** {@link #countOpenLeadsWithoutTask} ning bitta operator uchun varianti. */
+    @Query("""
+        SELECT COUNT(l) FROM Lead l
+        WHERE l.status NOT IN :closedStatuses
+          AND l.assignedUser.id = :userId
+          AND NOT EXISTS (
+            SELECT 1 FROM Task t
+            WHERE t.lead = l
+              AND t.status = com.crm.entity.enums.TaskStatus.OPEN)
+        """)
+    long countOpenLeadsWithoutTaskByUser(
+        @Param("closedStatuses") java.util.Collection<LeadStatus> closedStatuses,
+        @Param("userId") Long userId);
+
     @Modifying
     @Query(value = "UPDATE leads SET status = :newStatus WHERE status = :oldStatus", nativeQuery = true)
     int migrateStatus(@Param("oldStatus") String oldStatus, @Param("newStatus") String newStatus);
