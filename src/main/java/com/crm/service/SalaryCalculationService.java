@@ -35,8 +35,16 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class SalaryCalculationService {
 
+    /**
+     * Oyligi hisoblanadigan rollar. ADMINISTRATOR ADMIN ga qo'shilgandan keyin
+     * shu ro'yxatga ADMIN kirdi: aks holda avvalgi administratorlar oylik
+     * hisobidan butunlay tushib qolardi.
+     *
+     * <p>Qoidasi yo'q ADMIN ro'yxatda "Oylik qoidasi topilmadi" bo'lib turadi —
+     * qoidasi yo'q o'qituvchi bilan bir xil. SUPER_ADMIN avvalgidek tashqarida.
+     */
     private static final Set<UserRole> SALARY_ROLES = EnumSet.of(
-        UserRole.TEACHER, UserRole.ADMINISTRATOR, UserRole.SALES_MANAGER);
+        UserRole.TEACHER, UserRole.ADMIN, UserRole.SALES_MANAGER);
 
     private final UserRepository userRepository;
     private final TeacherRepository teacherRepository;
@@ -49,9 +57,23 @@ public class SalaryCalculationService {
     @Transactional(readOnly = true)
     public List<SalaryCalculationDto> calculateAll(int month, int year) {
         validatePeriod(month, year);
+        LocalDate asOf = YearMonth.of(year, month).atEndOfMonth();
         List<SalaryCalculationDto> out = new ArrayList<>();
         for (User user : userRepository.findByIsActiveTrue()) {
             if (user.getRole() == null || !SALARY_ROLES.contains(user.getRole())) {
+                continue;
+            }
+            // ADMIN ro'yxatga faqat qoidasi bo'lsa tushadi. Adminlarning
+            // ko'pchiligi oylik olmaydi — ularni "Oylik qoidasi topilmadi"
+            // qatori sifatida ko'rsatish shovqindan boshqa narsa emas.
+            //
+            // TEACHER va SALES_MANAGER da qoida yo'qligi HAQIQIY muammo,
+            // shuning uchun ular avvalgidek ro'yxatda ko'rinadi.
+            //
+            // calculateForUser() bu filtrni qo'llamaydi: aniq bir odam
+            // so'ralganda "qoida yo'q" javobi aynan kerakli javob.
+            if (user.getRole() == UserRole.ADMIN
+                    && salaryRuleRepository.resolveRule(user, asOf).isEmpty()) {
                 continue;
             }
             out.add(calculate(user, month, year, false));
@@ -94,8 +116,8 @@ public class SalaryCalculationService {
         if (role == UserRole.TEACHER) {
             return calculateTeacher(user, rule, month, year, from, to, withDetails);
         }
-        if (role == UserRole.ADMINISTRATOR) {
-            return calculateAdministrator(user, rule, month, year, from, to, withDetails);
+        if (role == UserRole.ADMIN) {
+            return calculateAdmin(user, rule, month, year, from, to, withDetails);
         }
         if (role == UserRole.SALES_MANAGER) {
             return calculateSales(user, rule, month, year, from, to, withDetails);
@@ -194,7 +216,8 @@ public class SalaryCalculationService {
             .build();
     }
 
-    private SalaryCalculationDto calculateAdministrator(
+    /** Avval ADMINISTRATOR uchun bo'lgan formula: baza + yangi o'quvchi bonusi + KPI. */
+    private SalaryCalculationDto calculateAdmin(
             User user, SalaryRule rule, int month, int year,
             LocalDate from, LocalDate to, boolean withDetails) {
 
@@ -228,7 +251,7 @@ public class SalaryCalculationService {
         return SalaryCalculationDto.builder()
             .userId(user.getId())
             .fullName(fullName(user))
-            .role(UserRole.ADMINISTRATOR.name())
+            .role(UserRole.ADMIN.name())
             .month(month)
             .year(year)
             .baseSalary(base)
