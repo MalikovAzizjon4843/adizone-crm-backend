@@ -27,7 +27,6 @@ import com.crm.entity.enums.LeadTaskState;
 import com.crm.entity.enums.MarketingSource;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.StudentStatus;
-import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
@@ -189,12 +188,11 @@ public class LeadService {
         } else {
             User user = userRepository.findById(request.getUserId())
                     .orElseThrow(() -> new ResourceNotFoundException("User", request.getUserId()));
-            if (user.getRole() != UserRole.ADMIN
-                    && user.getRole() != UserRole.SUPER_ADMIN
-                    && user.getRole() != UserRole.ADMINISTRATOR
-                    && user.getRole() != UserRole.SALES_MANAGER) {
+            // Ro'yxat LeadAccessService.OPERATOR_ROLES bilan bir xil bo'lishi SHART:
+            // lid operatori bo'la olgan odam unga vazifa mas'uli ham bo'la olishi kerak.
+            if (!LeadAccessService.canBeOperator(user.getRole())) {
                 throw new BadRequestException(
-                    "Faqat ADMIN, ADMINISTRATOR yoki SALES_MANAGER operator sifatida biriktiriladi");
+                    "Faqat ADMIN, SUPER_ADMIN yoki SALES_MANAGER operator sifatida biriktiriladi");
             }
             lead.setAssignedUser(user);
             lead.setAssignedAt(LocalDateTime.now());
@@ -276,12 +274,14 @@ public class LeadService {
                 .build();
     }
 
+    /**
+     * Operator tanlash ro'yxati. Manba {@code assignLead} qabul qiladigan
+     * ro'yxat bilan bitta — aks holda ro'yxatdan tanlangan odam 400 qaytarardi.
+     */
     @Transactional(readOnly = true)
     public List<LeadOperatorResponse> getOperators() {
         return userRepository.findByRoleInAndIsActiveTrueOrderByFirstNameAscLastNameAsc(
-                        Arrays.asList(
-                            UserRole.ADMIN, UserRole.SUPER_ADMIN,
-                            UserRole.ADMINISTRATOR, UserRole.SALES_MANAGER))
+                        LeadAccessService.operatorRoles())
                 .stream()
                 .map(user -> LeadOperatorResponse.builder()
                         .id(user.getId())
