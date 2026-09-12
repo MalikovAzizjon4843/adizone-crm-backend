@@ -13,6 +13,18 @@ public final class AuditAction {
     public static final String PAYMENT = "PAYMENT";
     public static final String REPAIR = "REPAIR";
 
+    /** Lid bosqichi o'zgardi — kim, qaysi bosqichdan qaysi bosqichga. */
+    public static final String STATUS_CHANGE = "STATUS_CHANGE";
+
+    /** Lid operatorga biriktirildi yoki vazifa mas'uli o'zgardi. */
+    public static final String ASSIGN = "ASSIGN";
+
+    /** Lidga izoh yozildi. */
+    public static final String COMMENT = "COMMENT";
+
+    /** Vazifa natija bilan yopildi. */
+    public static final String TASK_DONE = "TASK_DONE";
+
     private AuditAction() {
     }
 }
