@@ -12,6 +12,8 @@ import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +26,9 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class AttendanceUnlockRequestService {
+
+    /** Avvalgi derived metodlardagi {@code OrderByCreatedAtDesc} bilan bir xil. */
+    private static final Sort NEWEST_FIRST = Sort.by("createdAt").descending();
 
     private final AttendanceUnlockRequestRepository attendanceUnlockRequestRepository;
     private final GroupRepository groupRepository;
@@ -58,19 +63,35 @@ public class AttendanceUnlockRequestService {
         return toResponseDto(attendanceUnlockRequestRepository.save(req));
     }
 
+    /**
+     * Admin ro'yxati. {@code status} berilmasa PENDING — avvalgi xulq.
+     * {@code groupId} va {@code date} ixtiyoriy.
+     */
     @Transactional(readOnly = true)
-    public List<AttendanceUnlockResponseDto> getPendingRequests() {
-        return attendanceUnlockRequestRepository.findByStatusOrderByCreatedAtDesc(UnlockRequestStatus.PENDING)
+    public List<AttendanceUnlockResponseDto> getRequests(String status, Long groupId, LocalDate date) {
+        Specification<AttendanceUnlockRequest> spec =
+            buildSpec(parseStatus(status), null, groupId, date);
+        return attendanceUnlockRequestRepository.findAll(spec, NEWEST_FIRST)
             .stream()
             .map(this::toResponseDto)
             .toList();
     }
 
+    /**
+     * O'qituvchining o'z so'rovlari.
+     *
+     * <p>{@code groupId} va {@code date} ixtiyoriy: ikkalasi ham null bo'lsa
+     * avvalgidek barcha so'rovlar qaytadi. Filtrsiz ro'yxat davomat sahifasida
+     * xato natija berardi — boshqa kunga yoki boshqa guruhga berilgan
+     * tasdiqlangan ruxsat bugungi jurnalni ochiq deb ko'rsatardi.
+     */
     @Transactional(readOnly = true)
-    public List<AttendanceUnlockResponseDto> getMyRequests() {
+    public List<AttendanceUnlockResponseDto> getMyRequests(Long groupId, LocalDate date) {
         Teacher teacher = teacherAccessService.getCurrentTeacherOrThrow();
 
-        return attendanceUnlockRequestRepository.findByTeacherIdOrderByCreatedAtDesc(teacher.getId())
+        Specification<AttendanceUnlockRequest> spec =
+            buildSpec(null, teacher.getId(), groupId, date);
+        return attendanceUnlockRequestRepository.findAll(spec, NEWEST_FIRST)
             .stream()
             .map(this::toResponseDto)
             .toList();
@@ -132,6 +153,39 @@ public class AttendanceUnlockRequestService {
     @Transactional(readOnly = true)
     public long getPendingRequestsCount() {
         return attendanceUnlockRequestRepository.countByStatus(UnlockRequestStatus.PENDING);
+    }
+
+    private Specification<AttendanceUnlockRequest> buildSpec(
+            UnlockRequestStatus status, Long teacherId, Long groupId, LocalDate date) {
+        Specification<AttendanceUnlockRequest> spec = Specification.where(null);
+
+        if (status != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), status));
+        }
+        if (teacherId != null) {
+            spec = spec.and((root, query, cb) ->
+                cb.equal(root.get("teacher").get("id"), teacherId));
+        }
+        if (groupId != null) {
+            spec = spec.and((root, query, cb) ->
+                cb.equal(root.get("group").get("id"), groupId));
+        }
+        if (date != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("attendanceDate"), date));
+        }
+        return spec;
+    }
+
+    /** Berilmasa PENDING — endpoint avval shu qiymatni qat'iy ishlatardi. */
+    private UnlockRequestStatus parseStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return UnlockRequestStatus.PENDING;
+        }
+        try {
+            return UnlockRequestStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException("Noto'g'ri so'rov statusi: " + status);
+        }
     }
 
     private AttendanceUnlockResponseDto toResponseDto(AttendanceUnlockRequest req) {

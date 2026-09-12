@@ -7,11 +7,13 @@ import com.crm.dto.response.AttendanceUnlockResponseDto;
 import com.crm.service.AttendanceUnlockRequestService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -29,18 +31,31 @@ public class AttendanceUnlockRequestController {
             .body(ApiResponse.success("Unlock request submitted", service.createRequest(dto)));
     }
 
+    /** status berilmasa PENDING; groupId va date ixtiyoriy. */
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<ApiResponse<List<AttendanceUnlockResponseDto>>> getPendingRequests(
-            @RequestParam(required = false, defaultValue = "PENDING") String status) {
-        // As requested: "Admin uchun: barcha PENDING requestlar"
-        return ResponseEntity.ok(ApiResponse.success(service.getPendingRequests()));
+    public ResponseEntity<ApiResponse<List<AttendanceUnlockResponseDto>>> getRequests(
+            @RequestParam(name = "status", required = false, defaultValue = "PENDING") String status,
+            @RequestParam(name = "groupId", required = false) Long groupId,
+            @RequestParam(name = "date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return ResponseEntity.ok(ApiResponse.success(
+            service.getRequests(status, groupId, date)));
     }
 
+    /**
+     * groupId va date ixtiyoriy. Ikkalasi ham berilmasa avvalgidek barcha
+     * so'rovlar qaytadi — eski frontend buzilmaydi. Davomat sahifasi esa
+     * aynan o'sha guruh va kunni so'rashi kerak: boshqa kunga berilgan
+     * tasdiqlangan ruxsat bugungi jurnalni ochib yubormasin.
+     */
     @GetMapping("/my")
     @PreAuthorize("hasRole('TEACHER')")
-    public ResponseEntity<ApiResponse<List<AttendanceUnlockResponseDto>>> getMyRequests() {
-        return ResponseEntity.ok(ApiResponse.success(service.getMyRequests()));
+    public ResponseEntity<ApiResponse<List<AttendanceUnlockResponseDto>>> getMyRequests(
+            @RequestParam(name = "groupId", required = false) Long groupId,
+            @RequestParam(name = "date", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return ResponseEntity.ok(ApiResponse.success(service.getMyRequests(groupId, date)));
     }
 
     @PatchMapping("/{id}/approve")
