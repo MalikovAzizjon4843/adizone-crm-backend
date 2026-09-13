@@ -161,7 +161,14 @@ public class TaskService {
     }
 
     /**
-     * Vazifani natija bilan yopadi.
+     * Vazifani natija bilan yopadi va so'ralgan bo'lsa darhol keyingisini
+     * yaratadi.
+     *
+     * <p>Ikkalasi shu metodning bitta {@code @Transactional} chegarasida
+     * bajariladi: keyingi vazifa yaratishda xato chiqsa, yopish ham
+     * rollback bo'ladi va yarim holat qolmaydi. {@code @Audited} esa faqat
+     * commitdan keyin yozadi, shuning uchun bekor bo'lgan amal jurnalga
+     * tushmaydi.
      *
      * <p>Javobdagi {@code leadHasOpenTask = false} — frontend uchun signal:
      * lid ochiq qoldi, lekin unda rejalashtirilgan qadam yo'q. Shu paytda
@@ -190,15 +197,68 @@ public class TaskService {
         AuditContext.change("status", TaskStatus.OPEN, TaskStatus.DONE);
         AuditContext.change("result", null, result);
 
+        Task next = request.getNextTask() != null
+            ? createFollowUp(saved, request.getNextTask(), current)
+            : null;
+
         Long leadId = saved.getLead() != null ? saved.getLead().getId() : null;
+        // Yangi vazifa lidni bajarilgandan meros olgani uchun, u yaratilgan
+        // bo'lsa lidda ochiq vazifa borligi ta'rif bo'yicha aniq — bazaga
+        // qayta murojaat qilib flush tartibiga tayanmaymiz.
         boolean leadHasOpenTask = leadId != null
-            && taskRepository.existsByLead_IdAndStatus(leadId, TaskStatus.OPEN);
+            && (next != null
+                || taskRepository.existsByLead_IdAndStatus(leadId, TaskStatus.OPEN));
 
         return TaskCompleteResponse.builder()
             .task(toResponse(saved))
             .leadId(leadId)
             .leadHasOpenTask(leadHasOpenTask)
+            .nextTask(next != null ? toResponse(next) : null)
             .build();
+    }
+
+    /**
+     * Bajarilgan vazifadan zanjirni davom ettiradi.
+     *
+     * <p>Lid, o'quvchi va mas'ul bajarilgan vazifadan MEROS olinadi:
+     * havolalar to'g'ridan-to'g'ri ko'chiriladi, id bo'yicha qayta
+     * qidirilmaydi. Shu sababli "lid yoki o'quvchi, ikkalasi emas" qoidasi
+     * o'z-o'zidan saqlanadi — manba vazifa uni allaqachon qanoatlantirgan.
+     * Mustaqil vazifada ikkalasi ham null bo'lib qoladi.
+     *
+     * <p>Mas'ul meros olinishi ataylab: admin boshqa operatorning vazifasini
+     * yopsa ham zanjir o'sha operatorda qoladi.
+     */
+    private Task createFollowUp(Task completed, TaskCompleteRequest.NextTask next, User current) {
+        TaskType type = next.getType() != null ? requireType(next.getType()) : TaskType.CALL;
+        boolean allDay = Boolean.TRUE.equals(next.getAllDay());
+        LocalDateTime dueAt = normalizeDueAt(next.getDueAt(), allDay);
+        if (!dueAt.isAfter(LocalDateTime.now())) {
+            throw new BadRequestException(messages.get("task.dueAt.future"));
+        }
+
+        String title = trimToNull(next.getTitle());
+        if (title == null) {
+            title = type.getLabel();
+        }
+
+        Task followUp = Task.builder()
+            .title(title)
+            .type(type)
+            .status(TaskStatus.OPEN)
+            .dueAt(dueAt)
+            .allDay(allDay)
+            .assignedTo(completed.getAssignedTo())
+            .createdBy(current)
+            .lead(completed.getLead())
+            .student(completed.getStudent())
+            .build();
+
+        Task savedFollowUp = taskRepository.save(followUp);
+        // Alohida audit yozuvi emas: zanjir TASK_DONE yozuvining
+        // detailsJson ida ko'rinadi, ikkisi bitta amal.
+        AuditContext.change("nextTask", null, title);
+        return savedFollowUp;
     }
 
     @Transactional
