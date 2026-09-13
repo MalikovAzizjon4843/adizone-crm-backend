@@ -17,6 +17,14 @@ public interface AuditLogRepository
 
     List<AuditLog> findByEntityTypeAndEntityIdOrderByCreatedAtDesc(String entityType, Long entityId);
 
+    /**
+     * Bitta obyektning bitta turdagi amallari — lid lentasida mas'ul
+     * almashuvini olish uchun. Filtr aynan uchta ustun bo'yicha, ya'ni
+     * boshqa maydon tahrirlari lentaga tushmaydi.
+     */
+    List<AuditLog> findByEntityTypeAndEntityIdAndActionOrderByCreatedAtDesc(
+        String entityType, Long entityId, String action);
+
     @Query("SELECT DISTINCT a.action FROM AuditLog a ORDER BY a.action")
     List<String> findDistinctActions();
 

@@ -5,10 +5,12 @@ import com.crm.audit.AuditContext;
 import com.crm.audit.Audited;
 import com.crm.dto.request.LeadAssignRequest;
 import com.crm.dto.request.LeadCommentRequest;
+import com.crm.dto.request.LeadNoteRequest;
 import com.crm.dto.request.LeadConvertRequest;
 import com.crm.dto.request.LeadRequest;
 import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.response.LeadCommentResponse;
+import com.crm.dto.response.LeadNoteResponse;
 import com.crm.dto.response.LeadConvertResponse;
 import com.crm.dto.response.LeadOperatorResponse;
 import com.crm.dto.response.LeadOperatorStatsResponse;
@@ -18,6 +20,7 @@ import com.crm.dto.response.LeadStatusHistoryResponse;
 import com.crm.dto.response.PageResponse;
 import com.crm.entity.Lead;
 import com.crm.entity.LeadComment;
+import com.crm.entity.LeadNote;
 import com.crm.entity.LeadStatusHistory;
 import com.crm.entity.Student;
 import com.crm.entity.Task;
@@ -28,9 +31,11 @@ import com.crm.entity.enums.MarketingSource;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.ForbiddenException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.LeadCommentRepository;
+import com.crm.repository.LeadNoteRepository;
 import com.crm.repository.LeadRepository;
 import com.crm.repository.LeadStatusHistoryRepository;
 import com.crm.repository.StudentRepository;
@@ -67,6 +72,7 @@ public class LeadService {
 
     private final LeadRepository leadRepository;
     private final LeadCommentRepository leadCommentRepository;
+    private final LeadNoteRepository leadNoteRepository;
     private final LeadStatusHistoryRepository leadStatusHistoryRepository;
     private final StudentRepository studentRepository;
     private final StudentService studentService;
@@ -142,8 +148,21 @@ public class LeadService {
                 .orElseThrow(() -> new ResourceNotFoundException("Lead", id));
         leadAccessService.assertCanAccessLead(lead);
 
-        List<LeadStatusHistory> rows =
-            leadStatusHistoryRepository.findByLead_IdOrderByChangedAtDesc(id);
+        return toHistoryResponses(
+            leadStatusHistoryRepository.findByLead_IdOrderByChangedAtDesc(id));
+    }
+
+    /**
+     * Bosqich tarixini DTO ga o'giradi. Paket ichida ochiq, chunki
+     * {@code LeadTimelineService} ham shu mapperni ishlatadi — lenta
+     * ruxsatni bir marta o'zi tekshirib, repositoryga to'g'ridan-to'g'ri
+     * murojaat qiladi, mapping esa ikki joyda takrorlanmasin.
+     *
+     * <p>{@code rows} yangidan eskiga saralangan bo'lishi SHART:
+     * {@code daysInPreviousStatus} ikki qo'shni yozuv orasidagi farqdan
+     * hisoblanadi.
+     */
+    List<LeadStatusHistoryResponse> toHistoryResponses(List<LeadStatusHistory> rows) {
         List<LeadStatusHistoryResponse> result = new java.util.ArrayList<>(rows.size());
         for (int i = 0; i < rows.size(); i++) {
             LeadStatusHistory row = rows.get(i);
@@ -278,6 +297,89 @@ public class LeadService {
      * Operator tanlash ro'yxati. Manba {@code assignLead} qabul qiladigan
      * ro'yxat bilan bitta — aks holda ro'yxatdan tanlangan odam 400 qaytarardi.
      */
+    // ── Lenta izohlari (LeadNote) ───────────────────────────────────
+
+    @Transactional
+    public LeadNoteResponse addNote(Long leadId, LeadNoteRequest request) {
+        Lead lead = leadRepository.findById(leadId)
+                .orElseThrow(() -> new ResourceNotFoundException("Lead", leadId));
+        leadAccessService.assertCanAccessLead(lead);
+
+        LeadNote note = LeadNote.builder()
+                .lead(lead)
+                .text(request.getText().trim())
+                .createdBy(leadAccessService.getCurrentUserOrThrow())
+                .build();
+        return toNoteResponse(leadNoteRepository.save(note));
+    }
+
+    @Transactional(readOnly = true)
+    public List<LeadNoteResponse> getNotes(Long leadId) {
+        leadAccessService.assertCanAccessLead(leadId);
+        return toNoteResponses(leadNoteRepository.findByLead_IdOrderByCreatedAtDesc(leadId));
+    }
+
+    /**
+     * Izohlarni DTO ga o'giradi. {@link #toHistoryResponses} bilan bir xil
+     * sabab: lenta ruxsatni o'zi tekshiradi va repositoryga to'g'ridan-to'g'ri
+     * boradi, lekin mapping bitta joyda qoladi.
+     */
+    List<LeadNoteResponse> toNoteResponses(List<LeadNote> notes) {
+        return notes.stream()
+                .map(this::toNoteResponse)
+                .collect(Collectors.toList());
+    }
+
+    /** Izohni faqat muallif tahrirlaydi — admin ham boshqaning matnini o'zgartirmaydi. */
+    @Transactional
+    public LeadNoteResponse updateNote(Long id, LeadNoteRequest request) {
+        LeadNote note = loadNoteOrThrow(id);
+        User current = leadAccessService.getCurrentUserOrThrow();
+        if (!isNoteAuthor(note, current)) {
+            throw new ForbiddenException("Izohni faqat muallif tahrirlaydi");
+        }
+        note.setText(request.getText().trim());
+        return toNoteResponse(leadNoteRepository.save(note));
+    }
+
+    /** O'chirish — muallif yoki to'liq huquqli foydalanuvchi (SUPER_ADMIN/ADMIN). */
+    @Transactional
+    public void deleteNote(Long id) {
+        LeadNote note = loadNoteOrThrow(id);
+        if (!leadAccessService.hasFullAccess()
+                && !isNoteAuthor(note, leadAccessService.getCurrentUserOrThrow())) {
+            throw new ForbiddenException("Izohni o'chirishga ruxsat yo'q");
+        }
+        leadNoteRepository.delete(note);
+    }
+
+    private LeadNote loadNoteOrThrow(Long id) {
+        LeadNote note = leadNoteRepository.findWithLeadById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("LeadNote", id));
+        leadAccessService.assertCanAccessLead(note.getLead());
+        return note;
+    }
+
+    private boolean isNoteAuthor(LeadNote note, User user) {
+        return note.getCreatedBy() != null
+                && user != null
+                && user.getId().equals(note.getCreatedBy().getId());
+    }
+
+    private LeadNoteResponse toNoteResponse(LeadNote note) {
+        return LeadNoteResponse.builder()
+                .id(note.getId())
+                .uuid(note.getUuid())
+                .leadId(note.getLead() != null ? note.getLead().getId() : null)
+                .text(note.getText())
+                .createdById(note.getCreatedBy() != null ? note.getCreatedBy().getId() : null)
+                .createdByName(note.getCreatedBy() != null
+                        ? formatUserName(note.getCreatedBy()) : null)
+                .createdAt(note.getCreatedAt())
+                .updatedAt(note.getUpdatedAt())
+                .build();
+    }
+
     @Transactional(readOnly = true)
     public List<LeadOperatorResponse> getOperators() {
         return userRepository.findByRoleInAndIsActiveTrueOrderByFirstNameAscLastNameAsc(

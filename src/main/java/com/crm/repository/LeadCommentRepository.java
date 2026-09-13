@@ -3,6 +3,7 @@ package com.crm.repository;
 import com.crm.entity.LeadComment;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,6 +15,8 @@ import java.util.List;
 @Repository
 public interface LeadCommentRepository extends JpaRepository<LeadComment, Long> {
 
+    /** Muallif bir so'rovda keladi — lentada har izoh uchun N+1 bo'lmasin. */
+    @EntityGraph(attributePaths = {"author"})
     List<LeadComment> findByLeadIdOrderByCreatedAtDesc(Long leadId);
 
     Page<LeadComment> findByLeadIdOrderByCreatedAtDesc(Long leadId, Pageable pageable);

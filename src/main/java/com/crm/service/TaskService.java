@@ -593,7 +593,12 @@ public class TaskService {
             .build();
     }
 
-    private TaskResponse toResponse(Task task) {
+    /**
+     * Task -> TaskResponse. {@code LeadTimelineService} lid kartasidagi
+     * ochiq vazifalar uchun shu mapperni qayta ishlatadi — ikkinchi nusxa
+     * yozilmasin.
+     */
+    public TaskResponse toResponse(Task task) {
         return TaskResponse.builder()
             .id(task.getId())
             .uuid(task.getUuid())

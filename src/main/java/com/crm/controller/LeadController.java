@@ -3,6 +3,7 @@ package com.crm.controller;
 import com.crm.dto.request.LeadAssignRequest;
 import com.crm.dto.request.LeadCommentRequest;
 import com.crm.dto.request.LeadConvertRequest;
+import com.crm.dto.request.LeadNoteRequest;
 import com.crm.dto.request.LeadRequest;
 import com.crm.dto.request.LeadStatusRequest;
 import com.crm.dto.response.ApiResponse;
@@ -11,10 +12,13 @@ import com.crm.dto.response.LeadConvertResponse;
 import com.crm.dto.response.LeadOperatorResponse;
 import com.crm.dto.response.LeadResponse;
 import com.crm.dto.response.LeadStatsResponse;
+import com.crm.dto.response.LeadNoteResponse;
 import com.crm.dto.response.LeadStatusHistoryResponse;
+import com.crm.dto.response.LeadTimelineResponse;
 import com.crm.dto.response.PageResponse;
 import com.crm.dto.response.TaskResponse;
 import com.crm.service.LeadService;
+import com.crm.service.LeadTimelineService;
 import com.crm.service.TaskService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +51,7 @@ import java.util.List;
 public class LeadController {
 
     private final LeadService leadService;
+    private final LeadTimelineService leadTimelineService;
     private final TaskService taskService;
 
     /** Ochiq forma — sinf darajasidagi rol tekshiruvi bu yerda bekor qilinadi. */
@@ -149,6 +154,50 @@ public class LeadController {
     @GetMapping("/{id:\\d+}/tasks")
     public ResponseEntity<ApiResponse<List<TaskResponse>>> getTasks(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(taskService.getByLead(id)));
+    }
+
+    /**
+     * Lid kartasining yagona xronologik lentasi: vazifalar, bosqich
+     * o'tishlari, izohlar, mas'ul almashuvi va lidning yaratilgani.
+     * Ochiq vazifalar lentaga aralashmaydi — {@code openTasks} maydonida.
+     */
+    @GetMapping("/{id:\\d+}/timeline")
+    public ResponseEntity<ApiResponse<LeadTimelineResponse>> getTimeline(
+            @PathVariable Long id,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "50") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                leadTimelineService.getTimeline(id, page, size)));
+    }
+
+    @PostMapping("/{leadId:\\d+}/notes")
+    public ResponseEntity<ApiResponse<LeadNoteResponse>> addNote(
+            @PathVariable Long leadId,
+            @Valid @RequestBody LeadNoteRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(
+                "Izoh qo'shildi", leadService.addNote(leadId, request)));
+    }
+
+    @GetMapping("/{leadId:\\d+}/notes")
+    public ResponseEntity<ApiResponse<List<LeadNoteResponse>>> getNotes(
+            @PathVariable Long leadId) {
+        return ResponseEntity.ok(ApiResponse.success(leadService.getNotes(leadId)));
+    }
+
+    /** Faqat muallif. */
+    @PutMapping("/notes/{id:\\d+}")
+    public ResponseEntity<ApiResponse<LeadNoteResponse>> updateNote(
+            @PathVariable Long id,
+            @Valid @RequestBody LeadNoteRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Izoh yangilandi", leadService.updateNote(id, request)));
+    }
+
+    /** Muallif yoki SUPER_ADMIN/ADMIN. */
+    @DeleteMapping("/notes/{id:\\d+}")
+    public ResponseEntity<ApiResponse<Void>> deleteNote(@PathVariable Long id) {
+        leadService.deleteNote(id);
+        return ResponseEntity.ok(ApiResponse.success("Izoh o'chirildi", null));
     }
 
     /** Bosqich o'tishlari tarixi — yangidan eskiga. */
