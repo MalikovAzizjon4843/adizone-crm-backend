@@ -30,7 +30,12 @@ public class Lead {
     @Column(name = "full_name", nullable = false)
     private String fullName;
 
-    @Column(nullable = false, length = 20)
+    /**
+     * Hech qachon null bo'lmaydi. Import tanib bo'lmagan qiymatni ham
+     * xom holicha saqlaydi (keyin qo'lda tuzatiladi), shuning uchun
+     * uzunlik 20 emas, 50.
+     */
+    @Column(nullable = false, length = 50)
     private String phone;
 
     @Column(name = "parent_phone", length = 32)

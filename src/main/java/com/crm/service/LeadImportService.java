@@ -96,7 +96,8 @@ public class LeadImportService {
     private static final DateTimeFormatter DATE_ONLY =
         DateTimeFormatter.ofPattern("dd.MM.yyyy");
 
-    private static final int BATCH_SIZE = 500;
+    private static final int PHONE_MAX = 50;
+    private static final String PHONE_UNKNOWN = "—";
     private static final int SAMPLE_ROWS = 5;
     private static final Duration TTL = Duration.ofHours(1);
     private static final String TEMP_DIR_NAME = "adizone-lead-import";
@@ -121,7 +122,7 @@ public class LeadImportService {
     }
 
     /** Bitta qatordan o'qilgan, hali saqlanmagan ma'lumot. */
-    private record ParsedRow(int rowNum, String fullName, String rawPhone, String phoneDigits,
+    private record ParsedRow(int rowNum, String fullName, String phone, String phoneDigits,
                              String stage, String operator, String source, String format,
                              LocalDateTime createdAt, String notes, List<String> noteTexts) {
         boolean phoneValid() {
@@ -207,31 +208,44 @@ public class LeadImportService {
         Set<String> knownPhones = skipDuplicates ? existingPhoneDigits() : new HashSet<>();
 
         List<LeadImportResult.RowError> errors = new ArrayList<>();
+        List<LeadImportResult.RowError> warnings = new ArrayList<>();
         int created = 0;
         int skipped = 0;
         int failed = 0;
         int notes = 0;
 
-        // Partiyalab: 4000 qatorli fayl bitta tranzaksiyada ushlanmasin va
-        // bitta yiqilgan qator oldingi 3500 tasini bekor qilmasin.
+        // HAR QATOR O'Z TRANZAKSIYASIDA. Avval partiya darajasida edi va bu
+        // PostgreSQL'da ishlamasdi: bitta INSERT yiqilgach seans 25P02
+        // ("current transaction is aborted") holatiga tushadi va qolgan 499
+        // qator ham, commit ham yiqilardi. try/catch buni ushlay olmaydi —
+        // tranzaksiya allaqachon o'lik. 4000 ta alohida tranzaksiya sekinroq,
+        // lekin import bir martalik amal va bitta buzuq qator faqat o'zini
+        // yo'qotadi.
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
-        for (int start = 0; start < rows.size(); start += BATCH_SIZE) {
-            List<ParsedRow> chunk = rows.subList(start, Math.min(start + BATCH_SIZE, rows.size()));
-            BatchOutcome outcome = tx.execute(status -> saveChunk(
-                chunk, stageMapping, operatorMapping, operators,
-                knownPhones, skipDuplicates, batch, current));
-
+        for (ParsedRow row : rows) {
+            RowOutcome outcome;
+            try {
+                outcome = tx.execute(status -> saveRow(
+                    row, stageMapping, operatorMapping, operators,
+                    knownPhones, skipDuplicates, batch, current));
+            } catch (Exception e) {
+                outcome = null;
+                log.warn("Import: {}-qator yiqildi: {}", row.rowNum(), rootMessage(e));
+                errors.add(new LeadImportResult.RowError(row.rowNum(), rootMessage(e)));
+            }
             if (outcome == null) {
-                failed += chunk.size();
-                errors.add(new LeadImportResult.RowError(
-                    chunk.get(0).rowNum(), messages.get("leadImport.batch.failed")));
+                failed++;
                 continue;
             }
-            created += outcome.created();
-            skipped += outcome.skipped();
-            failed += outcome.failed();
+            if (outcome.skipped()) {
+                skipped++;
+                continue;
+            }
+            created++;
             notes += outcome.notes();
-            errors.addAll(outcome.errors());
+            if (outcome.warning() != null) {
+                warnings.add(new LeadImportResult.RowError(row.rowNum(), outcome.warning()));
+            }
         }
 
         log.info("Lid importi tugadi: batch={} jami={} yaratildi={} o'tkazildi={} xato={}",
@@ -245,92 +259,99 @@ public class LeadImportService {
             .failed(failed)
             .notesCreated(notes)
             .errors(errors)
+            .warnings(warnings)
             .build();
     }
 
-    private record BatchOutcome(int created, int skipped, int failed, int notes,
-                                List<LeadImportResult.RowError> errors) {
+    /** Bitta qator natijasi. {@code skipped} bo'lsa lid yaratilmagan. */
+    private record RowOutcome(boolean skipped, int notes, String warning) {
+        static RowOutcome skip() {
+            return new RowOutcome(true, 0, null);
+        }
     }
 
-    private BatchOutcome saveChunk(List<ParsedRow> chunk,
-                                   Map<String, String> stageMapping,
-                                   Map<String, Long> operatorMapping,
-                                   Map<Long, User> operators,
-                                   Set<String> knownPhones,
-                                   boolean skipDuplicates,
-                                   String batch,
-                                   User current) {
-        int created = 0;
-        int skipped = 0;
-        int failed = 0;
-        int notes = 0;
-        List<LeadImportResult.RowError> errors = new ArrayList<>();
-
-        for (ParsedRow row : chunk) {
-            try {
-                String stageCode = stageMapping.get(normalizeKey(row.stage()));
-                if (stageCode == null || stageCode.isBlank()) {
-                    skipped++;
-                    continue;
-                }
-                if (ImportService.isBlank(row.fullName())) {
-                    skipped++;
-                    continue;
-                }
-                if (skipDuplicates && row.phoneValid() && knownPhones.contains(row.phoneDigits())) {
-                    skipped++;
-                    continue;
-                }
-
-                Long operatorId = operatorMapping.get(normalizeKey(row.operator()));
-                User assignee = operatorId != null ? operators.get(operatorId) : null;
-
-                Lead lead = Lead.builder()
-                    .fullName(ImportService.truncate(row.fullName(), 255))
-                    // Telefon buzuq bo'lsa ham lid yaratiladi: xom qiymat
-                    // saqlanadi va keyin qo'lda tuzatiladi.
-                    .phone(ImportService.truncate(row.rawPhone(), 20))
-                    .format(row.format())
-                    .source(row.source())
-                    .notes(row.notes())
-                    .status(stageCode)
-                    .converted(false)
-                    .createdBy(current)
-                    .assignedUser(assignee)
-                    .assignedAt(assignee != null ? LocalDateTime.now() : null)
-                    .importBatch(batch)
-                    .build();
-                Lead saved = leadRepository.save(lead);
-
-                // @PrePersist createdAt ni hozirgi vaqtga qo'yadi — amoCRM
-                // sanasini undan KEYIN yozamiz, aks holda yo'qoladi.
-                // updatedAt tegilmaydi: @PreUpdate uni baribir now() qiladi
-                // va u "import qachon bo'ldi" degan ma'noni saqlaydi.
-                if (row.createdAt() != null) {
-                    saved.setCreatedAt(row.createdAt());
-                    leadRepository.save(saved);
-                }
-
-                for (String text : row.noteTexts()) {
-                    leadNoteRepository.save(LeadNote.builder()
-                        .lead(saved)
-                        .text(text)
-                        .createdBy(current)
-                        .build());
-                    notes++;
-                }
-
-                if (row.phoneValid()) {
-                    knownPhones.add(row.phoneDigits());
-                }
-                created++;
-            } catch (Exception e) {
-                failed++;
-                errors.add(new LeadImportResult.RowError(row.rowNum(), e.getMessage()));
-                log.warn("Import: {}-qator yiqildi: {}", row.rowNum(), e.getMessage());
-            }
+    /**
+     * Bitta qatorni yozadi. Chaqiruvchi uni alohida tranzaksiyada bajaradi,
+     * shuning uchun bu yerda try/catch YO'Q: istisno tashqariga chiqib
+     * o'sha qatorning tranzaksiyasini rollback qiladi va qolganlariga
+     * tegmaydi.
+     */
+    private RowOutcome saveRow(ParsedRow row,
+                               Map<String, String> stageMapping,
+                               Map<String, Long> operatorMapping,
+                               Map<Long, User> operators,
+                               Set<String> knownPhones,
+                               boolean skipDuplicates,
+                               String batch,
+                               User current) {
+        String stageCode = stageMapping.get(normalizeKey(row.stage()));
+        if (stageCode == null || stageCode.isBlank()) {
+            return RowOutcome.skip();
         }
-        return new BatchOutcome(created, skipped, failed, notes, errors);
+        if (ImportService.isBlank(row.fullName())) {
+            return RowOutcome.skip();
+        }
+        if (skipDuplicates && row.phoneValid() && knownPhones.contains(row.phoneDigits())) {
+            return RowOutcome.skip();
+        }
+
+        Long operatorId = operatorMapping.get(normalizeKey(row.operator()));
+        User assignee = operatorId != null ? operators.get(operatorId) : null;
+
+        Lead lead = Lead.builder()
+            .fullName(ImportService.truncate(row.fullName(), 255))
+            // Telefon tanilmasa ham lid yaratiladi — row.phone() hech qachon
+            // null emas, xom qiymat yoki "—" bo'ladi.
+            .phone(row.phone())
+            .format(row.format())
+            .source(row.source())
+            .notes(row.notes())
+            .status(stageCode)
+            .converted(false)
+            .createdBy(current)
+            .assignedUser(assignee)
+            .assignedAt(assignee != null ? LocalDateTime.now() : null)
+            .importBatch(batch)
+            .build();
+        Lead saved = leadRepository.save(lead);
+
+        // @PrePersist createdAt ni hozirgi vaqtga qo'yadi — amoCRM sanasini
+        // undan KEYIN yozamiz, aks holda yo'qoladi. updatedAt tegilmaydi:
+        // @PreUpdate uni baribir now() qiladi va u "import qachon bo'ldi"
+        // degan ma'noni saqlaydi.
+        if (row.createdAt() != null) {
+            saved.setCreatedAt(row.createdAt());
+            leadRepository.save(saved);
+        }
+
+        int notes = 0;
+        for (String text : row.noteTexts()) {
+            leadNoteRepository.save(LeadNote.builder()
+                .lead(saved)
+                .text(text)
+                .createdBy(current)
+                .build());
+            notes++;
+        }
+
+        if (row.phoneValid()) {
+            knownPhones.add(row.phoneDigits());
+        }
+
+        String warning = row.phoneValid()
+            ? null
+            : messages.get("leadImport.phone.raw", row.phone());
+        return new RowOutcome(false, notes, warning);
+    }
+
+    /** Hibernate istisnolari o'ralgan bo'ladi — eng ichkisi tushunarliroq. */
+    private static String rootMessage(Throwable e) {
+        Throwable t = e;
+        while (t.getCause() != null && t.getCause() != t) {
+            t = t.getCause();
+        }
+        String msg = t.getMessage();
+        return msg != null ? ImportService.truncate(msg, 300) : t.getClass().getSimpleName();
     }
 
     // ── 3-qadam: partiyani o'chirish ────────────────────────────────
@@ -404,8 +425,8 @@ public class LeadImportService {
         return new ParsedRow(
             rowNum,
             ImportService.cellByHeader(row, col, H_FULL_NAME),
-            ImportService.normalizePhone(rawPhone),
-            ImportService.phoneDigits(rawPhone),
+            storablePhone(rawPhone),
+            canonicalDigits(rawPhone),
             trimOrEmpty(ImportService.cellByHeader(row, col, H_STAGE)),
             trimOrEmpty(ImportService.cellByHeader(row, col, H_OPERATOR)),
             sourceFromTags(tags),
@@ -431,6 +452,65 @@ public class LeadImportService {
             return "INSTAGRAM";
         }
         return "OTHER";
+    }
+
+    /**
+     * Telefonni {@code +998XXXXXXXXX} ko'rinishiga keltiradi.
+     * Tanib bo'lmasa null — chaqiruvchi xom qiymatni saqlaydi.
+     *
+     * <p>Excel'dagi haqiqiy shakllar: {@code '+998 507723109} (apostrof va
+     * probel bilan), {@code 901204729} (kodsiz), {@code 70 483 15 03}.
+     * Shu sababli raqamdan boshqa HAMMA belgi tashlanadi — "Turk tili"
+     * yoki "." kabi matnlardan raqam qolmaydi va null qaytadi.
+     */
+    static String canonicalPhone(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String d = raw.replaceAll("[^0-9]", "");
+        if (d.length() == 12 && d.startsWith("998")) {
+            return "+" + d;
+        }
+        if (d.length() == 9) {
+            return "+998" + d;
+        }
+        // 8 bilan boshlanadigan ichki format. 10 xonali shakl real
+        // ma'lumotda uchraydi; 11 xonali shakl talab bo'yicha qo'shilgan.
+        if (d.length() == 10 && d.startsWith("8")) {
+            return "+998" + d.substring(1);
+        }
+        if (d.length() == 11 && d.startsWith("8")) {
+            return "+998" + d.substring(1);
+        }
+        return null;
+    }
+
+    /**
+     * Dublikat kaliti — kanonik shaklning raqamlari ({@code 998XXXXXXXXX}).
+     * Tanib bo'lmasa null: bunday qiymatlar dublikat sifatida
+     * solishtirilmaydi, chunki ular telefon emas.
+     *
+     * <p>Kalit AYNAN kanonik shakldan olinadi, xom qiymatdan emas — shunda
+     * {@code 901204729} va {@code '+998 901204729} bitta lid deb taniladi.
+     */
+    static String canonicalDigits(String raw) {
+        String canonical = canonicalPhone(raw);
+        return canonical != null ? canonical.replaceAll("[^0-9]", "") : null;
+    }
+
+    /**
+     * Saqlanadigan qiymat. {@code leads.phone} NOT NULL, foydalanuvchi esa
+     * buzuq telefonli lidlarni ham import qilishni xohladi — shuning uchun
+     * tanilmagan qiymat XOM holicha (50 belgigacha) saqlanadi, mutlaqo bo'sh
+     * bo'lsa "—" yoziladi. Natijada hech qachon null qaytmaydi.
+     */
+    static String storablePhone(String raw) {
+        String canonical = canonicalPhone(raw);
+        if (canonical != null) {
+            return canonical;
+        }
+        String fallback = ImportService.truncate(raw, PHONE_MAX);
+        return ImportService.isBlank(fallback) ? PHONE_UNKNOWN : fallback;
     }
 
     private static String formatOf(String raw) {
@@ -574,7 +654,7 @@ public class LeadImportService {
     private Set<String> existingPhoneDigits() {
         Set<String> digits = new HashSet<>();
         for (String phone : leadRepository.findAllPhones()) {
-            String d = ImportService.phoneDigits(phone);
+            String d = canonicalDigits(phone);
             if (d != null) {
                 digits.add(d);
             }
@@ -639,7 +719,7 @@ public class LeadImportService {
             list.add(LeadImportPreviewResponse.SampleRow.builder()
                 .row(row.rowNum())
                 .fullName(row.fullName())
-                .phone(row.rawPhone())
+                .phone(row.phone())
                 .phoneValid(row.phoneValid())
                 .stage(row.stage())
                 .operator(row.operator())
