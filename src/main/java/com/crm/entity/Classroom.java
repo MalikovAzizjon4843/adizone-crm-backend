@@ -35,5 +35,6 @@ public class Classroom extends BaseEntity {
     private String description;
 
     @Column(name = "is_active")
+    @Builder.Default
     private Boolean isActive = true;
 }

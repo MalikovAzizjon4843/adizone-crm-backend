@@ -50,6 +50,7 @@ public class Student extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "marketing_source")
+    @Builder.Default
     private MarketingSource marketingSource = MarketingSource.OTHER;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -58,6 +59,7 @@ public class Student extends BaseEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    @Builder.Default
     private StudentStatus status = StudentStatus.ACTIVE;
 
     @Column(columnDefinition = "TEXT")
@@ -106,6 +108,7 @@ public class Student extends BaseEntity {
     /** TRIAL, PENDING, PAID, OVERDUE, SUSPENDED, ARCHIVED, FROZEN — hech qachon null bo'lmasin. */
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_status", length = 20)
+    @Builder.Default
     private PaymentStatus paymentStatus = PaymentStatus.PENDING;
 
     @OneToMany(mappedBy = "student", cascade = CascadeType.ALL, fetch = FetchType.LAZY)

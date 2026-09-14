@@ -42,15 +42,18 @@ public class Payroll extends BaseEntity {
     private BigDecimal basicSalary;
 
     @Column(precision = 12, scale = 2)
+    @Builder.Default
     private BigDecimal allowances = BigDecimal.ZERO;
 
     @Column(precision = 12, scale = 2)
+    @Builder.Default
     private BigDecimal deductions = BigDecimal.ZERO;
 
     @Column(name = "net_salary", precision = 12, scale = 2)
     private BigDecimal netSalary;
 
     @Column(name = "bonus_penalty_adjustment", precision = 12, scale = 2)
+    @Builder.Default
     private BigDecimal bonusPenaltyAdjustment = BigDecimal.ZERO;
 
     @Column(name = "paid_student_count")
@@ -77,6 +80,7 @@ public class Payroll extends BaseEntity {
     private PaymentMethod paymentMethod;
 
     @Column(length = 20)
+    @Builder.Default
     private String status = "PENDING";
 
     @Column(columnDefinition = "TEXT")

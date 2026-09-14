@@ -37,5 +37,6 @@ public class HomeworkSubmission extends BaseEntity {
     private BigDecimal marksObtained;
 
     @Column(length = 20)
+    @Builder.Default
     private String status = "PENDING";
 }

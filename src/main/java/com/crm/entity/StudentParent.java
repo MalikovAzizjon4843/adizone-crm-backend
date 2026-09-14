@@ -25,5 +25,6 @@ public class StudentParent {
     private String relation;
 
     @Column(name = "is_primary")
+    @Builder.Default
     private Boolean isPrimary = false;
 }

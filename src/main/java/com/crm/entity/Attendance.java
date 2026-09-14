@@ -34,6 +34,7 @@ public class Attendance {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    @Builder.Default
     private AttendanceStatus status = AttendanceStatus.PRESENT;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -44,6 +45,7 @@ public class Attendance {
     private String notes;
 
     @Column(name = "excused")
+    @Builder.Default
     private Boolean excused = false;
 
     @Column(name = "excuse_reason", columnDefinition = "TEXT")

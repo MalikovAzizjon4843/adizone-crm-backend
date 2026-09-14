@@ -27,5 +27,6 @@ public class Subject extends BaseEntity {
     private Teacher teacher;
 
     @Column(name = "is_active")
+    @Builder.Default
     private Boolean isActive = true;
 }

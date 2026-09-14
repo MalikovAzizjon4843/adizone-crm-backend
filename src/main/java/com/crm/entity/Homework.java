@@ -53,5 +53,6 @@ public class Homework extends BaseEntity {
     private BigDecimal marks;
 
     @Column(name = "is_active")
+    @Builder.Default
     private Boolean isActive = true;
 }

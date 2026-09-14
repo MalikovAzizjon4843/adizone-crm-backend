@@ -44,5 +44,6 @@ public class Course extends BaseEntity {
     private BigDecimal lessonPrice;
 
     @Column(name = "is_active")
+    @Builder.Default
     private Boolean isActive = true;
 }

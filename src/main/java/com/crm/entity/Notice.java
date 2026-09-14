@@ -36,18 +36,22 @@ public class Notice extends BaseEntity {
 
     /** ALL, TEACHERS, STUDENTS, PARENTS */
     @Column(name = "published_to", length = 30)
+    @Builder.Default
     private String publishedTo = "ALL";
 
     @Column(name = "notice_type", length = 30)
+    @Builder.Default
     private String noticeType = "GENERAL";
 
     @Column(name = "target_role", length = 30)
     private String targetRole;
 
     @Column(name = "is_active")
+    @Builder.Default
     private Boolean isActive = true;
 
     @Column(name = "is_published")
+    @Builder.Default
     private Boolean isPublished = true;
 
     @Column(name = "published_at")

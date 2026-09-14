@@ -27,8 +27,10 @@ public class Section extends BaseEntity {
     private String room;
 
     @Column(name = "max_students")
+    @Builder.Default
     private Integer maxStudents = 30;
 
     @Column(name = "is_active")
+    @Builder.Default
     private Boolean isActive = true;
 }

@@ -38,9 +38,11 @@ public class Parent extends BaseEntity {
     private String address;
 
     @Column(length = 20)
+    @Builder.Default
     private String relation = "OTHER";
 
     @Column(name = "is_active")
+    @Builder.Default
     private Boolean isActive = true;
 
     @OneToMany(mappedBy = "parent", cascade = CascadeType.ALL, fetch = FetchType.LAZY)

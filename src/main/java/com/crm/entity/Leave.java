@@ -42,6 +42,7 @@ public class Leave extends BaseEntity {
     private String reason;
 
     @Column(length = 20)
+    @Builder.Default
     private String status = "PENDING";
 
     @ManyToOne(fetch = FetchType.LAZY)

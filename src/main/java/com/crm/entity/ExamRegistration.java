@@ -29,18 +29,22 @@ public class ExamRegistration {
     private Student student;
 
     @Column(name = "payment_status", length = 20)
+    @Builder.Default
     private String paymentStatus = "PENDING";
 
     @Column(name = "amount_due", precision = 12, scale = 2)
+    @Builder.Default
     private BigDecimal amountDue = BigDecimal.ZERO;
 
     @Column(name = "amount_paid", precision = 12, scale = 2)
+    @Builder.Default
     private BigDecimal amountPaid = BigDecimal.ZERO;
 
     @Column(name = "registration_date")
     private LocalDate registrationDate;
 
     @Column(length = 20)
+    @Builder.Default
     private String status = "REGISTERED";
 
     @Column(columnDefinition = "TEXT")

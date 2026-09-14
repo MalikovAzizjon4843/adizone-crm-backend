@@ -52,9 +52,11 @@ public class Payment {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_method")
+    @Builder.Default
     private PaymentMethod paymentMethod = PaymentMethod.CASH;
 
     @Enumerated(EnumType.STRING)
+    @Builder.Default
     private PaymentStatus status = PaymentStatus.PAID;
 
     /** To'lov davri boshi (DB: period_from). */
@@ -69,9 +71,11 @@ public class Payment {
     private String description;
 
     @Column(name = "discount_amount", precision = 12, scale = 2)
+    @Builder.Default
     private BigDecimal discountAmount = BigDecimal.ZERO;
 
     @Column(name = "bonus_discount", precision = 12, scale = 2)
+    @Builder.Default
     private BigDecimal bonusDiscount = BigDecimal.ZERO;
 
     @Column(name = "receipt_number", length = 32, unique = true)

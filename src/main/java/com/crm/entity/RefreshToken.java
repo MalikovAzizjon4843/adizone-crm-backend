@@ -29,6 +29,7 @@ public class RefreshToken {
     private LocalDateTime expiresAt;
 
     @Column(name = "is_revoked")
+    @Builder.Default
     private Boolean isRevoked = false;
 
     @Column(name = "created_at")

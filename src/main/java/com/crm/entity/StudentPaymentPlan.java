@@ -38,9 +38,11 @@ public class StudentPaymentPlan {
     private BigDecimal monthlyAmount;
 
     @Column(name = "due_day")
+    @Builder.Default
     private Integer dueDay = 1;
 
     @Column(length = 20)
+    @Builder.Default
     private String status = "ACTIVE";
 
     @Column(columnDefinition = "TEXT")

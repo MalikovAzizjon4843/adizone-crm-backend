@@ -46,9 +46,11 @@ public class Group extends BaseEntity {
     private String room;
 
     @Column(name = "max_students")
+    @Builder.Default
     private Integer maxStudents = 20;
 
     @Column(name = "current_students")
+    @Builder.Default
     private Integer currentStudents = 0;
 
     @Column(name = "start_date", nullable = false)
@@ -58,6 +60,7 @@ public class Group extends BaseEntity {
     private LocalDate endDate;
 
     @Enumerated(EnumType.STRING)
+    @Builder.Default
     private GroupStatus status = GroupStatus.ACTIVE;
 
     @Column(columnDefinition = "TEXT")

@@ -53,6 +53,7 @@ public class Teacher extends BaseEntity {
     private LocalDate hireDate;
 
     @Column(name = "is_active")
+    @Builder.Default
     private Boolean isActive = true;
 
     @Column(columnDefinition = "TEXT")
@@ -92,21 +93,26 @@ public class Teacher extends BaseEntity {
     private LocalDate joiningDate;
 
     @Column(length = 20)
+    @Builder.Default
     private String status = "ACTIVE";
 
     @Column(name = "basic_salary", precision = 12, scale = 2)
     private BigDecimal basicSalary;
 
     @Column(name = "medical_leaves")
+    @Builder.Default
     private Integer medicalLeaves = 0;
 
     @Column(name = "casual_leaves")
+    @Builder.Default
     private Integer casualLeaves = 0;
 
     @Column(name = "maternity_leaves")
+    @Builder.Default
     private Integer maternityLeaves = 0;
 
     @Column(name = "sick_leaves")
+    @Builder.Default
     private Integer sickLeaves = 0;
 
     @Column(name = "photo_url", length = 500)

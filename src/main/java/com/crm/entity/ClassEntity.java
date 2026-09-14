@@ -22,6 +22,7 @@ public class ClassEntity extends BaseEntity {
     private String classCode;
 
     @Column(name = "is_active")
+    @Builder.Default
     private Boolean isActive = true;
 
     @OneToMany(mappedBy = "classEntity", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
