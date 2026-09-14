@@ -1,6 +1,5 @@
 package com.crm.dto.response;
 
-import com.crm.entity.enums.LeadStatus;
 import com.crm.entity.enums.LeadTaskState;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,7 +22,10 @@ public class LeadResponse {
     private String address;
     private String course;
     private String format;
-    private LeadStatus status;
+    /** Bosqich kodi ({@code lead_stages.code}). */
+    private String status;
+    /** Joriy tildagi nomi — {@code lead_stages} dan. */
+    private String statusLabel;
     private String source;
     private String notes;
     private Boolean converted;

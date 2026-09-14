@@ -570,6 +570,7 @@ public class GroupService {
             .joinDate(joinDate)
             .paymentStartDate(paymentStart)
             .nextPaymentDate(paymentStart)
+            .studyFormat(request.getStudyFormat())
             .isTrial(isTrial)
             .isActive(true)
             .discountPercentage(request.getDiscountPercentage())

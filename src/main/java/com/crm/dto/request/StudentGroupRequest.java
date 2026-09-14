@@ -1,6 +1,7 @@
 package com.crm.dto.request;
 
 import com.crm.entity.enums.PaymentType;
+import com.crm.entity.enums.StudyFormat;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -27,5 +28,7 @@ public class StudentGroupRequest {
     private PaymentType paymentType;
     /** PER_LESSON uchun; null bo'lsa course.lessonPrice */
     private BigDecimal lessonPrice;
+    /** ONLINE yoki OFFLINE. Ixtiyoriy — berilmasa null qoladi. */
+    private StudyFormat studyFormat;
     private String notes;
 }

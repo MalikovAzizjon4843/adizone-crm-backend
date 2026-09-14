@@ -1,7 +1,5 @@
 package com.crm.entity;
 
-import com.crm.entity.converter.LeadStatusConverter;
-import com.crm.entity.enums.LeadStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -38,13 +36,11 @@ public class LeadStatusHistory {
     @JoinColumn(name = "lead_id", nullable = false)
     private Lead lead;
 
-    @Convert(converter = LeadStatusConverter.class)
-    @Column(name = "from_status", length = 30)
-    private LeadStatus fromStatus;
+    @Column(name = "from_status", length = 50)
+    private String fromStatus;
 
-    @Convert(converter = LeadStatusConverter.class)
-    @Column(name = "to_status", length = 30, nullable = false)
-    private LeadStatus toStatus;
+    @Column(name = "to_status", length = 50, nullable = false)
+    private String toStatus;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "changed_by")

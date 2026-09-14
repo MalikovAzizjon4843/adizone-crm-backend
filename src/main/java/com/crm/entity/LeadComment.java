@@ -1,7 +1,5 @@
 package com.crm.entity;
 
-import com.crm.entity.converter.LeadStatusConverter;
-import com.crm.entity.enums.LeadStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -34,9 +32,9 @@ public class LeadComment {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    @Convert(converter = LeadStatusConverter.class)
-    @Column(name = "status_at_comment", length = 30)
-    private LeadStatus statusAtComment;
+    /** Izoh yozilgan paytdagi bosqich kodi ({@code lead_stages.code}). */
+    @Column(name = "status_at_comment", length = 50)
+    private String statusAtComment;
 
     @PrePersist
     protected void onCreate() {

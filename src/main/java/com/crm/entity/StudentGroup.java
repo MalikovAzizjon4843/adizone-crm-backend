@@ -1,6 +1,8 @@
 package com.crm.entity;
 
+import com.crm.entity.converter.StudyFormatConverter;
 import com.crm.entity.enums.PaymentType;
+import com.crm.entity.enums.StudyFormat;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -42,13 +44,24 @@ public class StudentGroup {
     private LocalDate paymentStartDate;
 
     /** Admin tanlovi: 1-dars bepul. Default false (to'lovli). */
+    /**
+     * ONLINE yoki OFFLINE. Mavjud yozuvlarda null — majburiy emas va
+     * ortga qarab to'ldirilmaydi.
+     */
+    @Convert(converter = StudyFormatConverter.class)
+    @Column(name = "study_format", length = 20)
+    private StudyFormat studyFormat;
+
     @Column(name = "is_trial")
+    @Builder.Default
     private Boolean isTrial = false;
 
     @Column(name = "is_active")
+    @Builder.Default
     private Boolean isActive = true;
 
     @Column(name = "discount_percentage", precision = 5, scale = 2)
+    @Builder.Default
     private BigDecimal discountPercentage = BigDecimal.ZERO;
 
     @Column(name = "monthly_price_override", precision = 12, scale = 2)
@@ -82,6 +95,7 @@ public class StudentGroup {
     private String notes;
 
     @Column(name = "lessons_attended")
+    @Builder.Default
     private Integer lessonsAttended = 0;
 
     @Column(name = "first_lesson_date")
@@ -95,6 +109,7 @@ public class StudentGroup {
 
     /** TRIAL, PENDING, PAID, OVERDUE, SUSPENDED, ARCHIVED, FROZEN */
     @Column(name = "payment_status", length = 20)
+    @Builder.Default
     private String paymentStatus = "PENDING";
 
     @Column(name = "suspended_at")

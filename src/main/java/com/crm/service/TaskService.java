@@ -18,7 +18,6 @@ import com.crm.entity.Lead;
 import com.crm.entity.Student;
 import com.crm.entity.Task;
 import com.crm.entity.User;
-import com.crm.entity.enums.LeadStatus;
 import com.crm.entity.enums.LeadTaskState;
 import com.crm.entity.enums.TaskStatus;
 import com.crm.entity.enums.TaskType;
@@ -72,6 +71,7 @@ public class TaskService {
     private final StudentRepository studentRepository;
     private final UserRepository userRepository;
     private final LeadAccessService leadAccessService;
+    private final LeadStageService leadStageService;
     private final Messages messages;
 
     // ── Yozish ───────────────────────────────────────────────────────────
@@ -417,8 +417,9 @@ public class TaskService {
 
         long noTask = scope
             .map(userId -> leadRepository.countOpenLeadsWithoutTaskByUser(
-                LeadStatus.closed(), userId))
-            .orElseGet(() -> leadRepository.countOpenLeadsWithoutTask(LeadStatus.closed()));
+                leadStageService.closedCodes(), userId))
+            .orElseGet(() -> leadRepository.countOpenLeadsWithoutTask(
+                leadStageService.closedCodes()));
 
         List<TaskUserStatsDto> byUser = scope.isPresent()
             ? List.of()

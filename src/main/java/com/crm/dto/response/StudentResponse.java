@@ -1,6 +1,7 @@
 package com.crm.dto.response;
 
 import com.crm.entity.enums.MarketingSource;
+import com.crm.entity.enums.StudyFormat;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.StudentStatus;
 import lombok.*;
@@ -33,6 +34,8 @@ public class StudentResponse {
     private Long referralStudentId;
     private Long currentGroupId;
     private String currentGroupName;
+    /** Joriy guruhdagi o'qish formati. Ko'rsatilmagan bo'lsa null. */
+    private StudyFormat studyFormat;
     private PaymentStatus paymentStatus;
     private LocalDate paymentStartDate;
     private LocalDate nextPaymentDate;

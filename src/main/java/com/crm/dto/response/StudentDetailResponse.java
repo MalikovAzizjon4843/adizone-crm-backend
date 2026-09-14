@@ -1,6 +1,7 @@
 package com.crm.dto.response;
 
 import com.crm.entity.enums.MarketingSource;
+import com.crm.entity.enums.StudyFormat;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.StudentStatus;
@@ -36,6 +37,8 @@ public class StudentDetailResponse {
     private Long referralStudentId;
     private Long currentGroupId;
     private String currentGroupName;
+    /** Joriy guruhdagi o'qish formati. Ko'rsatilmagan bo'lsa null. */
+    private StudyFormat studyFormat;
     private PaymentStatus paymentStatus;
     private LocalDate paymentStartDate;
     private LocalDate nextPaymentDate;
@@ -62,6 +65,8 @@ public class StudentDetailResponse {
         private LocalDate leaveDate;
         private Boolean isActive;
         private BigDecimal monthlyPrice;
+        /** ONLINE yoki OFFLINE; eski yozuvlarda null. */
+        private StudyFormat studyFormat;
     }
 
     @Data

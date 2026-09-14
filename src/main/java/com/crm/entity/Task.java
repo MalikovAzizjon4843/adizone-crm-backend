@@ -54,10 +54,12 @@ public class Task extends BaseEntity {
 
     @Convert(converter = TaskTypeConverter.class)
     @Column(nullable = false, length = 20)
+    @Builder.Default
     private TaskType type = TaskType.CALL;
 
     @Convert(converter = TaskStatusConverter.class)
     @Column(nullable = false, length = 20)
+    @Builder.Default
     private TaskStatus status = TaskStatus.OPEN;
 
     @Column(name = "due_at", nullable = false)
@@ -65,6 +67,7 @@ public class Task extends BaseEntity {
 
     /** true bo'lsa frontend vaqtni ko'rsatmaydi, faqat sanani. */
     @Column(name = "all_day", nullable = false)
+    @Builder.Default
     private Boolean allDay = false;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)

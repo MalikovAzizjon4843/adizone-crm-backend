@@ -230,10 +230,15 @@ public class LeadController {
         return ResponseEntity.ok(ApiResponse.success(leadService.getHistory(id)));
     }
 
+    /**
+     * Tana endi MAJBURIY: {@code studyFormat} siz lid qaysi konvert
+     * bosqichiga tushishini aniqlab bo'lmaydi. Avval {@code required = false}
+     * edi va {@code @Valid} ham yo'q edi — ikkalasi ham tuzatildi.
+     */
     @PostMapping("/{id:\\d+}/convert")
     public ResponseEntity<ApiResponse<LeadConvertResponse>> convertToStudent(
             @PathVariable Long id,
-            @RequestBody(required = false) LeadConvertRequest request) {
+            @Valid @RequestBody LeadConvertRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(
                 "O'quvchiga o'tkazildi",
                 leadService.convertToStudent(id, request)));

@@ -1,6 +1,5 @@
 package com.crm.dto.response;
 
-import com.crm.entity.enums.LeadStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -21,7 +20,8 @@ public class LeadStatsResponse {
     /** Frontend: o'quvchiga aylanganlar (status=CONVERTED) */
     private long converted;
     private long rejected;
-    private Map<LeadStatus, Long> byStatus;
+    /** Bosqich kodi -> lidlar soni, {@code sortOrder} tartibida. */
+    private Map<String, Long> byStatus;
     private List<LeadOperatorStatsResponse> byOperator;
     private long unassigned;
 }

@@ -105,6 +105,10 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER")
                 .requestMatchers("/api/tasks/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER")
+                // Bosqichlarni o'qish hammaga ochiq — kanban, lid kartasi va
+                // filtrlar nomlarni shu yerdan oladi. Yozish controllerdagi
+                // metod darajasidagi @PreAuthorize bilan cheklangan.
+                .requestMatchers("/api/lead-stages/**").authenticated()
                 .requestMatchers("/api/promotions/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/parents/**")

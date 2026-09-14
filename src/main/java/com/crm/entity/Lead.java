@@ -1,7 +1,5 @@
 package com.crm.entity;
 
-import com.crm.entity.converter.LeadStatusConverter;
-import com.crm.entity.enums.LeadStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
@@ -17,6 +15,9 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 public class Lead {
+
+    /** Seed birinchi bosqichga shu kodni beradi. */
+    public static final String DEFAULT_STATUS = "NEW";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -44,17 +45,26 @@ public class Lead {
     @Column(length = 20)
     private String format;
 
-    @Convert(converter = LeadStatusConverter.class)
-    @Column(length = 30, nullable = false)
-    private LeadStatus status = LeadStatus.NEW;
+    /**
+     * Bosqich kodi — {@code lead_stages.code} ga mos keladi.
+     *
+     * <p>Enum EMAS: bosqichlar endi bazada va buyurtmachi ularni o'zi
+     * qo'shadi. Tekshiruv {@code LeadStageService} keshida, ustun esa
+     * avvalgidek matn — migratsiya kerak emas.
+     */
+    @Column(name = "status", length = 50, nullable = false)
+    @Builder.Default
+    private String status = DEFAULT_STATUS;
 
     @Column(length = 30)
+    @Builder.Default
     private String source = "WEBSITE";
 
     @Column(columnDefinition = "TEXT")
     private String notes;
 
     @Column
+    @Builder.Default
     private Boolean converted = false;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -83,7 +93,7 @@ public class Lead {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
         if (status == null) {
-            status = LeadStatus.NEW;
+            status = DEFAULT_STATUS;
         }
         if (source == null) {
             source = "WEBSITE";

@@ -2,7 +2,6 @@ package com.crm.service;
 
 import com.crm.dto.response.DashboardStatsDto;
 import com.crm.entity.enums.GroupStatus;
-import com.crm.entity.enums.LeadStatus;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.repository.GroupRepository;
 import com.crm.repository.LeadRepository;
@@ -26,6 +25,7 @@ public class DashboardService {
     private final StudentGroupRepository studentGroupRepository;
     private final GroupRepository groupRepository;
     private final LeadRepository leadRepository;
+    private final LeadStageService leadStageService;
     private final PaymentRepository paymentRepository;
 
     @Transactional(readOnly = true)
@@ -42,7 +42,7 @@ public class DashboardService {
             studentGroupRepository.countDistinctByFirstLessonDateBetween(monthStart, now));
         dto.setNewStudents(studentRepository.countByCreatedAtBetween(from, to));
         dto.setActiveStudents(studentRepository.countByStatus(StudentStatus.ACTIVE));
-        dto.setLeftFromOrder(leadRepository.countByStatus(LeadStatus.REJECTED));
+        dto.setLeftFromOrder(leadRepository.countByStatus(leadStageService.rejectedCode()));
         dto.setLeftFromActive(
             studentGroupRepository.countDistinctLeftBetween(monthStart, now));
         dto.setNewLeftStudents(

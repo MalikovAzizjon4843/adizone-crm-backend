@@ -1,6 +1,5 @@
 package com.crm.dto.response;
 
-import com.crm.entity.enums.LeadStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,9 +13,9 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class LeadStatusHistoryResponse {
     private Long id;
-    private LeadStatus fromStatus;
+    private String fromStatus;
     private String fromStatusLabel;
-    private LeadStatus toStatus;
+    private String toStatus;
     private String toStatusLabel;
     private Long changedById;
     private String changedByName;

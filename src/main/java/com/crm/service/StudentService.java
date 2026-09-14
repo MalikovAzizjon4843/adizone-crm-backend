@@ -663,7 +663,8 @@ public class StudentService {
 
         if (currentGroup != null && currentGroup.getGroup() != null) {
             builder.currentGroupId(currentGroup.getGroup().getId())
-                .currentGroupName(currentGroup.getGroup().getGroupName());
+                .currentGroupName(currentGroup.getGroup().getGroupName())
+                .studyFormat(currentGroup.getStudyFormat());
         }
         return builder.build();
     }
@@ -787,7 +788,8 @@ public class StudentService {
 
         if (current != null && current.getGroup() != null) {
             builder.currentGroupId(current.getGroup().getId())
-                .currentGroupName(current.getGroup().getGroupName());
+                .currentGroupName(current.getGroup().getGroupName())
+                .studyFormat(current.getStudyFormat());
         }
         return builder.build();
     }
@@ -796,6 +798,7 @@ public class StudentService {
         Group g = sg.getGroup();
         if (g == null) {
             return StudentDetailResponse.GroupSummary.builder()
+                .studyFormat(sg.getStudyFormat())
                 .joinDate(sg.getJoinDate())
                 .leaveDate(sg.getLeaveDate())
                 .isActive(sg.getIsActive())
@@ -808,6 +811,7 @@ public class StudentService {
             ? sg.getMonthlyPriceOverride()
             : (course != null ? course.getMonthlyPrice() : null);
         return StudentDetailResponse.GroupSummary.builder()
+            .studyFormat(sg.getStudyFormat())
             .groupId(g.getId())
             .groupName(g.getGroupName())
             .courseName(course != null ? course.getCourseName() : null)

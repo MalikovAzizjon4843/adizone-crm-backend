@@ -53,6 +53,7 @@ public class StaffAnalyticsService {
 
     private final UserRepository userRepository;
     private final LeadRepository leadRepository;
+    private final LeadStageService leadStageService;
     private final PaymentRepository paymentRepository;
     private final AttendanceRepository attendanceRepository;
     private final AttendanceUnlockRequestRepository unlockRequestRepository;
@@ -74,7 +75,8 @@ public class StaffAnalyticsService {
             .toList();
 
         Map<Long, long[]> leadStats = toLongPairMap(
-            leadRepository.countAssignedAndConvertedGroupedByUser(fromDt, toExclusive));
+            leadRepository.countAssignedAndConvertedGroupedByUser(
+                fromDt, toExclusive, leadStageService.convertedCodes()));
         Map<Long, PaymentAgg> payStats = toPaymentMap(
             paymentRepository.sumReceivedGroupedByUser(rangeFrom, rangeTo));
         Map<Long, Long> markedStats = toLongMap(
@@ -230,7 +232,8 @@ public class StaffAnalyticsService {
             Long userId, Long teacherId, String label, LocalDate from, LocalDate to) {
         LocalDateTime fromDt = from.atStartOfDay();
         LocalDateTime toEx = to.plusDays(1).atStartOfDay();
-        long converted = leadRepository.countConvertedByUserInRange(userId, fromDt, toEx);
+        long converted = leadRepository.countConvertedByUserInRange(
+            userId, fromDt, toEx, leadStageService.convertedCodes());
         List<Object[]> payRows = paymentRepository.sumReceivedByUserInRange(userId, from, to);
         BigDecimal amount = BigDecimal.ZERO;
         if (payRows != null && !payRows.isEmpty() && payRows.get(0) != null) {

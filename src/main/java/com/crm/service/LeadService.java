@@ -28,7 +28,6 @@ import com.crm.entity.LeadStatusHistory;
 import com.crm.entity.Student;
 import com.crm.entity.Task;
 import com.crm.entity.User;
-import com.crm.entity.enums.LeadStatus;
 import com.crm.entity.enums.LeadTaskState;
 import com.crm.entity.enums.MarketingSource;
 import com.crm.entity.enums.PaymentStatus;
@@ -58,12 +57,12 @@ import java.time.LocalDateTime;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import java.util.Arrays;
-import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -72,6 +71,9 @@ import java.util.stream.Collectors;
 public class LeadService {
 
     private static final String PAYMENT_COMMENT_TEXT = "To'lov qabul qilindi";
+
+    /** To'lov qabul qilinganda avtomatik izoh yoziladigan bosqichlar. */
+    private static final Set<String> PAID_STATUSES = Set.of("ONLINE_PAID", "OFFLINE_PAID");
 
     private final LeadRepository leadRepository;
     private final LeadCommentRepository leadCommentRepository;
@@ -83,6 +85,7 @@ public class LeadService {
     private final UserRepository userRepository;
     private final TaskService taskService;
     private final LeadAccessService leadAccessService;
+    private final LeadStageService leadStageService;
 
     @Transactional
     @Audited(action = AuditAction.CREATE, entity = "Lead",
@@ -103,7 +106,7 @@ public class LeadService {
                         ? request.getSource().toUpperCase()
                         : "WEBSITE")
                 .notes(request.getNotes())
-                .status(LeadStatus.NEW)
+                .status(Lead.DEFAULT_STATUS)
                 .converted(false)
                 .build();
         return toResponse(leadRepository.save(lead));
@@ -143,8 +146,8 @@ public class LeadService {
                         : "WEBSITE")
                 .notes(request.getNotes())
                 .status(request.getStatus() != null && !request.getStatus().isBlank()
-                        ? parseStatus(request.getStatus())
-                        : LeadStatus.NEW)
+                        ? leadStageService.requireActiveCode(request.getStatus())
+                        : Lead.DEFAULT_STATUS)
                 .assignedUser(assignee)
                 .assignedAt(assignee != null ? LocalDateTime.now() : null)
                 .createdBy(current)
@@ -307,17 +310,20 @@ public class LeadService {
                 .orElseThrow(() -> new ResourceNotFoundException("Lead", id));
         leadAccessService.assertCanAccessLead(lead);
 
-        LeadStatus newStatus = parseStatus(status);
-        LeadStatus oldStatus = lead.getStatus();
+        String newStatus = leadStageService.requireActiveCode(status);
+        String oldStatus = lead.getStatus();
         lead.setStatus(newStatus);
 
         // Bir xil bosqichga qayta o'tish tarixni ham, auditni ham to'ldirmasin
-        if (oldStatus != newStatus) {
+        if (!newStatus.equals(oldStatus)) {
             AuditContext.change("status", oldStatus, newStatus);
             recordStatusChange(lead, oldStatus, newStatus, null);
         }
 
-        if (newStatus == LeadStatus.ONLINE_PAID || newStatus == LeadStatus.OFFLINE_PAID) {
+        // To'lov bosqichlari kodda nom bilan qolgan yagona joy. Bosqichlar
+        // sozlanadigan bo'lgach bu qoida mo'rt: buyurtmachi kodni o'zgartira
+        // olmaydi, lekin yangi to'lov bosqichi qo'shsa bu ro'yxatga tushmaydi.
+        if (PAID_STATUSES.contains(newStatus)) {
             addSystemComment(lead, PAYMENT_COMMENT_TEXT);
         }
 
@@ -478,7 +484,7 @@ public class LeadService {
         leadAccessService.assertCanAccessLead(lead);
 
         if (Boolean.TRUE.equals(lead.getConverted())
-                || lead.getStatus() == LeadStatus.CONVERTED
+                || leadStageService.isConverted(lead.getStatus())
                 || lead.getStudent() != null) {
             throw new BadRequestException("Bu lid allaqachon o'quvchiga aylantirilgan");
         }
@@ -535,6 +541,7 @@ public class LeadService {
             groupRequest.setPaymentType(body.getPaymentType());
             groupRequest.setLessonPrice(body.getLessonPrice());
             groupRequest.setIsTrial(body.getIsTrial());
+            groupRequest.setStudyFormat(body.getStudyFormat());
             groupService.addStudentToGroup(groupRequest);
         }
 
@@ -542,14 +549,15 @@ public class LeadService {
         student = studentRepository.findById(studentId)
             .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
 
-        LeadStatus statusBeforeConvert = lead.getStatus();
+        String convertedCode = leadStageService.convertedCodeFor(body.getStudyFormat());
+        String statusBeforeConvert = lead.getStatus();
         lead.setStudent(student);
         lead.setConverted(true);
-        lead.setStatus(LeadStatus.CONVERTED);
+        lead.setStatus(convertedCode);
         leadRepository.save(lead);
 
-        if (statusBeforeConvert != LeadStatus.CONVERTED) {
-            recordStatusChange(lead, statusBeforeConvert, LeadStatus.CONVERTED,
+        if (!convertedCode.equals(statusBeforeConvert)) {
+            recordStatusChange(lead, statusBeforeConvert, convertedCode,
                 "O'quvchiga aylantirildi");
         }
 
@@ -582,23 +590,25 @@ public class LeadService {
                 .map(leadRepository::countKanbanGroupedByUser)
                 .orElseGet(leadRepository::countKanbanGrouped);
 
-        Map<LeadStatus, Long> counts = new EnumMap<>(LeadStatus.class);
-        for (LeadStatus status : LeadStatus.values()) {
-            counts.put(status, 0L);
-        }
+        // Bosqichlar tartibi lead_stages dan — bo'sh ustun ham qaytadi.
+        Map<String, Long> counts = new LinkedHashMap<>();
+        leadStageService.orderedCodes().forEach(code -> counts.put(code, 0L));
 
         long unassigned = 0L;
         for (Object[] row : rows) {
-            LeadStatus status = row[0] instanceof LeadStatus s
-                    ? s
-                    : LeadStatus.fromString(row[0] != null ? row[0].toString() : null);
-            counts.merge(status, toCount(row[1]), Long::sum);
+            String code = row[0] != null ? row[0].toString() : null;
+            if (code != null) {
+                // merge emas: o'chirilgan bosqichdagi eski lid ustun
+                // yaratmasin, lekin yo'qolib ham ketmasin
+                counts.merge(code, toCount(row[1]), Long::sum);
+            }
             unassigned += toCount(row[2]);
         }
 
         List<LeadKanbanColumnDto> columns = new java.util.ArrayList<>(counts.size());
-        counts.forEach((status, count) -> columns.add(LeadKanbanColumnDto.builder()
-                .status(status)
+        counts.forEach((code, count) -> columns.add(LeadKanbanColumnDto.builder()
+                .status(code)
+                .statusLabel(leadStageService.label(code))
                 .count(count)
                 .totalAmount(null)
                 .build()));
@@ -618,26 +628,30 @@ public class LeadService {
 
     @Transactional(readOnly = true)
     public LeadStatsResponse getStats() {
-        Map<LeadStatus, Long> byStatus = new EnumMap<>(LeadStatus.class);
-        for (LeadStatus status : LeadStatus.values()) {
-            byStatus.put(status, 0L);
-        }
+        Set<String> convertedCodes = leadStageService.convertedCodes();
+        String rejectedCode = leadStageService.rejectedCode();
+
+        Map<String, Long> byStatus = new LinkedHashMap<>();
+        leadStageService.orderedCodes().forEach(code -> byStatus.put(code, 0L));
         leadRepository.countByStatusGrouped().forEach(row -> {
-            LeadStatus status = row[0] instanceof LeadStatus
-                    ? (LeadStatus) row[0]
-                    : LeadStatus.fromString(row[0] != null ? row[0].toString() : null);
+            String code = row[0] != null ? row[0].toString() : null;
+            if (code == null) {
+                return;
+            }
             long count = row[1] instanceof Number n ? n.longValue() : 0L;
-            byStatus.merge(status, count, Long::sum);
+            byStatus.merge(code, count, Long::sum);
         });
 
-        long convertedByStatus = leadRepository.countByStatus(LeadStatus.CONVERTED);
+        long convertedByStatus = leadRepository.countByStatusIn(convertedCodes);
         long convertedByFlag = leadRepository.countByConvertedTrue();
         // Yagona manba: status=CONVERTED (convert oqimi ikkalasini ham yozadi)
         long converted = convertedByStatus;
-        byStatus.put(LeadStatus.CONVERTED, converted);
+        // Yagona manba sifatida birinchi konvert bosqichiga yozamiz —
+        // byStatus dagi qolgan konvert bosqichlari o'z sonini saqlaydi.
+        convertedCodes.stream().findFirst().ifPresent(code -> byStatus.put(code, converted));
 
-        long newCount = byStatus.getOrDefault(LeadStatus.NEW, 0L);
-        long rejected = byStatus.getOrDefault(LeadStatus.REJECTED, 0L);
+        long newCount = byStatus.getOrDefault(Lead.DEFAULT_STATUS, 0L);
+        long rejected = byStatus.getOrDefault(rejectedCode, 0L);
 
         log.info("Lead stats: CONVERTED(status)={}, converted(flag)={}, NEW={}, REJECTED={}, total={}",
             convertedByStatus, convertedByFlag, newCount, rejected, leadRepository.count());
@@ -646,7 +660,8 @@ public class LeadService {
                 convertedByStatus, convertedByFlag);
         }
 
-        List<LeadOperatorStatsResponse> byOperator = leadRepository.countByOperatorGrouped().stream()
+        List<LeadOperatorStatsResponse> byOperator =
+                leadRepository.countByOperatorGrouped(convertedCodes).stream()
                 .map(row -> LeadOperatorStatsResponse.builder()
                         .userId((Long) row[0])
                         .name(row[1] != null ? row[1].toString().trim() : "")
@@ -701,15 +716,17 @@ public class LeadService {
 
         if (status != null && !status.isBlank()) {
             if (status.contains(",")) {
-                List<LeadStatus> statuses = Arrays.stream(status.split(","))
+                // Filtr uchun ATAYLAB requireActiveCode ishlatilmaydi:
+                // o'chirilgan bosqichdagi eski lidlarni ham izlash kerak.
+                List<String> statuses = Arrays.stream(status.split(","))
                         .map(String::trim)
-                        .filter(s -> !s.isEmpty())
-                        .map(this::parseStatus)
+                        .filter(str -> !str.isEmpty())
+                        .map(str -> str.toUpperCase())
                         .toList();
                 spec = spec.and((root, query, cb) -> root.get("status").in(statuses));
             } else {
-                LeadStatus leadStatus = parseStatus(status);
-                spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), leadStatus));
+                String code = status.trim().toUpperCase();
+                spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), code));
             }
         }
         if (assignedUserId != null) {
@@ -748,23 +765,12 @@ public class LeadService {
         }
     }
 
-    private LeadStatus parseStatus(String status) {
-        if (status == null || status.isBlank()) {
-            throw new BadRequestException("Status majburiy");
-        }
-        try {
-            return LeadStatus.valueOf(status.trim().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Noto'g'ri lead status: " + status);
-        }
-    }
-
     /**
      * Bosqich o'tishini tarixga yozadi. Muallif aniqlanmasa ham yozuv
      * yaratiladi — {@code changedBy} null bo'ladi (masalan kelajakdagi
      * avtomatik o'tishlar uchun), chunki o'tish fakti muallifdan muhimroq.
      */
-    private void recordStatusChange(Lead lead, LeadStatus from, LeadStatus to, String note) {
+    private void recordStatusChange(Lead lead, String from, String to, String note) {
         leadStatusHistoryRepository.save(LeadStatusHistory.builder()
                 .lead(lead)
                 .fromStatus(from)
@@ -887,6 +893,7 @@ public class LeadService {
                 .course(lead.getCourse())
                 .format(lead.getFormat())
                 .status(lead.getStatus())
+                .statusLabel(leadStageService.label(lead.getStatus()))
                 .source(lead.getSource())
                 .notes(lead.getNotes())
                 .converted(lead.getConverted())
@@ -1046,19 +1053,11 @@ public class LeadService {
         };
     }
 
-    private String translateStatus(LeadStatus status) {
-        if (status == null) {
-            return "Yangi";
-        }
-        return switch (status) {
-            case NEW -> "Yangi";
-            case CONTACTED -> "Bog'lanildi";
-            case ONLINE_ENROLLED -> "Online guruhga yozildi";
-            case OFFLINE_ENROLLED -> "Offline guruhga yozildi";
-            case ONLINE_PAID -> "Online to'ladi";
-            case OFFLINE_PAID -> "Offline to'ladi";
-            case CONVERTED -> "O'quvchiga aylandi";
-            case REJECTED -> "Rad etildi";
-        };
+    /**
+     * Bosqich nomi — {@code lead_stages} dan, joriy so'rov tilida.
+     * Avvalgi qo'lda yozilgan {@code switch} o'rniga.
+     */
+    private String translateStatus(String code) {
+        return code != null ? leadStageService.label(code) : null;
     }
 }

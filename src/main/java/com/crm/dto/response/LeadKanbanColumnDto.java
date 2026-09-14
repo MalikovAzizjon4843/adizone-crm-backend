@@ -1,6 +1,5 @@
 package com.crm.dto.response;
 
-import com.crm.entity.enums.LeadStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -25,7 +24,10 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 public class LeadKanbanColumnDto {
-    private LeadStatus status;
+    /** Bosqich kodi. Biriktirilmaganlar ustunida null. */
+    private String status;
+    /** Joriy tildagi nomi. */
+    private String statusLabel;
     private long count;
     private BigDecimal totalAmount;
 }
