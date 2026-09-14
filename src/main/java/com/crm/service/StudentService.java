@@ -25,6 +25,7 @@ import com.crm.entity.enums.MarketingSource;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.PaymentType;
 import com.crm.entity.enums.StudentStatus;
+import com.crm.entity.enums.StudyFormat;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
@@ -172,7 +173,7 @@ public class StudentService {
         studentRepository.save(saved);
         syncParents(saved, request.getParents(), request.getParentPhone());
         if (request.getGroupId() != null) {
-            addStudentToGroupIfNeeded(saved, request.getGroupId());
+            addStudentToGroupIfNeeded(saved, request.getGroupId(), request.getStudyFormat());
         }
 
         return toResponse(findById(saved.getId()));
@@ -209,14 +210,27 @@ public class StudentService {
             Group target = groupRepository.findById(request.getGroupId())
                 .orElse(null);
             if (target != null) {
+                // Guruh almashsa va format berilmagan bo'lsa — yopilayotgan
+                // yozuvdan meros olinadi, aks holda u jimgina yo'qolardi.
+                StudyFormat format = request.getStudyFormat();
                 for (StudentGroup sg : studentGroupRepository.findActiveByStudentId(student.getId())) {
-                    if (!sg.getGroup().getId().equals(target.getId())) {
-                        sg.setIsActive(false);
-                        sg.setLeaveDate(LocalDate.now());
-                        studentGroupRepository.save(sg);
+                    if (sg.getGroup().getId().equals(target.getId())) {
+                        // O'sha guruh: yangi yozuv ochilmaydi (addStudentToGroupIfNeeded
+                        // erta qaytadi), shuning uchun formatni shu yerda yangilaymiz.
+                        if (format != null) {
+                            sg.setStudyFormat(format);
+                            studentGroupRepository.save(sg);
+                        }
+                        continue;
                     }
+                    if (format == null) {
+                        format = sg.getStudyFormat();
+                    }
+                    sg.setIsActive(false);
+                    sg.setLeaveDate(LocalDate.now());
+                    studentGroupRepository.save(sg);
                 }
-                addStudentToGroupIfNeeded(student, target.getId());
+                addStudentToGroupIfNeeded(student, target.getId(), format);
             }
         }
 
@@ -356,11 +370,17 @@ public class StudentService {
             ? request.getReason().trim() : "TRANSFERRED";
         String note = request.getNote();
 
+        // Format so'rovda berilmasa yopilayotgan yozuvdan meros olinadi.
+        StudyFormat format = request.getStudyFormat();
+
         if (request.getFromGroupId() != null) {
             StudentGroup from = studentGroupRepository
                 .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, request.getFromGroupId())
                 .orElseThrow(() -> new ResourceNotFoundException(
                     "Student is not active in group " + request.getFromGroupId()));
+            if (format == null) {
+                format = from.getStudyFormat();
+            }
             LocalDate today = LocalDate.now();
             from.setIsActive(false);
             from.setLeaveDate(today);
@@ -389,6 +409,7 @@ public class StudentService {
             .joinDate(joinDate)
             .paymentStartDate(joinDate)
             .nextPaymentDate(joinDate)
+            .studyFormat(format)
             .isTrial(false)
             .isActive(true)
             .monthlyPriceOverride(fee)
@@ -685,7 +706,11 @@ public class StudentService {
         return map;
     }
 
-    private void addStudentToGroupIfNeeded(Student student, Long groupId) {
+    /**
+     * {@code studyFormat} null bo'lsa yozuvda ham null qoladi — format
+     * majburiy emas va ortga qarab to'ldirilmaydi.
+     */
+    private void addStudentToGroupIfNeeded(Student student, Long groupId, StudyFormat studyFormat) {
         Group group = groupRepository.findById(groupId).orElse(null);
         if (group == null) {
             return;
@@ -712,6 +737,7 @@ public class StudentService {
             .joinDate(joinDate)
             .paymentStartDate(joinDate)
             .nextPaymentDate(joinDate)
+            .studyFormat(studyFormat)
             .isTrial(false)
             .isActive(true)
             .monthlyPriceOverride(fee)

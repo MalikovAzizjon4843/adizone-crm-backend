@@ -1,5 +1,6 @@
 package com.crm.dto.request;
 
+import com.crm.entity.enums.StudyFormat;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -33,6 +34,17 @@ public class StudentRequest {
     private String admissionNumber;
     private LocalDate admissionDate;
     private Long groupId;
+
+    /**
+     * ONLINE yoki OFFLINE. Faqat {@code groupId} bilan birga ma'noli:
+     * format {@code StudentGroup} da saqlanadi, {@code Student} da emas.
+     *
+     * <p>Yaratishda — yangi yozuvga yoziladi. Tahrirlashda ikki holat:
+     * guruh o'sha bo'lsa mavjud yozuv yangilanadi, guruh almashsa
+     * yangisiga o'tadi.
+     */
+    private StudyFormat studyFormat;
+
     private Long courseId;
     private String parentPhone;
     private String address;
