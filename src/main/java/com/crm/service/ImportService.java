@@ -982,24 +982,39 @@ public class ImportService {
         return t.substring(0, maxLen);
     }
 
+    /**
+     * Formatlash shovqinini olib tashlaydi: probel (oddiy va uzilmas),
+     * apostrof, qavs, defis va nuqta.
+     *
+     * <p>Apostrof muhim — Excel matn katagini {@code '+998...} ko'rinishida
+     * beradi va u tozalanmasa raqam yaroqsiz deb sanalardi.
+     *
+     * <p>Raqamni QAYTA FORMATLAMAYDI: {@code +} va harflar o'z joyida qoladi,
+     * ya'ni "Turk tili" kabi matn baribir {@link #phoneDigits} dan o'tmaydi.
+     */
     static String normalizePhone(String raw) {
         if (raw == null) {
             return null;
         }
-        String t = raw.trim().replaceAll("\\s+", "").replace(" ", "");
+        String t = stripPhoneNoise(raw);
         if (t.isEmpty()) {
             return null;
         }
         return truncate(t, 32);
     }
 
-    /** +, probel, qavs va defisni olib tashlagandan keyin 9..13 ta raqam bo'lsa — qaytaradi. */
+    /** Shovqin tozalangandan keyin 9..13 ta RAQAM qolsa — o'shani qaytaradi. */
     static String phoneDigits(String raw) {
         if (raw == null) {
             return null;
         }
-        String cleaned = raw.replaceAll("[+()\\-\\s ]", "");
+        String cleaned = stripPhoneNoise(raw).replace("+", "");
         return cleaned.matches("\\d{9,13}") ? cleaned : null;
+    }
+
+    /** Harf va {@code +} qoladi — shuning uchun matn baribir raqam bo'lib qolmaydi. */
+    static String stripPhoneNoise(String raw) {
+        return raw.replaceAll("[\\s\u00a0'`\u2018\u2019\u02bb\u02bc()\\-.]", "").trim();
     }
 
     static String getCellString(Row row, int col) {
