@@ -757,7 +757,8 @@ public class ImportService {
         return full.isEmpty() ? "noma'lum" : full;
     }
 
-    private static boolean isBlank(String s) {
+    /** Paket ichida ochiq: {@code LeadImportService} ham shu yordamchilarni ishlatadi. */
+    static boolean isBlank(String s) {
         return s == null || s.isBlank();
     }
 
@@ -787,7 +788,7 @@ public class ImportService {
         }
     }
 
-    private Map<String, Integer> buildHeaderIndex(Row headerRow) {
+    static Map<String, Integer> buildHeaderIndex(Row headerRow) {
         Map<String, Integer> map = new HashMap<>();
         short last = headerRow.getLastCellNum();
         for (int c = 0; c < last; c++) {
@@ -801,7 +802,7 @@ public class ImportService {
         return map;
     }
 
-    private static String normalizeHeaderKey(String raw) {
+    static String normalizeHeaderKey(String raw) {
         if (raw == null) {
             return "";
         }
@@ -817,7 +818,7 @@ public class ImportService {
         return s;
     }
 
-    private String cellByHeader(Row row, Map<String, Integer> col, String header) {
+    static String cellByHeader(Row row, Map<String, Integer> col, String header) {
         Integer idx = col.get(normalizeHeaderKey(header));
         if (idx == null) {
             return null;
@@ -970,7 +971,7 @@ public class ImportService {
         }
     }
 
-    private static String truncate(String s, int maxLen) {
+    static String truncate(String s, int maxLen) {
         if (s == null) {
             return null;
         }
@@ -981,7 +982,7 @@ public class ImportService {
         return t.substring(0, maxLen);
     }
 
-    private static String normalizePhone(String raw) {
+    static String normalizePhone(String raw) {
         if (raw == null) {
             return null;
         }
@@ -993,7 +994,7 @@ public class ImportService {
     }
 
     /** +, probel, qavs va defisni olib tashlagandan keyin 9..13 ta raqam bo'lsa — qaytaradi. */
-    private static String phoneDigits(String raw) {
+    static String phoneDigits(String raw) {
         if (raw == null) {
             return null;
         }
@@ -1001,12 +1002,12 @@ public class ImportService {
         return cleaned.matches("\\d{9,13}") ? cleaned : null;
     }
 
-    private String getCellString(Row row, int col) {
+    static String getCellString(Row row, int col) {
         Cell cell = row.getCell(col, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
         return getCellStringFromCell(cell);
     }
 
-    private String getCellStringFromCell(Cell cell) {
+    static String getCellStringFromCell(Cell cell) {
         if (cell == null) {
             return null;
         }
@@ -1035,7 +1036,7 @@ public class ImportService {
         };
     }
 
-    private String getFormulaStringValue(Cell cell) {
+    static String getFormulaStringValue(Cell cell) {
         return switch (cell.getCachedFormulaResultType()) {
             case STRING -> cell.getStringCellValue().trim();
             case NUMERIC -> {

@@ -17,6 +17,18 @@ public interface LeadRepository extends JpaRepository<Lead, Long>, JpaSpecificat
 
     Optional<Lead> findByPhone(String phone);
 
+    /**
+     * Barcha telefonlar — import oldidan dublikatlarni aniqlash uchun.
+     * Lidlar soni minglab, faqat bitta ustun: xotiraga sig'adi va
+     * har qator uchun alohida so'rovdan ancha arzon.
+     */
+    @Query("SELECT l.phone FROM Lead l WHERE l.phone IS NOT NULL")
+    List<String> findAllPhones();
+
+    long countByImportBatch(String importBatch);
+
+    List<Lead> findByImportBatch(String importBatch);
+
     /** Bosqich kodi bo'yicha — {@code lead_stages.code}. */
     long countByStatus(String status);
 

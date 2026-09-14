@@ -82,6 +82,14 @@ public class Lead {
     @Column(name = "assigned_at")
     private LocalDateTime assignedAt;
 
+    /**
+     * Ommaviy import partiyasining belgisi. Qo'lda yaratilgan lidlarda null.
+     * Noto'g'ri import qilinganda shu belgi bo'yicha butun partiya
+     * o'chiriladi ({@code DELETE /api/leads/import/{batch}}).
+     */
+    @Column(name = "import_batch", length = 50)
+    private String importBatch;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
