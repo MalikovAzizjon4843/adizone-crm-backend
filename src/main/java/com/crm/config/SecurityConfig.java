@@ -36,6 +36,24 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
+    /**
+     * Ruxsat etilgan frontend manbalari. {@code public static} — WebSocket
+     * handshake CORS ni alohida tekshiradi va {@link WebSocketConfig} shu
+     * ro'yxatni qayta ishlatadi, aks holda ikkita ro'yxat vaqt o'tib
+     * bir-biridan ajralib qolardi.
+     */
+    public static final List<String> ALLOWED_ORIGIN_PATTERNS = List.of(
+            "https://admin.adizone.uz",
+            "https://adizone.uz",
+            "https://www.adizone.uz",
+            "https://*.vercel.app",
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:3000"
+    );
+
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final CustomUserDetailsService userDetailsService;
     private final ObjectMapper objectMapper;
@@ -66,6 +84,11 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/settings/**").authenticated()
                 .requestMatchers("/api/settings/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/actuator/health").permitAll()
+                // WebSocket qo'l berishi: Authorization sarlavhasi yo'q, chunki
+                // brauzer WebSocket'ga sarlavha qo'sha olmaydi. Token shu yerda
+                // emas, JwtHandshakeInterceptor'da (?token=...) tekshiriladi va
+                // tokensiz ulanish 403 bilan rad etiladi.
+                .requestMatchers("/ws", "/ws/**").permitAll()
                 // ── Teacher-accessible reads (before broader / catch-alls) ──
                 .requestMatchers(HttpMethod.GET, "/api/timetable/grid")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
@@ -152,6 +175,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PUT, "/api/notices/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
+                // Ichki chat — barcha xodimlar uchun, rol cheklovisiz.
+                // Suhbatga kirish huquqi a'zolik bo'yicha ChatAccessService'da.
+                .requestMatchers("/api/chat/**").authenticated()
                 .requestMatchers("/api/search/**").authenticated()
                 .requestMatchers(HttpMethod.POST, "/api/files/**").authenticated()
 
@@ -187,17 +213,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
 
-        config.setAllowedOriginPatterns(List.of(
-                "https://admin.adizone.uz",
-                "https://adizone.uz",
-                "https://www.adizone.uz",
-                "https://*.vercel.app",
-                "http://localhost:3000",
-                "http://localhost:5173",
-                "http://localhost:5174",
-                "http://127.0.0.1:5173",
-                "http://127.0.0.1:3000"
-        ));
+        config.setAllowedOriginPatterns(ALLOWED_ORIGIN_PATTERNS);
 
         config.setAllowedMethods(Arrays.asList(
                 "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"
