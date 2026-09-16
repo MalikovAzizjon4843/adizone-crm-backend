@@ -1,6 +1,8 @@
 package com.crm.dto.request;
 
+import com.crm.config.PhoneDeserializer;
 import com.crm.entity.enums.StudyFormat;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -23,6 +25,7 @@ public class StudentRequest {
     private String lastName;
 
     @NotBlank(message = "{student.phone.required}")
+    @JsonDeserialize(using = PhoneDeserializer.class)
     private String phone;
 
     @NotBlank(message = "{student.status.required}")
@@ -46,7 +49,10 @@ public class StudentRequest {
     private StudyFormat studyFormat;
 
     private Long courseId;
+
+    @JsonDeserialize(using = PhoneDeserializer.class)
     private String parentPhone;
+
     private String address;
     private String notes;
 

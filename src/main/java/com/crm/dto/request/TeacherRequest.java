@@ -1,5 +1,7 @@
 package com.crm.dto.request;
 
+import com.crm.config.PhoneDeserializer;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -17,6 +19,7 @@ public class TeacherRequest {
     private String lastName;
 
     @NotBlank(message = "{teacher.phone.required}")
+    @JsonDeserialize(using = PhoneDeserializer.class)
     private String phone;
 
     private String email;

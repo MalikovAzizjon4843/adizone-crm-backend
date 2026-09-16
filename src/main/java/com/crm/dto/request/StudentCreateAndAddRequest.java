@@ -1,6 +1,8 @@
 package com.crm.dto.request;
 
+import com.crm.config.PhoneDeserializer;
 import com.crm.entity.enums.PaymentType;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -18,10 +20,13 @@ public class StudentCreateAndAddRequest {
     private String lastName;
 
     @NotBlank(message = "{studentCreateAndAdd.phone.required}")
+    @JsonDeserialize(using = PhoneDeserializer.class)
     private String phone;
 
     private String gender;
     private String marketingSource;
+
+    @JsonDeserialize(using = PhoneDeserializer.class)
     private String parentPhone;
 
     @NotNull(message = "{studentCreateAndAdd.paymentStartDate.required}")

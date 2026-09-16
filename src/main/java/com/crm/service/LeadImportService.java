@@ -13,6 +13,7 @@ import com.crm.exception.BadRequestException;
 import com.crm.repository.LeadNoteRepository;
 import com.crm.repository.LeadRepository;
 import com.crm.repository.UserRepository;
+import com.crm.util.PhoneUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.Cell;
@@ -426,7 +427,7 @@ public class LeadImportService {
             rowNum,
             ImportService.cellByHeader(row, col, H_FULL_NAME),
             storablePhone(rawPhone),
-            canonicalDigits(rawPhone),
+            PhoneUtils.canonicalDigits(rawPhone),
             trimOrEmpty(ImportService.cellByHeader(row, col, H_STAGE)),
             trimOrEmpty(ImportService.cellByHeader(row, col, H_OPERATOR)),
             sourceFromTags(tags),
@@ -455,57 +456,13 @@ public class LeadImportService {
     }
 
     /**
-     * Telefonni {@code +998XXXXXXXXX} ko'rinishiga keltiradi.
-     * Tanib bo'lmasa null — chaqiruvchi xom qiymatni saqlaydi.
-     *
-     * <p>Excel'dagi haqiqiy shakllar: {@code '+998 507723109} (apostrof va
-     * probel bilan), {@code 901204729} (kodsiz), {@code 70 483 15 03}.
-     * Shu sababli raqamdan boshqa HAMMA belgi tashlanadi — "Turk tili"
-     * yoki "." kabi matnlardan raqam qolmaydi va null qaytadi.
-     */
-    static String canonicalPhone(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String d = raw.replaceAll("[^0-9]", "");
-        if (d.length() == 12 && d.startsWith("998")) {
-            return "+" + d;
-        }
-        if (d.length() == 9) {
-            return "+998" + d;
-        }
-        // 8 bilan boshlanadigan ichki format. 10 xonali shakl real
-        // ma'lumotda uchraydi; 11 xonali shakl talab bo'yicha qo'shilgan.
-        if (d.length() == 10 && d.startsWith("8")) {
-            return "+998" + d.substring(1);
-        }
-        if (d.length() == 11 && d.startsWith("8")) {
-            return "+998" + d.substring(1);
-        }
-        return null;
-    }
-
-    /**
-     * Dublikat kaliti — kanonik shaklning raqamlari ({@code 998XXXXXXXXX}).
-     * Tanib bo'lmasa null: bunday qiymatlar dublikat sifatida
-     * solishtirilmaydi, chunki ular telefon emas.
-     *
-     * <p>Kalit AYNAN kanonik shakldan olinadi, xom qiymatdan emas — shunda
-     * {@code 901204729} va {@code '+998 901204729} bitta lid deb taniladi.
-     */
-    static String canonicalDigits(String raw) {
-        String canonical = canonicalPhone(raw);
-        return canonical != null ? canonical.replaceAll("[^0-9]", "") : null;
-    }
-
-    /**
      * Saqlanadigan qiymat. {@code leads.phone} NOT NULL, foydalanuvchi esa
      * buzuq telefonli lidlarni ham import qilishni xohladi — shuning uchun
      * tanilmagan qiymat XOM holicha (50 belgigacha) saqlanadi, mutlaqo bo'sh
      * bo'lsa "—" yoziladi. Natijada hech qachon null qaytmaydi.
      */
     static String storablePhone(String raw) {
-        String canonical = canonicalPhone(raw);
+        String canonical = PhoneUtils.canonical(raw);
         if (canonical != null) {
             return canonical;
         }
@@ -654,7 +611,7 @@ public class LeadImportService {
     private Set<String> existingPhoneDigits() {
         Set<String> digits = new HashSet<>();
         for (String phone : leadRepository.findAllPhones()) {
-            String d = canonicalDigits(phone);
+            String d = PhoneUtils.canonicalDigits(phone);
             if (d != null) {
                 digits.add(d);
             }

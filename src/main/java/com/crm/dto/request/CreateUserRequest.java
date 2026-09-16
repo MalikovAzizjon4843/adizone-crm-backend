@@ -1,6 +1,8 @@
 package com.crm.dto.request;
 
+import com.crm.config.PhoneDeserializer;
 import com.crm.entity.enums.UserRole;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -30,6 +32,7 @@ public class CreateUserRequest {
     @Pattern(
         regexp = "^$|^\\+998\\d{9}$|^\\d{9}$",
         message = "{user.phone.pattern}")
+    @JsonDeserialize(using = PhoneDeserializer.class)
     private String phone;
 
     @Email(message = "{user.email.invalid}")
