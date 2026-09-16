@@ -330,6 +330,24 @@ public class LeadService {
         String newStatus = leadStageService.requireActiveCode(status);
         String oldStatus = lead.getStatus();
 
+        // Konvert bosqichi — natija, operator qo'yadigan belgi emas. Unga
+        // faqat convertToStudent() orqali, o'quvchi haqiqatan yaratilgandan
+        // keyin tushiladi. Qo'lda o'tkazilgan lid "o'quvchi" ustunida turardi,
+        // students jadvalida esa bo'lmasdi — va convertToStudent o'zining
+        // isConverted(status) tekshiruvi tufayli uni rad etib, lidni tuzoqqa
+        // tushirardi.
+        //
+        // Blok faqat KIRISHGA. Konvert bosqichidan chiqish erkin qoladi, aks
+        // holda noto'g'ri konvertatsiyani bekor qilib bo'lmasdi. Shu bosqichda
+        // turgan lidni o'sha bosqichga qayta saqlash ham bloklanmaydi — bu
+        // kirish emas, shuning uchun summani tahrirlash yo'li ochiq qoladi.
+        //
+        // REJECTED ataylab qamrab olinmagan: rad etish operatorning oddiy
+        // amali va hech qanday yon yozuv yaratmaydi.
+        if (!newStatus.equals(oldStatus) && leadStageService.isConverted(newStatus)) {
+            throw new BadRequestException(messages.get("lead.status.convertedManually"));
+        }
+
         if (amount != null) {
             if (amount.signum() < 0) {
                 throw new BadRequestException(messages.get("lead.amount.negative"));
@@ -661,6 +679,10 @@ public class LeadService {
 
         String convertedCode = leadStageService.convertedCodeFor(body.getStudyFormat());
         String statusBeforeConvert = lead.getStatus();
+        // Status ATAYLAB to'g'ridan-to'g'ri yoziladi, updateStatus orqali emas:
+        // u endi konvert bosqichiga o'tishni bloklaydi va bu yagona qonuniy
+        // yo'l. Bu yerni updateStatus chaqiruviga almashtirmang — konvertatsiya
+        // o'z blokiga urilib qoladi.
         lead.setStudent(student);
         lead.setConverted(true);
         lead.setStatus(convertedCode);
@@ -691,7 +713,9 @@ public class LeadService {
      * u faqat o'ziga biriktirilgan lidlarni sanaydi va unda
      * "biriktirilmagan" ustuni tabiiy ravishda nol bo'ladi.
      *
-     * <p>{@code totalAmount} null: {@code Lead} da budjet maydoni yo'q.
+     * <p>{@code totalAmount} — ustundagi lidlar summasining yig'indisi.
+     * Summasi yo'q lid nol deb sanaladi, ya'ni bo'sh ustun ham null emas,
+     * nol qaytaradi.
      */
     @Transactional(readOnly = true)
     public LeadKanbanStatsResponse getKanbanStats() {

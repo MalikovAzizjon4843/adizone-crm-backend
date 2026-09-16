@@ -49,6 +49,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * amoCRM Excel eksportidan lidlarni import qilish — ikki qadamli.
@@ -176,6 +177,7 @@ public class LeadImportService {
             .duplicatesInDb(duplicatesInDb)
             .sourceStages(countBy(rows, ParsedRow::stage))
             .operators(countBy(rows, ParsedRow::operator))
+            .blockedStages(leadStageService.activeConvertedCodes())
             .sampleRows(sampleRows(rows))
             .build();
     }
@@ -202,6 +204,8 @@ public class LeadImportService {
             .filter(code -> code != null && !code.isBlank())
             .distinct()
             .forEach(leadStageService::requireActiveCode);
+        // Xom map: xabarda amoCRM bosqichi operator ko'rgan ko'rinishda chiqsin
+        requireNoConvertedMapping(request.getStageMapping());
         Map<String, Long> operatorMapping = normalizeKeys(request.getOperatorMapping());
         Map<Long, User> operators = loadOperators(operatorMapping.values());
 
@@ -633,6 +637,33 @@ public class LeadImportService {
             map.put(user.getId(), user);
         }
         return map;
+    }
+
+    /**
+     * {@code kind = CONVERTED} bosqichiga xaritalashni rad etadi — bitta
+     * qator ham yozilmasdan oldin.
+     *
+     * <p>Import lidni {@code Lead.builder().status(...)} bilan
+     * to'g'ridan-to'g'ri yozadi, ya'ni {@code LeadService.updateStatus}
+     * dagi "konvert bosqichiga qo'lda o'tib bo'lmaydi" taqiqidan
+     * o'tmaydi. Shunday xaritalash bilan minglab lid yetim holatda —
+     * {@code student_id} bo'sh, lekin konvert ustunida — tushardi va
+     * KPI ni ham, kanban sanog'ini ham buzardi. O'quvchi faqat
+     * konvertatsiya orqali yaratiladi.
+     */
+    private void requireNoConvertedMapping(Map<String, String> rawStageMapping) {
+        if (rawStageMapping == null || rawStageMapping.isEmpty()) {
+            return;
+        }
+        String blocked = rawStageMapping.entrySet().stream()
+            .filter(e -> e.getValue() != null && !e.getValue().isBlank())
+            .filter(e -> leadStageService.isConverted(e.getValue()))
+            .map(e -> trimOrEmpty(e.getKey()) + " -> " + e.getValue().trim())
+            .sorted()
+            .collect(Collectors.joining("; "));
+        if (!blocked.isEmpty()) {
+            throw new BadRequestException(messages.get("leadImport.stage.converted", blocked));
+        }
     }
 
     private static <V> Map<String, V> normalizeKeys(Map<String, V> raw) {

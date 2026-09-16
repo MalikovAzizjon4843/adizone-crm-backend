@@ -39,6 +39,18 @@ public class LeadImportPreviewResponse {
     private List<NameCount> sourceStages;
     private List<NameCount> operators;
 
+    /**
+     * Import uchun YOPIQ bosqich kodlari — {@code kind = CONVERTED}
+     * bo'lgan faol bosqichlar.
+     *
+     * <p>Import lidni to'g'ridan-to'g'ri yozadi va {@code updateStatus}
+     * dagi taqiqdan o'tmaydi, shuning uchun bunday xaritalash lidni
+     * yetim holatda ({@code student_id} bo'sh, lekin konvert ustunida)
+     * qoldirardi. Frontend shu kodlarni moslashtirish ro'yxatidan
+     * chiqarib tashlaydi; {@code /execute} esa baribir rad etadi.
+     */
+    private List<String> blockedStages;
+
     /** Birinchi 5 qator — o'girilgan holda, tekshirib ko'rish uchun. */
     private List<SampleRow> sampleRows;
 

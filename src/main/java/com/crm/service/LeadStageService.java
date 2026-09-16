@@ -227,6 +227,21 @@ public class LeadStageService {
     }
 
     /**
+     * Faol konvert bosqichlari, voronka tartibida.
+     *
+     * <p>{@link #convertedCodes()} dan farqi: nofaollar kirmaydi va tartib
+     * saqlanadi. Ro'yxat foydalanuvchiga ko'rsatiladi — import
+     * moslashtirishda bu bosqichlar yopiq (qarang {@code LeadImportService}).
+     */
+    public List<String> activeConvertedCodes() {
+        return cache().values().stream()
+            .filter(st -> st.kind() == StageKind.CONVERTED && st.active())
+            .sorted(java.util.Comparator.comparingInt(Snapshot::sortOrder))
+            .map(Snapshot::code)
+            .collect(Collectors.toList());
+    }
+
+    /**
      * O'qish formatiga mos konvert bosqichi.
      *
      * <p>Avval {@code CONVERTED_ONLINE} / {@code CONVERTED_OFFLINE} qidiriladi.
