@@ -17,6 +17,12 @@ public class FileStorageService {
 
     private static final long MAX_BYTES = 4L * 1024 * 1024;
 
+    /**
+     * Saqlangan fayl URL'ining boshi. {@code public} — chat kelgan
+     * {@code fileUrl} aynan shu backend bergan yo'lmi, shuni tekshiradi.
+     */
+    public static final String URL_PREFIX = "/api/files/";
+
     private final String uploadDir;
     private final String baseUrl;
 
@@ -45,6 +51,18 @@ public class FileStorageService {
      */
     public String saveImage(MultipartFile file, String filename) throws IOException {
         validateImage(file);
+        return save(file, filename);
+    }
+
+    /**
+     * Diskka yozishning o'zi — turini tekshirmaydi.
+     *
+     * <p>Chat biriktirmalari uchun kerak: u yerda rasmdan tashqari PDF,
+     * hujjat va arxiv ham qabul qilinadi, ruxsat etilgan turlar ro'yxati
+     * esa chaqiruvchida. {@link #saveImage} shu metodga tayanadi, ya'ni
+     * saqlash mantig'i bitta joyda qoladi.
+     */
+    public String save(MultipartFile file, String filename) throws IOException {
         Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
         if (!Files.exists(uploadPath)) {
             Files.createDirectories(uploadPath);
@@ -56,7 +74,7 @@ public class FileStorageService {
         try (InputStream in = file.getInputStream()) {
             Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
         }
-        return "/api/files/" + filename;
+        return URL_PREFIX + filename;
     }
 
     public Path resolveSafePath(String filename) throws IOException {

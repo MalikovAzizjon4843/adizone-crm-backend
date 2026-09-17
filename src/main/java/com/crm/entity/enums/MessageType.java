@@ -3,18 +3,27 @@ package com.crm.entity.enums;
 import java.util.Locale;
 
 /**
- * Xabar turi. 1-bosqichda faqat {@link #TEXT} va {@link #SYSTEM} yoziladi.
+ * Xabar turi.
  *
  * <p>{@link #SYSTEM} — foydalanuvchi yozmagan, tizim qo'ygan xabar
  * (guruh yaratildi, ishtirokchi qo'shildi). Matni bor, lekin frontend uni
  * boshqacha ko'rsatadi.
  *
- * <p>{@code IMAGE}, {@code FILE}, {@code VOICE} keyingi bosqichda shu
- * yerga qo'shiladi — ustun matn bo'lgani uchun migratsiya kerak bo'lmaydi.
+ * <p>{@link #IMAGE} va {@link #FILE} — biriktirmasi bor xabar. Ikkovining
+ * farqi faqat ko'rinishda: rasmlar galereya bo'lib chiziladi, boshqa
+ * fayllar esa nomi va hajmi bilan qator bo'lib. Matn ham bo'lishi mumkin
+ * (rasm ostidagi izoh).
+ *
+ * <p>{@link #VOICE} — mikrofonga yozilgan ovoz. {@link #FILE} dan
+ * ajratilgan, chunki u boshqacha ko'rinadi: ijro tugmasi, to'lqin
+ * shakli va davomiyligi. Bunday xabarda biriktirma doim bitta.
  */
 public enum MessageType {
 
     TEXT,
+    IMAGE,
+    FILE,
+    VOICE,
     SYSTEM;
 
     /** Matnni qiymatga o'giradi; tanilmasa null. */

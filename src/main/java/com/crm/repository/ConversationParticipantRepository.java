@@ -1,6 +1,8 @@
 package com.crm.repository;
 
 import com.crm.entity.ConversationParticipant;
+import com.crm.entity.enums.ConversationType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -57,4 +59,58 @@ public interface ConversationParticipantRepository
                                                  @Param("userId") Long userId);
 
     boolean existsByConversationIdAndUserIdAndLeftAtIsNull(Long conversationId, Long userId);
+
+    /**
+     * Foydalanuvchining suhbatdoshlari: u bilan bitta suhbatda turgan
+     * hamma, o'zidan tashqari. Onlayn holatning boshlang'ich suratini
+     * shular uchun beramiz — 100 xodimning hammasi kerak emas.
+     *
+     * <p>Natija: {@code [userId, lastSeenAt]}. Onlaynlik bazada emas,
+     * xotirada, shuning uchun u bu yerda yo'q.
+     */
+    @Query("""
+        SELECT DISTINCT p.user.id, p.user.lastSeenAt
+        FROM ConversationParticipant p
+        WHERE p.leftAt IS NULL
+          AND p.user.id <> :userId
+          AND p.conversation.id IN (
+                SELECT mine.conversation.id FROM ConversationParticipant mine
+                WHERE mine.user.id = :userId AND mine.leftAt IS NULL
+              )
+        """)
+    List<Object[]> findPeerPresence(@Param("userId") Long userId);
+
+    /**
+     * Nom bo'yicha qidiruv — foydalanuvchining o'z a'zoliklarini qaytaradi,
+     * suhbat id larini emas: ro'yxat qatorini qurish uchun baribir shu
+     * qatorlar kerak, ya'ni ikkinchi so'rov yo'q.
+     *
+     * <p>GROUP nomi bo'yicha, DIRECT esa suhbatdosh ismi bo'yicha
+     * qidiriladi. GROUP ichidagi a'zo ismi ataylab qidirilmaydi:
+     * "nom bo'yicha" degani guruh nomi, aks holda bitta keng tarqalgan
+     * ism butun ro'yxatni qaytarardi.
+     */
+    @Query("""
+        SELECT p FROM ConversationParticipant p
+        JOIN FETCH p.conversation c
+        WHERE p.user.id = :userId AND p.leftAt IS NULL
+          AND (
+               (c.type = :groupType
+                    AND LOWER(c.title) LIKE :pattern ESCAPE '!')
+            OR (c.type = :directType AND EXISTS (
+                    SELECT 1 FROM ConversationParticipant peer
+                    WHERE peer.conversation.id = c.id
+                      AND peer.leftAt IS NULL
+                      AND peer.user.id <> :userId
+                      AND LOWER(CONCAT(peer.user.firstName, ' ', peer.user.lastName))
+                            LIKE :pattern ESCAPE '!'
+                  ))
+          )
+        ORDER BY c.lastMessageAt DESC, c.id DESC
+        """)
+    List<ConversationParticipant> searchByName(@Param("userId") Long userId,
+                                               @Param("pattern") String pattern,
+                                               @Param("groupType") ConversationType groupType,
+                                               @Param("directType") ConversationType directType,
+                                               Pageable pageable);
 }

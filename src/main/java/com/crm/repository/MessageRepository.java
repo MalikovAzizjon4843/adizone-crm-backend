@@ -19,11 +19,16 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
      * <p>Saralash {@code id} bo'yicha, {@code createdAt} bo'yicha emas —
      * bir soniyada kelgan ikki xabar ham barqaror tartibda turadi va
      * kursor ({@code before}) aynan shu ustunga tayanadi.
+     *
+     * <p>O'chirilgan xabarlar ham keladi: ular lentada "Xabar o'chirildi"
+     * bo'lib qoladi. Aks holda javob zanjiri uzilib, suhbat mantiqsiz
+     * ko'rinardi. Matni va biriktirmalari {@code ChatService} da olib
+     * tashlanadi — qidiruv va hisoblagichlar esa ularni ko'rmaydi.
      */
     @Query("""
         SELECT m FROM Message m
         JOIN FETCH m.sender
-        WHERE m.conversation.id = :conversationId AND m.deletedAt IS NULL
+        WHERE m.conversation.id = :conversationId
         ORDER BY m.id DESC
         """)
     List<Message> findLatest(@Param("conversationId") Long conversationId, Pageable pageable);
@@ -33,7 +38,6 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
         SELECT m FROM Message m
         JOIN FETCH m.sender
         WHERE m.conversation.id = :conversationId
-          AND m.deletedAt IS NULL
           AND m.id < :beforeId
         ORDER BY m.id DESC
         """)
@@ -99,6 +103,79 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               ), 0L)
         """)
     long countUnreadForUser(@Param("userId") Long userId);
+
+    /**
+     * {@code around} oynasining yuqori yarmi: berilgan xabardan boshlab
+     * yangiroqlari, ESKI → YANGI tartibda.
+     *
+     * <p>Tartib ataylab teskari: {@code LIMIT} kursorga eng yaqin
+     * xabarlarni kesib olishi kerak, lentaning eng oxiridagilarni emas.
+     * Servis ro'yxatni qayta ag'daradi.
+     */
+    @Query("""
+        SELECT m FROM Message m
+        JOIN FETCH m.sender
+        WHERE m.conversation.id = :conversationId
+          AND m.id >= :fromId
+        ORDER BY m.id ASC
+        """)
+    List<Message> findFrom(@Param("conversationId") Long conversationId,
+                           @Param("fromId") Long fromId,
+                           Pageable pageable);
+
+    /**
+     * Umumiy qidiruv: foydalanuvchi a'zo bo'lgan BARCHA suhbatlardan.
+     *
+     * <p>{@code JOIN FETCH m.conversation} kerak — natijada har bir xabar
+     * yonida suhbat nomi ko'rsatiladi va usiz har bir qator uchun alohida
+     * so'rov ketardi.
+     *
+     * <p>{@code ESCAPE '!'} — chatda {@code %} va {@code _} oddiy belgi:
+     * "50% chegirma" ni qidirgan odam butun arxivni emas, o'sha xabarni
+     * topishi kerak. Naqsh {@code ChatService} da tayyorlanadi.
+     */
+    @Query("""
+        SELECT m FROM Message m
+        JOIN FETCH m.sender
+        JOIN FETCH m.conversation
+        WHERE m.deletedAt IS NULL
+          AND LOWER(m.text) LIKE :pattern ESCAPE '!'
+          AND m.conversation.id IN (
+                SELECT p.conversation.id FROM ConversationParticipant p
+                WHERE p.user.id = :userId AND p.leftAt IS NULL
+              )
+        ORDER BY m.id DESC
+        """)
+    List<Message> searchForUser(@Param("userId") Long userId,
+                                @Param("pattern") String pattern,
+                                Pageable pageable);
+
+    /** Bitta suhbat ichidagi qidiruv — a'zolik chaqiruvchida tekshirilgan. */
+    @Query("""
+        SELECT m FROM Message m
+        JOIN FETCH m.sender
+        WHERE m.conversation.id = :conversationId
+          AND m.deletedAt IS NULL
+          AND LOWER(m.text) LIKE :pattern ESCAPE '!'
+        ORDER BY m.id DESC
+        """)
+    List<Message> searchInConversation(@Param("conversationId") Long conversationId,
+                                       @Param("pattern") String pattern,
+                                       Pageable pageable);
+
+    /**
+     * Javob berilgan xabarlarning qisqa ko'rinishi uchun — bir sahifaga
+     * bitta so'rov.
+     *
+     * <p>O'chirilganlari ham keladi: javob sarlavhasi qoladi, matni esa
+     * {@code null} bo'ladi.
+     */
+    @Query("""
+        SELECT m FROM Message m
+        JOIN FETCH m.sender
+        WHERE m.id IN :ids
+        """)
+    List<Message> findAllWithSender(@Param("ids") Collection<Long> ids);
 
     /** O'qilgan belgisini qo'yishdan oldin: xabar shu suhbatga tegishlimi. */
     boolean existsByIdAndConversationId(Long id, Long conversationId);

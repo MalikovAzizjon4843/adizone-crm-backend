@@ -1,9 +1,15 @@
 package com.crm.controller;
 
+import com.crm.dto.request.ChatDeleteRequest;
+import com.crm.dto.request.ChatEditRequest;
 import com.crm.dto.request.ChatReadRequest;
 import com.crm.dto.request.ChatSendRequest;
+import com.crm.dto.request.ChatTypingRequest;
+import com.crm.dto.response.ChatMessageDeletedResponse;
+import com.crm.dto.response.ChatMessageEditedResponse;
 import com.crm.dto.response.ChatMessageResponse;
 import com.crm.dto.response.ChatReadReceiptResponse;
+import com.crm.dto.response.ChatTypingResponse;
 import com.crm.entity.User;
 import com.crm.service.ChatAccessService;
 import com.crm.service.ChatService;
@@ -50,7 +56,7 @@ public class ChatSocketController {
     private final ChatAccessService chatAccessService;
     private final SimpMessagingTemplate messagingTemplate;
 
-    /** TASK 4 — xabar yuborish. */
+    /** Xabar yuborish. */
     @MessageMapping("/chat.send")
     public void send(@Valid @Payload ChatSendRequest request, Principal principal) {
         User sender = chatAccessService.userOf(principal);
@@ -58,7 +64,7 @@ public class ChatSocketController {
         messagingTemplate.convertAndSend(topicOf(message.getConversationId()), message);
     }
 
-    /** TASK 5 — o'qilgan belgisi. */
+    /** O'qilgan belgisi. */
     @MessageMapping("/chat.read")
     public void read(@Valid @Payload ChatReadRequest request, Principal principal) {
         User user = chatAccessService.userOf(principal);
@@ -66,6 +72,53 @@ public class ChatSocketController {
         // empty — kursor oldinga surilmadi, ya'ni aytadigan yangilik yo'q.
         receipt.ifPresent(event ->
             messagingTemplate.convertAndSend(topicOf(event.getConversationId()), event));
+    }
+
+    /**
+     * "Yozmoqda" belgisi. Bazaga yozilmaydi.
+     *
+     * <p>Hodisa suhbat topikiga tushadi va yuboruvchining o'ziga ham
+     * qaytadi: xotiradagi broker bitta obunachini topikdan chetlab
+     * o'ta olmaydi. Shuning uchun tanada {@code userId} bor — mijoz
+     * o'z id sini ko'rsa hodisani tashlab yuboradi.
+     *
+     * <p>Server taymer yuritmaydi: belgini frontend uch soniyada o'zi
+     * o'chiradi.
+     */
+    @MessageMapping("/chat.typing")
+    public void typing(@Valid @Payload ChatTypingRequest request, Principal principal) {
+        User user = chatAccessService.userOf(principal);
+        ChatTypingResponse event = chatService.typing(user, request);
+        messagingTemplate.convertAndSend(topicOf(event.getConversationId()), event);
+    }
+
+    /**
+     * Xabar matnini tahrirlash.
+     *
+     * <p>Hodisa butun xabarni emas, faqat o'zgargan qismini olib
+     * keladi: lentadagi karta joyida qoladi, frontend matnini
+     * almashtiradi va "tahrirlandi" belgisini qo'yadi.
+     */
+    @MessageMapping("/chat.edit")
+    public void edit(@Valid @Payload ChatEditRequest request, Principal principal) {
+        User user = chatAccessService.userOf(principal);
+        ChatMessageEditedResponse event = chatService.edit(user, request);
+        messagingTemplate.convertAndSend(topicOf(event.getConversationId()), event);
+    }
+
+    /**
+     * Xabarni o'chirish — yumshoq, ya'ni lentadan yo'qolmaydi.
+     *
+     * <p>{@code empty} — xabar allaqachon o'chirilgan edi, ya'ni
+     * tarqatadigan yangilik yo'q.
+     */
+    @MessageMapping("/chat.delete")
+    public void delete(@Valid @Payload ChatDeleteRequest request, Principal principal) {
+        User user = chatAccessService.userOf(principal);
+        Optional<ChatMessageDeletedResponse> event = chatService.delete(user, request);
+        event.ifPresent(deleted ->
+            messagingTemplate.convertAndSend(
+                topicOf(deleted.getConversationId()), deleted));
     }
 
     /**

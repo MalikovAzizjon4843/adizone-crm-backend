@@ -15,6 +15,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
@@ -78,6 +79,17 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleAuthentication(AuthenticationException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
             .body(ApiResponse.error("Avtorizatsiya talab qilinadi"));
+    }
+
+    /**
+     * Hajm chegarasi — {@code MultipartException} dan oldin, chunki u
+     * aniqroq tur. Busiz foydalanuvchi 4MB lik rasm uchun "Excel
+     * (.xlsx) yuboring" degan xabar olardi.
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleUploadSize(MaxUploadSizeExceededException ex) {
+        return buildResponse(HttpStatus.BAD_REQUEST,
+            messages.get("chat.upload.tooLarge"));
     }
 
     @ExceptionHandler(MultipartException.class)

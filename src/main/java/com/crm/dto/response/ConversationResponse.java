@@ -1,6 +1,7 @@
 package com.crm.dto.response;
 
 import com.crm.entity.enums.ConversationType;
+import com.crm.entity.enums.MessageType;
 import lombok.*;
 
 import java.time.LocalDateTime;
@@ -34,6 +35,14 @@ public class ConversationResponse {
     private String lastMessageText;
     private LocalDateTime lastMessageAt;
     private Long lastMessageSenderId;
+
+    /**
+     * Oxirgi xabarning turi. Biriktirmali xabarda matn bo'lmasligi
+     * mumkin, ya'ni {@code lastMessageText} null keladi — ro'yxatda
+     * bo'sh qator turmasin, frontend shu maydonga qarab "Rasm" yoki
+     * "Fayl" deb yozadi.
+     */
+    private MessageType lastMessageType;
 
     private long unreadCount;
 
