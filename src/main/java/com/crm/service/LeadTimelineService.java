@@ -53,6 +53,12 @@ public class LeadTimelineService {
     public static final String TYPE_ASSIGNEE_CHANGED = "ASSIGNEE_CHANGED";
     public static final String TYPE_LEAD_CREATED = "LEAD_CREATED";
 
+    /** Meta Lead Ads dan kelgan lidning lentadagi "muallifi". */
+    public static final String ACTOR_META = "Meta Lead Ads";
+
+    /** Shu yozuvni mashina yaratganini frontend shu belgidan biladi. */
+    public static final String SOURCE_META = "META";
+
     /** {@code AuditContext.change} yozadigan JSON kalitlari. */
     private static final String CHANGES_KEY = "changes";
     private static final String FIELD_KEY = "field";
@@ -238,13 +244,27 @@ public class LeadTimelineService {
         }
     }
 
+    /**
+     * "Lid yaratildi" yozuvi lidning O'ZIDAN yig'iladi — alohida jadval
+     * yo'q, chunki bu yozuv har lidda aynan bitta va u {@code leads}
+     * qatorining tug'ilishi bilan bir xil narsa.
+     *
+     * <p>Meta lidida muallif yo'q ({@code createdBy} null: uni odam emas,
+     * scheduler yaratgan). Lentada "kim yaratdi" ustuni bo'sh qolmasligi
+     * uchun muallif o'rniga {@code META} turadi — operator lid qayerdan
+     * kelganini darhol ko'radi. {@code toValue} esa marketing manbasi
+     * (INSTAGRAM/FACEBOOK) bo'lib qoladi: u hisobotlar uchun kerak va
+     * ikkisi har xil savolga javob beradi.
+     */
     private void addLeadCreatedItem(List<LeadTimelineItemDto> items, Lead lead) {
+        boolean fromMeta = lead.getMetaLeadgenId() != null && lead.getCreatedBy() == null;
         items.add(LeadTimelineItemDto.builder()
             .type(TYPE_LEAD_CREATED)
             .at(lead.getCreatedAt())
             .actorId(idOf(lead.getCreatedBy()))
-            .actorName(nameOf(lead.getCreatedBy()))
+            .actorName(fromMeta ? ACTOR_META : nameOf(lead.getCreatedBy()))
             .title(lead.getFullName())
+            .fromValue(fromMeta ? SOURCE_META : null)
             .toValue(lead.getSource())
             .refId(lead.getId())
             .build());

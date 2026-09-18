@@ -75,6 +75,13 @@ public class SecurityConfig {
                     "/api/auth/refresh",
                     "/api/auth/logout"
                 ).permitAll()
+                // Meta webhook: Meta bizning JWT imizni bilmaydi. GET -
+                // verifikatsiya qo'l berishi, POST - leadgen xabarlari.
+                // Himoya token emas, X-Hub-Signature-256 imzosi
+                // (MetaWebhookController). Faqat shu bitta yo'l ochiq:
+                // qolgan /api/meta/** ostidagi sozlash endpointlari
+                // quyida ADMIN bilan cheklangan.
+                .requestMatchers("/api/meta/webhook").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/files/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/leads/public").permitAll()
                 // Faqat shu bitta yo'l ochiq — login sahifasi o'quv yilini ko'rsatadi.
@@ -128,6 +135,11 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER")
                 .requestMatchers("/api/tasks/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER")
+                // Webhook yuqorida permitAll qilingan va u shu qatordan
+                // OLDIN turibdi - Spring birinchi mos kelgan qoidani
+                // qo'llaydi, ya'ni tartibni buzmang.
+                .requestMatchers("/api/meta/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 // Bosqichlarni o'qish hammaga ochiq — kanban, lid kartasi va
                 // filtrlar nomlarni shu yerdan oladi. Yozish controllerdagi
                 // metod darajasidagi @PreAuthorize bilan cheklangan.

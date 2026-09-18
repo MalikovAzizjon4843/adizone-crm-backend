@@ -25,6 +25,31 @@ public interface LeadRepository extends JpaRepository<Lead, Long>, JpaSpecificat
     @Query("SELECT l.phone FROM Lead l WHERE l.phone IS NOT NULL")
     List<String> findAllPhones();
 
+    Optional<Lead> findByMetaLeadgenId(String metaLeadgenId);
+
+    /**
+     * Shu telefon bilan yaqinda kelgan OCHIQ lidlar — Meta takroriy
+     * murojaatini aniqlash uchun.
+     *
+     * <p>Yopilgan lid ataylab hisobga olinmaydi: yarim yil oldin rad etilgan
+     * odam qaytib murojaat qilsa, bu yangi lid va yangi ish.
+     *
+     * <p>{@code closedStatuses} — {@code LeadStageService.closedCodes()}.
+     * Ro'yxat bo'sh bo'lishi mumkin emas (CONVERTED va REJECTED doim bor),
+     * shuning uchun {@code IN} xavfsiz.
+     */
+    @Query("""
+        SELECT l FROM Lead l
+        WHERE l.phone = :phone
+          AND l.createdAt >= :since
+          AND l.status NOT IN :closedStatuses
+        ORDER BY l.createdAt DESC
+        """)
+    List<Lead> findRecentOpenByPhone(
+        @Param("phone") String phone,
+        @Param("since") LocalDateTime since,
+        @Param("closedStatuses") java.util.Collection<String> closedStatuses);
+
     long countByImportBatch(String importBatch);
 
     List<Lead> findByImportBatch(String importBatch);

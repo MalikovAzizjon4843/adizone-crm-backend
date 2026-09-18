@@ -106,6 +106,27 @@ public class Lead {
     @Column(name = "import_batch", length = 50)
     private String importBatch;
 
+    /**
+     * Meta Lead Ads dagi {@code leadgen_id}. Qo'lda yaratilgan lidlarda null.
+     *
+     * <p><b>UNIQUE — idempotentlikning ikkinchi qatlami.</b> Meta bir xil
+     * lidni webhook orqali ham, backfill orqali ham berishi mumkin; bazadagi
+     * indeks ikkinchi nusxani rad etadi va lid ikki marta tug'ilmaydi.
+     */
+    @Column(name = "meta_leadgen_id", unique = true, length = 64)
+    private String metaLeadgenId;
+
+    @Column(name = "meta_form_id", length = 64)
+    private String metaFormId;
+
+    /**
+     * Meta bergan xom JSON ({@code field_data} bilan birga butun lid
+     * obyekti). Mapping xato bo'lsa lid yo'qolmaydi — javob shu yerda
+     * turadi va uni qo'lda o'qib olish mumkin.
+     */
+    @Column(name = "meta_raw_json", columnDefinition = "TEXT")
+    private String metaRawJson;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

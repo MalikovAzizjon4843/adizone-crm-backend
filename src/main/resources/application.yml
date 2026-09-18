@@ -74,6 +74,36 @@ management:
     health:
       show-details: when_authorized
 
+# Meta (Facebook/Instagram) Lead Ads integratsiyasi.
+# Uchta sir uchta har xil narsa:
+#   system-user-token - Business Manager System User tokeni (Graph API uchun)
+#   app-secret        - webhook imzosini tekshirish uchun (Graph ga aloqasi yo'q)
+#   verify-token      - webhook ni ro'yxatdan o'tkazishdagi qo'l berish (o'zimiz o'ylaymiz)
+meta:
+  # false - webhook 200 qaytaradi (Meta obunani o'chirmasin), lekin
+  # scheduler ishlamaydi va Graph so'rovlari yuborilmaydi.
+  enabled: true
+  api-version: v21.0
+  page-id: "972371302634487"
+  system-user-token: "EAAWklJ2TxoABShl3GjGWZCpun2UfuOL2SmI6bgq5m2UZAcZCxRR5A2qWocxu9LNWlk5ZAFd4eoaOfsKyOr9WbMT61EpTK04h1DiQOsWFH1sJ7juXoVrPesZAs9ZCOelgqQpLoou8vrULtZCk5tlrKsTWkm2npT4rS7LwgFgZCCpnePZCA43UydOuDquhNSnzgcwZDZD"
+  app-secret: "5ccbc8e4b1348a2792db15e38b178a81"
+  verify-token: "8582a888cebdbfac00241945c926e147db0e6de42b1a80d9"
+  graph-base-url: https://graph.facebook.com
+  # false - webhook imzosi TEKSHIRILMAYDI va endpoint har kimga ochiq
+  # qoladi. Faqat app-secret hali yo'q paytda, sinov uchun. Har so'rovda
+  # log ga warning yoziladi.
+  verify-signature: true
+  # Avtomatik vazifa kimga biriktiriladi. Meta lidi biriktirilmagan holda
+  # tug'iladi, tasks.assigned_to esa NOT NULL - ya'ni mas'ulsiz vazifa
+  # yaratib bo'lmaydi. Bo'sh qolsa autoCreateTask shunchaki ishlamaydi
+  # (log ga ogohlantirish tushadi), lid esa baribir yaratiladi.
+  task-assignee-user-id:
+  # Sahifa tokeni keshda shuncha soat turadi.
+  page-token-ttl-hours: 6
+  # Telefon bo'yicha takroriy murojaatni shuncha kun ichida qidiramiz.
+  duplicate-window-days: 30
+  request-timeout-seconds: 20
+
 telegram:
   bot-token: 8467142050:ALSkYeZnMDbWPXMV6tJczfz7HjEpYM8N9M
   enabled: true
