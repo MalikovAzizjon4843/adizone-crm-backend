@@ -34,7 +34,8 @@ public class TeacherKpiService {
     private static final List<AttendanceStatus> PRESENT_STATUSES =
         List.of(AttendanceStatus.PRESENT, AttendanceStatus.LATE);
     private static final int DEFAULT_TREND_MONTHS = 6;
-    private static final int MAX_TREND_MONTHS = 12;
+    /** buildTrend oylik rejimda shundan ortiq oyni qirqadi; /kpi/trend ham shu chegarani tekshiradi. */
+    public static final int MAX_TREND_MONTHS = 12;
     private static final DateTimeFormatter MONTH_LABEL = DateTimeFormatter.ofPattern("yyyy-MM");
     private static final DateTimeFormatter DAY_LABEL = DateTimeFormatter.ISO_LOCAL_DATE;
 

@@ -5,6 +5,7 @@ import com.crm.audit.AuditContext;
 import com.crm.audit.Audited;
 import com.crm.config.Messages;
 import com.crm.dto.request.CreateUserRequest;
+import com.crm.dto.request.UpdateUserRequest;
 import com.crm.dto.response.PasswordResetResponse;
 import com.crm.dto.response.UserResponse;
 import com.crm.dto.response.UsernamePreviewResponse;
@@ -71,6 +72,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final Messages messages;
     private final TeacherRepository teacherRepository;
+    private final TeacherService teacherService;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
 
@@ -98,6 +100,9 @@ public class UserService {
             .build();
 
         User saved = userRepository.save(user);
+        // TEACHER roli tanlansa — profil shu yerda tug'iladi, aks holda
+        // user ro'yxatda ko'rinadi-yu, /api/teachers da yo'q bo'lib qolardi.
+        teacherService.syncTeacherProfile(saved);
         log.info("User created: id={}, username={}, role={}, by={}",
             saved.getId(), saved.getUsername(), saved.getRole(), currentUsername());
         return toResponse(saved);
@@ -142,6 +147,45 @@ public class UserService {
 
         User saved = userRepository.save(user);
         linkTeacherToUser(teacher, saved);
+        return toResponse(saved);
+    }
+
+    /**
+     * PUT /api/users/{id} — qisman yangilash.
+     *
+     * <p>Saqlangandan keyin Teacher profili sinxronlanadi: rol, ism-telefon va
+     * FAOLLIK userdan ko'chiriladi. Rol TEACHER dan chiqsa profil O'CHIRILMAYDI —
+     * faqat nofaol qilinadi.
+     */
+    @Transactional
+    public UserResponse updateUser(Long id, UpdateUserRequest request) {
+        User user = userRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException(messages.get("error.user.notFound", id)));
+        validateEmailAndPhone(request.getEmail(), request.getPhone(), id);
+
+        if (request.getFirstName() != null) {
+            user.setFirstName(request.getFirstName());
+        }
+        if (request.getLastName() != null) {
+            user.setLastName(request.getLastName());
+        }
+        if (request.getEmail() != null) {
+            user.setEmail(normalizeBlank(request.getEmail()));
+        }
+        if (request.getPhone() != null) {
+            user.setPhone(normalizeBlank(request.getPhone()));
+        }
+        if (request.getRole() != null) {
+            user.setRole(request.getRole());
+        }
+        if (request.getIsActive() != null) {
+            user.setIsActive(request.getIsActive());
+        }
+
+        User saved = userRepository.save(user);
+
+        teacherService.syncTeacherProfile(saved);
+
         return toResponse(saved);
     }
 
@@ -345,6 +389,10 @@ public class UserService {
         target.setIsActive(active);
         userRepository.save(target);
 
+        // Bloklangan o'qituvchi /api/teachers ro'yxatida faol bo'lib qolmasin;
+        // blokdan chiqarilsa qaytadan ACTIVE bo'ladi.
+        teacherService.syncTeacherProfile(target);
+
         int revoked = 0;
         if (!active) {
             revoked = refreshTokenRepository.revokeAllByUserId(target.getId());
@@ -378,11 +426,6 @@ public class UserService {
                     throw new BadRequestException(messages.get("user.phone.taken", cleanPhone));
                 });
         }
-    }
-
-    /** PUT /api/users/{id} uchun — o'zidan boshqada takrorlanmasin. */
-    public void validateEmailAndPhoneForUpdate(String email, String phone, Long userId) {
-        validateEmailAndPhone(email, phone, userId);
     }
 
     private static String normalizeBlank(String s) {

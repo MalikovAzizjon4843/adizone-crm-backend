@@ -181,17 +181,9 @@ public class UserController {
     public ResponseEntity<ApiResponse<UserResponse>> updateUser(
             @PathVariable Long id,
             @Valid @RequestBody UpdateUserRequest request) {
-        User user = userRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("User", id));
-        userService.validateEmailAndPhoneForUpdate(request.getEmail(), request.getPhone(), id);
-        if (request.getFirstName() != null) user.setFirstName(request.getFirstName());
-        if (request.getLastName() != null) user.setLastName(request.getLastName());
-        if (request.getEmail() != null) user.setEmail(request.getEmail());
-        if (request.getPhone() != null) user.setPhone(request.getPhone());
-        if (request.getRole() != null) user.setRole(request.getRole());
-        if (request.getIsActive() != null) user.setIsActive(request.getIsActive());
-        userRepository.save(user);
-        return ResponseEntity.ok(ApiResponse.success("User updated", toResponse(user)));
+        // Mantiq UserService da: rol o'zgarsa Teacher profili ham sinxronlanishi kerak.
+        return ResponseEntity.ok(ApiResponse.success(
+            "User updated", userService.updateUser(id, request)));
     }
 
     @PutMapping("/{id}/password")

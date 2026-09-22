@@ -5,7 +5,9 @@ import com.crm.dto.response.*;
 import com.crm.exception.BadRequestException;
 import com.crm.service.FileStorageService;
 import com.crm.service.ImportService;
+import com.crm.service.StaffStatusService;
 import com.crm.service.TeacherKpiService;
+import com.crm.service.TeacherProfileSyncService;
 import com.crm.service.TeacherService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +32,8 @@ public class TeacherController {
     private final TeacherService teacherService;
     private final FileStorageService fileStorageService;
     private final ImportService importService;
+    private final TeacherProfileSyncService teacherProfileSyncService;
+    private final StaffStatusService staffStatusService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<List<TeacherResponse>>> getAllTeachers(
@@ -84,6 +88,66 @@ public class TeacherController {
         return ResponseEntity.ok(teacherService.getKpi(id, from, to, period));
     }
 
+    /** Oylik trend. Ruxsat: /{id}/kpi bilan bir xil. */
+    @GetMapping("/{id:\\d+}/kpi/trend")
+    public ResponseEntity<ApiResponse<List<TeacherKpiTrendPointDto>>> getKpiTrend(
+            @PathVariable(name = "id") Long id,
+            @RequestParam(name = "months", required = false) Integer months,
+            @RequestParam(name = "period", required = false, defaultValue = "monthly") String period,
+            @RequestParam(name = "from", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(name = "to", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ResponseEntity.ok(ApiResponse.success(
+            teacherService.getKpiTrend(id, months, period, from, to)));
+    }
+
+    /** O'qituvchining o'z trendi. Ruxsat: /me/kpi bilan bir xil. */
+    @GetMapping("/me/kpi/trend")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ResponseEntity<ApiResponse<List<TeacherKpiTrendPointDto>>> myKpiTrend(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @RequestParam(name = "months", required = false) Integer months,
+            @RequestParam(name = "period", required = false, defaultValue = "monthly") String period,
+            @RequestParam(name = "from", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(name = "to", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        Long teacherId = teacherService.getTeacherIdForUsername(userDetails.getUsername());
+        return ResponseEntity.ok(ApiResponse.success(
+            teacherService.getKpiTrend(teacherId, months, period, from, to)));
+    }
+
+    /** Oy ichida kunlik drill-down. Ruxsat: /{id}/kpi bilan bir xil. */
+    @GetMapping("/{id:\\d+}/kpi/daily")
+    public ResponseEntity<ApiResponse<List<TeacherKpiTrendPointDto>>> getKpiDaily(
+            @PathVariable(name = "id") Long id,
+            @RequestParam(name = "year", required = false) Integer year,
+            @RequestParam(name = "month", required = false) Integer month,
+            @RequestParam(name = "from", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(name = "to", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ResponseEntity.ok(ApiResponse.success(
+            teacherService.getKpiDaily(id, year, month, from, to)));
+    }
+
+    /** O'qituvchining o'z kunlik KPI si. Ruxsat: /me/kpi bilan bir xil. */
+    @GetMapping("/me/kpi/daily")
+    @PreAuthorize("hasRole('TEACHER')")
+    public ResponseEntity<ApiResponse<List<TeacherKpiTrendPointDto>>> myKpiDaily(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @RequestParam(name = "year", required = false) Integer year,
+            @RequestParam(name = "month", required = false) Integer month,
+            @RequestParam(name = "from", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(name = "to", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        Long teacherId = teacherService.getTeacherIdForUsername(userDetails.getUsername());
+        return ResponseEntity.ok(ApiResponse.success(
+            teacherService.getKpiDaily(teacherId, year, month, from, to)));
+    }
+
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<TeacherResponse>> createTeacher(@Valid @RequestBody TeacherRequest req) {
@@ -95,13 +159,13 @@ public class TeacherController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<TeacherResponse>> updateTeacher(
             @PathVariable Long id, @Valid @RequestBody TeacherRequest req) {
-        return ResponseEntity.ok(ApiResponse.success("Teacher updated", teacherService.updateTeacher(id, req)));
+        return ResponseEntity.ok(ApiResponse.success("Teacher updated", staffStatusService.updateTeacher(id, req)));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deleteTeacher(@PathVariable Long id) {
-        teacherService.deleteTeacher(id);
+        staffStatusService.deactivateTeacher(id);
         return ResponseEntity.ok(ApiResponse.success("Teacher deactivated", null));
     }
 
@@ -147,6 +211,18 @@ public class TeacherController {
         return ResponseEntity.ok(ApiResponse.success(
             "Import tugadi",
             importService.importTeachers(file)));
+    }
+
+    /**
+     * TEACHER rolidagi userlar uchun yetishmayotgan Teacher profillarini tiklaydi.
+     * Idempotent — qayta chaqirilsa dublikat yaratmaydi.
+     */
+    @PostMapping("/sync-from-users")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> syncFromUsers() {
+        return ResponseEntity.ok(ApiResponse.success(
+            "O'qituvchi profillari sinxronlandi",
+            teacherProfileSyncService.syncFromUsers()));
     }
 
     @GetMapping("/export")

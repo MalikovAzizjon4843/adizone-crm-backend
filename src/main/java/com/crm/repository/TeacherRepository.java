@@ -22,6 +22,11 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
 
     List<Teacher> findByUserIsNull();
 
+    /** Telefon bo'yicha hali hech kimga biriktirilmagan profil — sinxronda unga ulanamiz. */
+    Optional<Teacher> findFirstByPhoneAndUserIsNull(String phone);
+
+    boolean existsByTeacherCode(String teacherCode);
+
     long countByIsActiveTrue();
 
     @Query("SELECT t FROM Teacher t WHERE t.isActive = true AND (" +
