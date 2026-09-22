@@ -15,6 +15,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -146,6 +148,34 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleUnreadable(HttpMessageNotReadableException ex) {
         log.warn("Malformed request body: {}", ex.getMessage());
         return buildResponse(HttpStatus.BAD_REQUEST, messages.get("error.malformedRequest"));
+    }
+
+    /**
+     * Mavjud bo'lmagan manzil (eski frontend yo'li, xato URL, favicon).
+     *
+     * <p>Bu dastur xatosi emas — foydalanuvchi yo'q endpointni so'radi. Umumiy
+     * {@code Exception} handleriga tushsa, har bir 404 uchun to'liq stacktrace
+     * bilan ERROR yozilib, 500 qaytarilardi. Shuning uchun: 404, WARN, bir qator.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResource(
+            NoResourceFoundException ex, jakarta.servlet.http.HttpServletRequest request) {
+        log.warn("404 Not Found: {} {}", request.getMethod(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+            .body(ApiResponse.error(
+                messages.get("error.endpointNotFound", request.getRequestURI())));
+    }
+
+    /** Manzil bor, lekin boshqa HTTP metod bilan so'ralgan. */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException ex,
+            jakarta.servlet.http.HttpServletRequest request) {
+        log.warn("405 Method Not Allowed: {} {} (ruxsat etilgan: {})",
+            request.getMethod(), request.getRequestURI(), ex.getSupportedHttpMethods());
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+            .body(ApiResponse.error(
+                messages.get("error.methodNotAllowed", ex.getMethod())));
     }
 
     /**
