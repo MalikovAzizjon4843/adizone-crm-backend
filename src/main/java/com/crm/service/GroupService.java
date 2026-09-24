@@ -2,6 +2,7 @@ package com.crm.service;
 
 import com.crm.audit.AuditAction;
 import com.crm.audit.Audited;
+import com.crm.config.Messages;
 import com.crm.dto.request.GroupRequest;
 import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.response.GroupLessonDaysResponse;
@@ -38,6 +39,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -57,6 +59,7 @@ public class GroupService {
     private final StudentStatusHistoryRepository studentStatusHistoryRepository;
     private final PaymentScheduleService paymentScheduleService;
     private final TeacherAccessService teacherAccessService;
+    private final Messages messages;
 
     @Transactional(readOnly = true)
     public List<GroupResponse> getAllGroups(GroupStatus status) {
@@ -213,7 +216,9 @@ public class GroupService {
             .maxStudents(request.getMaxStudents())
             .startDate(request.getStartDate())
             .endDate(request.getEndDate())
-            .status(GroupStatus.ACTIVE)
+            .status(isBlank(request.getStatus())
+                ? GroupStatus.ACTIVE
+                : parseStatus(request.getStatus()))
             .notes(request.getNotes())
             .build();
 
@@ -250,6 +255,10 @@ public class GroupService {
         group.setStartDate(request.getStartDate());
         group.setEndDate(request.getEndDate());
         group.setNotes(request.getNotes());
+        // Berilmasa — joriy status saqlanadi (ACTIVE ga qaytarilmaydi).
+        if (!isBlank(request.getStatus())) {
+            group.setStatus(parseStatus(request.getStatus()));
+        }
 
         if (request.getTeacherId() != null) {
             Teacher teacher = teacherRepository.findById(request.getTeacherId())
@@ -492,15 +501,7 @@ public class GroupService {
         entityId = "#id", label = "#result.groupName")
     public GroupResponse updateStatus(Long id, String status) {
         Group group = findById(id);
-        GroupStatus parsed;
-        try {
-            parsed = GroupStatus.valueOf(status.trim().toUpperCase());
-        } catch (Exception e) {
-            throw new BadRequestException(
-                "Noto'g'ri status: " + status +
-                ". Ruxsat etilgan: FORMING, ACTIVE, COMPLETED, CANCELLED");
-        }
-        group.setStatus(parsed);
+        group.setStatus(parseStatus(status));
         return toResponse(groupRepository.save(group), false, null);
     }
 
@@ -646,6 +647,22 @@ public class GroupService {
         studentStatusHistoryRepository.save(history);
 
         paymentScheduleService.clearPaymentSchedule(student.getId());
+    }
+
+    /** POST, PUT va PATCH /status uchun yagona tahlil; noto'g'ri qiymat — 400. */
+    private GroupStatus parseStatus(String raw) {
+        if (isBlank(raw)) {
+            throw new BadRequestException(messages.get("group.status.invalid", String.valueOf(raw)));
+        }
+        try {
+            return GroupStatus.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new BadRequestException(messages.get("group.status.invalid", raw));
+        }
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     public Group findById(Long id) {

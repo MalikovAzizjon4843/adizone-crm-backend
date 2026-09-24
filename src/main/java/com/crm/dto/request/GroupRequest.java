@@ -24,6 +24,12 @@ public class GroupRequest {
     private LocalDate startDate;
     private LocalDate endDate;
     private String notes;
+    /**
+     * Ixtiyoriy: FORMING, ACTIVE, COMPLETED, CANCELLED (registr muhim emas).
+     * Yaratishda berilmasa ACTIVE; tahrirlashda berilmasa o'zgarmaydi.
+     * String — noto'g'ri qiymat Jackson xatosi emas, tushunarli 400 bo'lsin.
+     */
+    private String status;
     /** Legacy: frontend JSON "schedules" — {@link #scheduleDays} bo‘sh bo‘lsa shu yerga map qilinadi */
     private List<ScheduleRequest> schedules;
     private List<ScheduleDayRequest> scheduleDays;
