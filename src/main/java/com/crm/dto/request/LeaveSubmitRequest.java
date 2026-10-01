@@ -8,10 +8,16 @@ import java.time.LocalDate;
 
 @Data
 public class LeaveSubmitRequest {
-    /** Ixtiyoriy — bo‘lmasa {@link #teacherId} orqali aniqlanadi */
+    /**
+     * E'TIBORSIZ — yuboruvchi har doim joriy foydalanuvchi. Maydon eski
+     * frontend yuborayotgani uchun qoldirilgan (xato bermasin).
+     */
     private Long requesterId;
 
-    /** Frontend o‘qituvchi tanlaydi — user bilan bog‘langan {@link com.crm.entity.User} qidiriladi */
+    /**
+     * SUPER_ADMIN/ADMIN uchun majburiy — kimning ta'tili. TEACHER uchun
+     * e'tiborsiz: u faqat o'zi uchun yuboradi.
+     */
     private Long teacherId;
 
     @NotBlank(message = "{leaveSubmit.leaveType.required}")

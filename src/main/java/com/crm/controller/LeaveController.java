@@ -43,12 +43,16 @@ public class LeaveController {
         return ResponseEntity.ok(ApiResponse.success(leaveService.getPendingLeaves()));
     }
 
+    /** TEACHER — faqat o'z arizasi (servisda tekshiriladi). */
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<LeaveResponse>> getLeaveById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(leaveService.getLeaveById(id)));
     }
 
+    /** TEACHER — faqat o'z {@code userId} si bilan (servisda tekshiriladi). */
     @GetMapping("/user/{userId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<PageResponse<LeaveResponse>>> getLeavesByUser(
             @PathVariable Long userId,
             @RequestParam(defaultValue = "0") int page,
@@ -56,7 +60,9 @@ public class LeaveController {
         return ResponseEntity.ok(ApiResponse.success(leaveService.getLeavesByRequester(userId, page, size)));
     }
 
+    /** TEACHER — o'zi uchun; SUPER_ADMIN/ADMIN — teacherId bilan o'qituvchi nomidan. */
     @PostMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<LeaveResponse>> submitLeave(@Valid @RequestBody LeaveSubmitRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)
             .body(ApiResponse.success("Leave request submitted", leaveService.submitLeave(request)));

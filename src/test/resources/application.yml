@@ -17,6 +17,6 @@ app:
     drop-enum-checks: false
 
 jwt:
-  secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+  secret: f4ba5620b4a9e1f27d78beb236150ec150b59cf04fc234858d24b68128159e32  # faqat testlar uchun, prod kalitiga aloqasi yo'q
   expiration: 86400000
   refresh-expiration: 604800000

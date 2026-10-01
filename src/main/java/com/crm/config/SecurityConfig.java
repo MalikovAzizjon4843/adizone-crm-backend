@@ -44,6 +44,7 @@ public class SecurityConfig {
      */
     public static final List<String> ALLOWED_ORIGIN_PATTERNS = List.of(
             "https://admin.adizone.uz",
+            "https://app.adizone.uz",
             "https://adizone.uz",
             "https://www.adizone.uz",
             "https://*.vercel.app",
@@ -129,7 +130,17 @@ public class SecurityConfig {
                     .hasRole("SUPER_ADMIN")
                 .requestMatchers("/api/payments/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER", "ACCOUNTANT")
+                // Kassani o'chirish — faqat ma'muriyat. Umumiy kassa qoidasidan
+                // OLDIN: aks holda u pastdagi "DELETE /api/**" gacha yetmay
+                // ACCOUNTANT ga ham o'chirishni ochib qo'yardi.
+                .requestMatchers(HttpMethod.DELETE, "/api/cash-registers/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/cash-registers/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                // Bonus/jarima: o'chirish — ma'muriyat, qolgani — buxgalter ham
+                .requestMatchers(HttpMethod.DELETE, "/api/bonus-penalties/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                .requestMatchers("/api/bonus-penalties", "/api/bonus-penalties/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
                 .requestMatchers("/api/leads/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER")
@@ -156,6 +167,29 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/admin/**")
                     .hasRole("SUPER_ADMIN")
+                .requestMatchers("/api/contracts", "/api/contracts/**",
+                        "/api/contract-templates", "/api/contract-templates/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                .requestMatchers("/api/marketing/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                // Audit: obyekt tarixi — ma'muriyat, umumiy jurnal — faqat SUPER_ADMIN
+                .requestMatchers(HttpMethod.GET, "/api/audit-logs/entity/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                .requestMatchers("/api/audit-logs", "/api/audit-logs/**")
+                    .hasRole("SUPER_ADMIN")
+
+                // Ta'tillar: yuborish va o'z arizasini ko'rish — TEACHER ham
+                // (egalik LeaveService da); ro'yxatlar, tasdiqlash/rad,
+                // o'chirish — faqat ma'muriyat. /pending va /teacher/** —
+                // "/api/leaves/*" dan OLDIN, aks holda u ularni ham ochib qo'yardi.
+                .requestMatchers(HttpMethod.GET, "/api/leaves/pending", "/api/leaves/teacher/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                .requestMatchers(HttpMethod.GET, "/api/leaves/*", "/api/leaves/user/*")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
+                .requestMatchers(HttpMethod.POST, "/api/leaves")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
+                .requestMatchers("/api/leaves", "/api/leaves/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
                 .requestMatchers(HttpMethod.GET, "/api/students", "/api/students/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER", "ACCOUNTANT", "TEACHER")
@@ -174,6 +208,16 @@ public class SecurityConfig {
                     .hasRole("TEACHER")
                 .requestMatchers("/api/teacher/**")
                     .hasRole("TEACHER")
+                // O'qituvchilar: /me/** yuqorida TEACHER ga ochilgan. KPI — faqat
+                // ma'muriyat; ro'yxat/detal/qidiruv — buxgalter ham (oylik,
+                // bonus/jarima sahifalari). STUDENT/PARENT/SALES_MANAGER — yo'q.
+                .requestMatchers(HttpMethod.GET,
+                        "/api/teachers/kpi/**", "/api/teachers/*/kpi", "/api/teachers/*/kpi/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                .requestMatchers(HttpMethod.GET, "/api/teachers", "/api/teachers/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                .requestMatchers("/api/teachers", "/api/teachers/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
                 // Classroom writes — after GET matcher above
                 .requestMatchers("/api/classrooms/**")

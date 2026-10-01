@@ -35,7 +35,13 @@ public class TeacherController {
     private final TeacherProfileSyncService teacherProfileSyncService;
     private final StaffStatusService staffStatusService;
 
+    /**
+     * Ro'yxat, detal va qidiruv: maosh va pasport ma'lumoti bor, shuning uchun
+     * faqat ma'muriyat va buxgalter (oylik, bonus/jarima sahifalari). O'qituvchi
+     * o'zi haqidagi ma'lumotni /me/** va /api/teacher/dashboard dan oladi.
+     */
     @GetMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<List<TeacherResponse>>> getAllTeachers(
             @RequestParam(defaultValue = "true") boolean activeOnly) {
         return ResponseEntity.ok(ApiResponse.success(teacherService.getAllTeachers(activeOnly)));
@@ -71,11 +77,14 @@ public class TeacherController {
     }
 
     @GetMapping("/{id:\\d+}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<TeacherResponse>> getTeacherById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(teacherService.getTeacherById(id)));
     }
 
+    /** Istalgan o'qituvchining KPI si (moliyaviy maydonlar bilan) — faqat ma'muriyat. */
     @GetMapping("/{id:\\d+}/kpi")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<TeacherKpiDto> getKpi(
             @PathVariable Long id,
             @RequestParam(required = false, defaultValue = "monthly") String period,
@@ -90,6 +99,7 @@ public class TeacherController {
 
     /** Oylik trend. Ruxsat: /{id}/kpi bilan bir xil. */
     @GetMapping("/{id:\\d+}/kpi/trend")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<List<TeacherKpiTrendPointDto>>> getKpiTrend(
             @PathVariable(name = "id") Long id,
             @RequestParam(name = "months", required = false) Integer months,
@@ -120,6 +130,7 @@ public class TeacherController {
 
     /** Oy ichida kunlik drill-down. Ruxsat: /{id}/kpi bilan bir xil. */
     @GetMapping("/{id:\\d+}/kpi/daily")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<List<TeacherKpiTrendPointDto>>> getKpiDaily(
             @PathVariable(name = "id") Long id,
             @RequestParam(name = "year", required = false) Integer year,
@@ -170,6 +181,7 @@ public class TeacherController {
     }
 
     @GetMapping("/search")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<PageResponse<TeacherResponse>>> searchTeachers(
             @RequestParam String q,
             @RequestParam(defaultValue = "0") int page,

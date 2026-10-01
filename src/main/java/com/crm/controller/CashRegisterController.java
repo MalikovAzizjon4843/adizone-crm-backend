@@ -59,7 +59,9 @@ public class CashRegisterController {
             cashRegisterService.update(id, dto)));
     }
 
+    /** Kassani o'chirish — faqat ma'muriyat (boshqa modullardagi DELETE siyosati bilan bir xil). */
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
         String message = cashRegisterService.delete(id);
         return ResponseEntity.ok(ApiResponse.success(message, null));

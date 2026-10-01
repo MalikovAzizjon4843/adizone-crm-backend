@@ -6,11 +6,12 @@ import com.crm.dto.response.PageResponse;
 import com.crm.entity.Leave;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
+import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.ForbiddenException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.LeaveRepository;
 import com.crm.repository.TeacherRepository;
-import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.*;
@@ -20,7 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
@@ -29,8 +29,8 @@ import java.util.stream.Collectors;
 public class LeaveService {
 
     private final LeaveRepository leaveRepository;
-    private final UserRepository userRepository;
     private final TeacherRepository teacherRepository;
+    private final TeacherAccessService teacherAccessService;
 
     @Transactional(readOnly = true)
     public PageResponse<LeaveResponse> getAllLeaves(int page, int size, String status) {
@@ -41,22 +41,27 @@ public class LeaveService {
         return buildPage(p, page, size);
     }
 
+    /**
+     * O'qituvchining ta'tillari — {@code teacher_id} bo'yicha: ariza kim
+     * tomonidan yuborilganidan (o'zi yoki admin) qat'i nazar.
+     */
     @Transactional(readOnly = true)
     public PageResponse<LeaveResponse> getLeavesByTeacher(Long teacherId, int page, int size) {
-        var teacher = teacherRepository.findById(teacherId)
-            .orElseThrow(() -> new ResourceNotFoundException("Teacher", teacherId));
-        if (teacher.getUser() == null) {
-            return PageResponse.<LeaveResponse>builder()
-                .content(List.of())
-                .pageNumber(page).pageSize(size)
-                .totalElements(0).totalPages(0).last(true)
-                .build();
+        if (!teacherRepository.existsById(teacherId)) {
+            throw new ResourceNotFoundException("Teacher", teacherId);
         }
-        return getLeavesByRequester(teacher.getUser().getId(), page, size);
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Page<Leave> p = leaveRepository.findByTeacher_Id(teacherId, pageable);
+        return buildPage(p, page, size);
     }
 
+    /** TEACHER faqat o'zi yuborgan arizalarni ko'radi. */
     @Transactional(readOnly = true)
     public PageResponse<LeaveResponse> getLeavesByRequester(Long requesterId, int page, int size) {
+        if (teacherAccessService.isCurrentUserTeacher()
+                && !teacherAccessService.getCurrentUserOrThrow().getId().equals(requesterId)) {
+            throw new ForbiddenException("Bu arizalar sizga tegishli emas");
+        }
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<Leave> p = leaveRepository.findByRequesterId(requesterId, pageable);
         return buildPage(p, page, size);
@@ -64,23 +69,35 @@ public class LeaveService {
 
     @Transactional(readOnly = true)
     public LeaveResponse getLeaveById(Long id) {
-        return toResponse(findById(id));
+        Leave leave = findById(id);
+        assertCanView(leave);
+        return toResponse(leave);
     }
 
+    /**
+     * Ariza yuborish. Yuboruvchi ({@code requester}) — har doim joriy
+     * foydalanuvchi; tanadagi {@code requesterId} e'tiborsiz (eski frontend
+     * unga teacherId ni yuborardi). TEACHER faqat o'zi uchun yuboradi —
+     * {@code teacherId} ham e'tiborsiz; SUPER_ADMIN/ADMIN o'qituvchini
+     * {@code teacherId} bilan tanlaydi.
+     */
     @Transactional
     public LeaveResponse submitLeave(LeaveSubmitRequest request) {
-        Leave leave = new Leave();
-        
-        Teacher teacher = teacherRepository.findById(request.getTeacherId())
-            .orElseThrow(() -> new ResourceNotFoundException("Teacher", request.getTeacherId()));
-        leave.setTeacher(teacher);
+        User requester = teacherAccessService.getCurrentUserOrThrow();
 
-        User requester = resolveRequester(request);
-        if (requester == null) {
-            throw new BadRequestException(
-                "Requester ulanmagan: o'qituvchi (id=" + request.getTeacherId()
-                + ") uchun User mavjud emas. requesterId yuboring yoki o'qituvchini foydalanuvchiga bog'lang.");
+        Teacher teacher;
+        if (requester.getRole() == UserRole.TEACHER) {
+            teacher = teacherAccessService.getCurrentTeacherOrThrow();
+        } else {
+            if (request.getTeacherId() == null) {
+                throw new BadRequestException("O'qituvchi tanlanmagan (teacherId majburiy)");
+            }
+            teacher = teacherRepository.findById(request.getTeacherId())
+                .orElseThrow(() -> new ResourceNotFoundException("Teacher", request.getTeacherId()));
         }
+
+        Leave leave = new Leave();
+        leave.setTeacher(teacher);
         leave.setRequester(requester);
 
         leave.setLeaveType(request.getLeaveType());
@@ -92,40 +109,18 @@ public class LeaveService {
         return toResponse(leaveRepository.save(leave));
     }
 
-    private User resolveRequester(LeaveSubmitRequest request) {
-        if (request.getRequesterId() != null) {
-            return userRepository.findById(request.getRequesterId()).orElse(null);
-        }
-        if (request.getTeacherId() != null) {
-            Teacher teacher = teacherRepository.findById(request.getTeacherId())
-                .orElseThrow(() -> new ResourceNotFoundException("Teacher", request.getTeacherId()));
-            if (teacher.getUser() != null) {
-                return teacher.getUser();
-            }
-            return userRepository.findAll().stream()
-                .filter(u -> namesMatch(u, teacher))
-                .findFirst()
-                .orElse(null);
-        }
-        return null;
-    }
-
-    private static boolean namesMatch(User u, Teacher t) {
-        if (u == null || t == null) {
-            return false;
-        }
-        return Objects.equals(normalize(u.getFirstName()), normalize(t.getFirstName()))
-            && Objects.equals(normalize(u.getLastName()), normalize(t.getLastName()));
-    }
-
-    private static String normalize(String s) {
-        return s == null ? "" : s.trim().toLowerCase();
-    }
-
+    /**
+     * Tasdiqlash / rad etish. Tasdiqlovchi — joriy foydalanuvchi; tanadagi
+     * {@code approvedById} e'tiborsiz.
+     */
     @Transactional
     public LeaveResponse approveOrReject(Long id, Map<String, Object> body) {
         Leave leave = findById(id);
-        String status = body.get("status").toString();
+        Object rawStatus = body.get("status");
+        if (rawStatus == null || rawStatus.toString().isBlank()) {
+            throw new BadRequestException("status majburiy");
+        }
+        String status = rawStatus.toString();
         leave.setStatus(status);
 
         if ("REJECTED".equals(status) && body.get("reason") != null) {
@@ -134,15 +129,25 @@ public class LeaveService {
                 ? leave.getReason() + "\n" + note : note);
         }
 
-        if (body.containsKey("approvedById")) {
-            Long approverId = Long.valueOf(body.get("approvedById").toString());
-            User approver = userRepository.findById(approverId)
-                .orElseThrow(() -> new ResourceNotFoundException("User", approverId));
-            leave.setApprovedBy(approver);
-            leave.setApprovedAt(LocalDateTime.now());
-        }
+        leave.setApprovedBy(teacherAccessService.getCurrentUserOrThrow());
+        leave.setApprovedAt(LocalDateTime.now());
 
         return toResponse(leaveRepository.save(leave));
+    }
+
+    /** TEACHER — faqat o'zi yuborgan yoki o'zi haqidagi ariza. */
+    private void assertCanView(Leave leave) {
+        if (!teacherAccessService.isCurrentUserTeacher()) {
+            return;
+        }
+        Long userId = teacherAccessService.getCurrentUserOrThrow().getId();
+        boolean ownRequest = leave.getRequester() != null
+            && userId.equals(leave.getRequester().getId());
+        boolean aboutMe = leave.getTeacher() != null && leave.getTeacher().getUser() != null
+            && userId.equals(leave.getTeacher().getUser().getId());
+        if (!ownRequest && !aboutMe) {
+            throw new ForbiddenException("Bu ariza sizga tegishli emas");
+        }
     }
 
     @Transactional

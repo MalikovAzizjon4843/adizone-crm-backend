@@ -18,7 +18,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -31,7 +30,6 @@ public class AuthController {
 
     private final AuthService authService;
     private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
     private final FileStorageService fileStorageService;
 
     @PostMapping("/login")
@@ -114,10 +112,8 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> changeOwnPassword(
             @Valid @RequestBody ChangePasswordRequest request,
             @AuthenticationPrincipal UserDetails userDetails) {
-        User user = userRepository.findByUsername(userDetails.getUsername())
-            .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
-        userRepository.save(user);
+        authService.changeOwnPassword(userDetails.getUsername(),
+            request.getCurrentPassword(), request.getNewPassword());
         return ResponseEntity.ok(ApiResponse.success("Password changed", null));
     }
 }

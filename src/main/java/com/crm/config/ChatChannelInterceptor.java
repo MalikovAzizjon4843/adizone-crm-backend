@@ -2,18 +2,24 @@ package com.crm.config;
 
 import com.crm.entity.User;
 import com.crm.service.ChatAccessService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessagingException;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.security.Principal;
+import java.util.Map;
 
 /**
  * Kiruvchi STOMP kadrlarini tekshiradi.
@@ -22,6 +28,15 @@ import java.security.Principal;
  * topik nomi ochiq matn, ya'ni ulangan har qanday foydalanuvchi
  * {@code /topic/conversation.42} ga obuna bo'lib, begona yozishmani
  * o'qiy olardi. Shuning uchun SUBSCRIBE da a'zolik alohida tekshiriladi.
+ *
+ * <p>SEND ham tekshiriladi. Xotiradagi broker mijozdan {@code /topic/…}
+ * yoki {@code /queue/…} ga to'g'ridan-to'g'ri kelgan kadrni ham obunachilarga
+ * tarqatadi — ya'ni istalgan xodim begona suhbatga istalgan {@code senderId}
+ * bilan soxta xabar yoki {@code /topic/presence} ga soxta holat yubora olardi.
+ * Endi SEND faqat {@code /app/…} ga (controller orqali, yuboruvchi —
+ * {@code Principal}) va faqat a'zo bo'lgan suhbat uchun o'tadi. Rad etilgan
+ * kadr jimgina tashlanadi va sabab yuboruvchining {@code /user/queue/errors}
+ * navbatiga boradi (ERROR kadri ulanishni uzib qo'yardi).
  *
  * <p>CONNECT da {@code Principal} yo'qligi — himoyaning ikkinchi qavati:
  * handshake interceptori chetlab o'tilsa ham sessiya ochilmaydi.
@@ -34,7 +49,19 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
     /** {@code /topic/conversation.{id}} — id shu prefiksdan keyin keladi. */
     public static final String CONVERSATION_TOPIC_PREFIX = "/topic/conversation.";
 
+    /** Mijoz SEND qila oladigan yagona prefiks — {@code @MessageMapping} lar. */
+    private static final String APP_PREFIX = "/app/";
+
+    /** ChatSocketController dagi bilan bir xil navbat. */
+    private static final String ERROR_QUEUE = "/queue/errors";
+
     private final ChatAccessService chatAccessService;
+    private final ObjectMapper objectMapper;
+    /**
+     * Lazy: SimpMessagingTemplate broker konfiguratsiyasidan tug'iladi, u esa
+     * shu interceptorni kutadi — to'g'ridan-to'g'ri inject aylanma bog'liqlik.
+     */
+    private final ObjectProvider<SimpMessagingTemplate> messagingTemplate;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -51,6 +78,10 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
 
         if (StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
             checkSubscription(accessor);
+        }
+
+        if (StompCommand.SEND.equals(accessor.getCommand())) {
+            return checkSend(message, accessor);
         }
 
         return message;
@@ -75,6 +106,59 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
             log.warn("Chat: {} suhbatiga begona obuna urinishi, foydalanuvchi {}",
                 conversationId, user.getId());
             throw new MessagingException("Bu suhbatga ruxsat yo'q");
+        }
+    }
+
+    /**
+     * SEND: faqat {@code /app/…}, yuboruvchi — {@code Principal} (tanadagi
+     * {@code senderId} kabi maydonlarga qaralmaydi), tanada
+     * {@code conversationId} bo'lsa — shu suhbat a'zosi. {@code messageId}
+     * bilan keladigan edit/delete da a'zolik va muallifni {@code ChatService}
+     * xabarning o'z suhbati bo'yicha tekshiradi.
+     *
+     * @return kadr o'tsa o'zi, rad etilsa {@code null} (tashlanadi)
+     */
+    private Message<?> checkSend(Message<?> message, StompHeaderAccessor accessor) {
+        Principal principal = requirePrincipal(accessor.getUser());
+        String destination = accessor.getDestination();
+
+        if (destination == null || !destination.startsWith(APP_PREFIX)) {
+            log.warn("Chat: {} broker manziliga to'g'ridan-to'g'ri SEND urinishi: {}",
+                principal.getName(), destination);
+            return reject(principal, "Bu manzilga xabar yuborib bo'lmaydi");
+        }
+
+        Long conversationId = conversationIdOf(message.getPayload());
+        if (conversationId != null) {
+            User user = chatAccessService.userOf(principal);
+            if (!chatAccessService.isParticipant(conversationId, user.getId())) {
+                log.warn("Chat: {} suhbatiga begona SEND urinishi, foydalanuvchi {}",
+                    conversationId, user.getId());
+                return reject(principal, "Bu suhbatga ruxsat yo'q");
+            }
+        }
+        return message;
+    }
+
+    private Message<?> reject(Principal principal, String reason) {
+        messagingTemplate.getObject().convertAndSendToUser(principal.getName(), ERROR_QUEUE,
+            Map.of("type", "ERROR", "message", reason));
+        return null;
+    }
+
+    /**
+     * Tanadagi {@code conversationId}. Tana JSON bo'lmasa yoki maydon yo'q
+     * bo'lsa {@code null} — shaklini controllerdagi {@code @Valid} tekshiradi.
+     */
+    private Long conversationIdOf(Object payload) {
+        if (!(payload instanceof byte[] bytes) || bytes.length == 0) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(bytes).get("conversationId");
+            return node != null && node.canConvertToLong() ? node.asLong() : null;
+        } catch (IOException e) {
+            return null;
         }
     }
 

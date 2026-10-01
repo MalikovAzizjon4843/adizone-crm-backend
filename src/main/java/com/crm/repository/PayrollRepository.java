@@ -1,9 +1,11 @@
 package com.crm.repository;
 
 import com.crm.entity.Payroll;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -26,4 +28,13 @@ public interface PayrollRepository extends JpaRepository<Payroll, Long> {
     List<Payroll> findByPeriod(@Param("year") Integer year, @Param("month") Integer month);
 
     boolean existsByUser_IdAndMonthAndYear(Long userId, Integer month, Integer year);
+
+    /**
+     * Oylikni to'lash uchun: qator {@code SELECT ... FOR UPDATE} bilan
+     * qulflanadi — parallel ikkinchi "to'lash" birinchisi commit bo'lguncha
+     * kutadi va keyin PAID holatni ko'radi.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM Payroll p WHERE p.id = :id")
+    Optional<Payroll> findByIdForUpdate(@Param("id") Long id);
 }

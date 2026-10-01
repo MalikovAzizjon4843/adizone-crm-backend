@@ -85,6 +85,7 @@ public class UserService {
         summary = "'Yangi foydalanuvchi yaratildi: ' + #result.username",
         entityId = "#result.id", label = "#result.username")
     public UserResponse createUser(CreateUserRequest request) {
+        assertCanGrantRole(requireCurrentUser(), request.getRole());
         String username = resolveUsername(request);
         validateEmailAndPhone(request.getEmail(), request.getPhone(), null);
 
@@ -161,6 +162,9 @@ public class UserService {
     public UserResponse updateUser(Long id, UpdateUserRequest request) {
         User user = userRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException(messages.get("error.user.notFound", id)));
+        User actor = requireCurrentUser();
+        assertCanManage(actor, user);
+        assertCanGrantRole(actor, request.getRole());
         validateEmailAndPhone(request.getEmail(), request.getPhone(), id);
 
         if (request.getFirstName() != null) {
@@ -354,6 +358,26 @@ public class UserService {
             .build();
     }
 
+    /**
+     * PUT /api/users/{id}/password — admin foydalanuvchiga yangi parol qo'yadi.
+     * SUPER_ADMIN parolini faqat SUPER_ADMIN o'zgartiradi; eski sessiyalar
+     * {@link #resetPassword} dagidek bekor qilinadi.
+     */
+    @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "User",
+        summary = "'Parol o''zgartirildi'",
+        entityId = "#userId")
+    public void setPassword(Long userId, String newPassword) {
+        User target = userRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException(
+                messages.get("error.user.notFound", userId)));
+        assertCanManage(requireCurrentUser(), target);
+
+        target.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(target);
+        refreshTokenRepository.revokeAllByUserId(target.getId());
+    }
+
     private static String generateTemporaryPassword() {
         StringBuilder sb = new StringBuilder(TEMP_PASSWORD_LENGTH);
         for (int i = 0; i < TEMP_PASSWORD_LENGTH; i++) {
@@ -375,6 +399,7 @@ public class UserService {
             .orElseThrow(() -> new ResourceNotFoundException(
                 messages.get("error.user.notFound", userId)));
         User actor = requireCurrentUser();
+        assertCanManage(actor, target);
         AuditContext.change("isActive", target.getIsActive(), active);
 
         if (!active) {
@@ -407,6 +432,31 @@ public class UserService {
     // ------------------------------------------------------------------
     // Yordamchi
     // ------------------------------------------------------------------
+
+    /**
+     * Rasm yuklash kabi controller darajasidagi amallar uchun: joriy
+     * foydalanuvchi {@code userId} hisobini o'zgartira oladimi.
+     */
+    public void assertManageable(Long userId) {
+        User target = userRepository.findById(userId)
+            .orElseThrow(() -> new ResourceNotFoundException(
+                messages.get("error.user.notFound", userId)));
+        assertCanManage(requireCurrentUser(), target);
+    }
+
+    /** SUPER_ADMIN hisobini faqat SUPER_ADMIN o'zgartiradi (tahrir, parol, rol, faollik). */
+    private void assertCanManage(User actor, User target) {
+        if (target.getRole() == UserRole.SUPER_ADMIN && actor.getRole() != UserRole.SUPER_ADMIN) {
+            throw new ForbiddenException(messages.get("user.superAdmin.protected"));
+        }
+    }
+
+    /** SUPER_ADMIN rolini faqat SUPER_ADMIN beradi. */
+    private void assertCanGrantRole(User actor, UserRole role) {
+        if (role == UserRole.SUPER_ADMIN && actor.getRole() != UserRole.SUPER_ADMIN) {
+            throw new ForbiddenException(messages.get("user.role.superAdminGrant"));
+        }
+    }
 
     /** Email va telefon takrorlanmasin (bo'sh bo'lmasa). */
     private void validateEmailAndPhone(String email, String phone, Long excludeUserId) {

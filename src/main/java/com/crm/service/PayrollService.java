@@ -299,7 +299,13 @@ public class PayrollService {
         summary = "'Oylik to''landi: ' + #result.teacherName",
         entityId = "#id", label = "#result.teacherName")
     public PayrollResponse markAsPaid(Long id, PayrollPayDto payDto) {
-        Payroll payroll = findById(id);
+        // Qulf + holat tekshiruvi: ikki marta bosish yoki parallel so'rov
+        // kassaga ikkinchi chiqim yozmasin.
+        Payroll payroll = payrollRepository.findByIdForUpdate(id)
+            .orElseThrow(() -> new ResourceNotFoundException("Payroll", id));
+        if ("PAID".equalsIgnoreCase(payroll.getStatus())) {
+            throw new DuplicateResourceException("Bu oylik allaqachon to'langan");
+        }
         payroll.setStatus("PAID");
         PaymentMethod paymentMethod = payDto != null && payDto.getPaymentMethod() != null
             ? payDto.getPaymentMethod() : PaymentMethod.CASH;

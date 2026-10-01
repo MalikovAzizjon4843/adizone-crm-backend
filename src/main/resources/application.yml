@@ -1,3 +1,6 @@
+# Sirlar faqat muhit o'zgaruvchilaridan olinadi va default qiymati YO'Q —
+# biror o'zgaruvchi berilmasa ilova startda to'xtaydi. Ro'yxat va
+# o'rnatish tartibi: docs/ops/env.md
 spring:
   application:
     name: crm-system
@@ -11,7 +14,6 @@ spring:
     url: jdbc:postgresql://localhost:5432/adizone
     username: postgres
     password: root123
-#    sercet '@dizone_Crm_2026$$'
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 20
@@ -54,7 +56,7 @@ app:
     drop-enum-checks: true
 
 jwt:
-  secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+  secret: 3E5kwhqZ+aF9OsLfz7cN2CaJmOoaI6qkgDYYKa73XYpUxnC3O6GAT2pA8xe/bbG4ffpzlQ9GnOcamtBvfkv1Lw==
   expiration: 28800000  # 24 hours in ms
   refresh-expiration: 604800000  # 7 days in ms
 

@@ -27,7 +27,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -47,36 +46,11 @@ import java.util.UUID;
 @Slf4j
 public class ChatAttachmentService {
 
-    /** Rasmdan tashqari ruxsat etilgan aniq turlar. */
-    private static final Set<String> ALLOWED_TYPES = Set.of(
-        "application/pdf",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/zip",
-        "application/x-zip-compressed",
-        "text/plain"
-    );
-
-    /**
-     * Ovoz uchun ruxsat etilgan turlar.
-     *
-     * <p>{@code image/*} dan farqli o'laroq butun {@code audio/*} ochiq
-     * emas: brauzer diktofoni shu beshtadan birini beradi, qolganlari esa
-     * ko'pincha ijro etilmaydigan eski formatlar.
-     */
-    private static final Set<String> ALLOWED_AUDIO_TYPES = Set.of(
-        "audio/webm",
-        "audio/ogg",
-        "audio/mpeg",
-        "audio/mp4",
-        "audio/wav"
-    );
+    // Ruxsat etilgan turlar (kengaytma + MIME) — FileStorageService dagi
+    // yagona oq ro'yxat: rasm, PDF, Word/Excel va ovoz (webm/ogg/mp3/m4a).
 
     private static final String IMAGE_PREFIX = "image/";
     private static final String AUDIO_PREFIX = "audio/";
-    private static final String DEFAULT_EXTENSION = ".bin";
     private static final int FILE_NAME_MAX = 255;
 
     private final FileStorageService fileStorageService;
@@ -105,14 +79,15 @@ public class ChatAttachmentService {
         }
 
         String contentType = normalizeContentType(file.getContentType());
-        requireAllowedType(contentType);
+        String originalName = safeFileName(file.getOriginalFilename());
+        String extension = FileStorageService.extensionOf(originalName);
+        requireAllowedType(extension, contentType);
 
         boolean isAudio = contentType.startsWith(AUDIO_PREFIX);
         Integer duration = isAudio ? requireDuration(durationMs) : null;
         String points = isAudio ? normalizeWaveform(waveform) : null;
 
-        String originalName = safeFileName(file.getOriginalFilename());
-        String storedName = UUID.randomUUID() + extensionOf(originalName);
+        String storedName = UUID.randomUUID() + "." + extension;
 
         String fileUrl;
         try {
@@ -135,17 +110,20 @@ public class ChatAttachmentService {
             .build();
     }
 
-    private void requireAllowedType(String contentType) {
-        if (contentType.startsWith(IMAGE_PREFIX)
-                || ALLOWED_TYPES.contains(contentType)
-                || ALLOWED_AUDIO_TYPES.contains(contentType)) {
+    /**
+     * Kengaytma ham, MIME ham oq ro'yxatda va bir-biriga mos bo'lsin —
+     * {@code evil.html} ni {@code image/png} deb yuborish endi o'tmaydi.
+     */
+    private void requireAllowedType(String extension, String contentType) {
+        if (FileStorageService.isAllowed(extension, contentType)) {
             return;
         }
+        String shown = (extension != null ? "." + extension + " " : "") + "(" + contentType + ")";
         // audio/* bo'lsa-yu ro'yxatda bo'lmasa — sabab aniqroq aytiladi.
         if (contentType.startsWith(AUDIO_PREFIX)) {
-            throw new BadRequestException(messages.get("chat.upload.audioType", contentType));
+            throw new BadRequestException(messages.get("chat.upload.audioType", shown));
         }
-        throw new BadRequestException(messages.get("chat.upload.type", contentType));
+        throw new BadRequestException(messages.get("chat.upload.type", shown));
     }
 
     /**
@@ -253,16 +231,6 @@ public class ChatAttachmentService {
             return "file";
         }
         return name.length() > FILE_NAME_MAX ? name.substring(0, FILE_NAME_MAX) : name;
-    }
-
-    private String extensionOf(String fileName) {
-        int dot = fileName.lastIndexOf('.');
-        if (dot < 0 || dot == fileName.length() - 1) {
-            return DEFAULT_EXTENSION;
-        }
-        String extension = fileName.substring(dot);
-        // Uzun "kengaytma" — aslida kengaytma emas, nuqtali nom.
-        return extension.length() <= 10 ? extension.toLowerCase(Locale.ROOT) : DEFAULT_EXTENSION;
     }
 
     // ── Xabarga bog'lash ───────────────────────────────────────────────

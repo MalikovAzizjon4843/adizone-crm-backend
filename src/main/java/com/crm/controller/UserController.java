@@ -191,10 +191,7 @@ public class UserController {
     public ResponseEntity<ApiResponse<Void>> changePassword(
             @PathVariable Long id,
             @Valid @RequestBody ChangePasswordRequest request) {
-        User user = userRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("User", id));
-        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
-        userRepository.save(user);
+        userService.setPassword(id, request.getNewPassword());
         return ResponseEntity.ok(ApiResponse.success("Password changed", null));
     }
 
@@ -203,6 +200,8 @@ public class UserController {
     public ResponseEntity<ApiResponse<UserResponse>> uploadUserPhoto(
             @PathVariable Long id,
             @RequestParam("file") MultipartFile file) {
+        // try dan tashqarida: 403 "Rasm yuklashda xatolik" (400) ga aylanib ketmasin
+        userService.assertManageable(id);
         try {
             User user = userRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("User", id));

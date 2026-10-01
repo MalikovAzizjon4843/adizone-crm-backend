@@ -161,6 +161,29 @@ public class AuthService {
             });
     }
 
+    /**
+     * Foydalanuvchi o'z parolini almashtiradi. Joriy parol shart — aks holda
+     * o'g'irlangan access token bilan hisobni egallab olish mumkin edi.
+     * Muvaffaqiyatdan keyin barcha refresh tokenlar bekor qilinadi: boshqa
+     * qurilmalardagi sessiyalar access token muddati tugashi bilan yopiladi.
+     */
+    @Transactional
+    public void changeOwnPassword(String username, String currentPassword, String newPassword) {
+        User user = userRepository.findByUsername(username)
+            .orElseThrow(() -> new BadRequestException(messages.get("error.auth.userNotFound")));
+
+        if (currentPassword == null || currentPassword.isBlank()) {
+            throw new BadRequestException(messages.get("user.password.currentRequired"));
+        }
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            throw new BadRequestException(messages.get("user.password.currentInvalid"));
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        refreshTokenRepository.revokeAllByUserId(user.getId());
+    }
+
     public UserResponse getCurrentUser(String username) {
         User user = userRepository.findByUsername(username)
             .orElseThrow(() -> new BadRequestException(messages.get("error.auth.userNotFound")));

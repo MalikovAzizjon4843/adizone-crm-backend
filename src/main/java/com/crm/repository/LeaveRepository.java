@@ -14,6 +14,7 @@ public interface LeaveRepository extends JpaRepository<Leave, Long> {
     Page<Leave> findAll(Pageable pageable);
     Page<Leave> findByStatus(String status, Pageable pageable);
     Page<Leave> findByRequesterId(Long requesterId, Pageable pageable);
+    Page<Leave> findByTeacher_Id(Long teacherId, Pageable pageable);
     List<Leave> findByStatus(String status);
 
     @Query("SELECT COUNT(l) FROM Leave l WHERE l.status = 'PENDING'")

@@ -101,7 +101,9 @@ public class BonusPenaltyController {
             bonusPenaltyService.cancel(id)));
     }
 
+    /** O'chirish — faqat ma'muriyat; buxgalter yozuvni bekor qiladi ({@code PATCH /cancel}). */
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
         bonusPenaltyService.delete(id);
         return ResponseEntity.ok(ApiResponse.success("Yozuv o'chirildi", null));
