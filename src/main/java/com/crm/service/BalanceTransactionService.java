@@ -2,21 +2,26 @@ package com.crm.service;
 
 import com.crm.audit.AuditAction;
 import com.crm.audit.Audited;
+import com.crm.billing.BillingGate;
+import com.crm.billing.BillingLocks;
+import com.crm.billing.BillingSnapshotService;
+import com.crm.billing.BillingStatusService;
+import com.crm.billing.LedgerService;
+import com.crm.billing.Money;
 import com.crm.dto.response.BalanceHistoryItemDto;
 import com.crm.entity.BalanceTransaction;
-import com.crm.entity.Student;
+import com.crm.entity.BillingPeriod;
+import com.crm.entity.Payment;
 import com.crm.entity.StudentGroup;
-import com.crm.entity.User;
 import com.crm.entity.enums.BalanceTransactionType;
-import com.crm.exception.BadRequestException;
+import com.crm.exception.CodedException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.BalanceTransactionRepository;
+import com.crm.repository.BillingPeriodRepository;
+import com.crm.repository.PaymentRepository;
 import com.crm.repository.StudentGroupRepository;
 import com.crm.repository.StudentRepository;
-import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,95 +29,35 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
+/**
+ * O'quvchi balans tarixi va SUPER_ADMIN ning qo'lda amallari (billing v2 §10.2). Yozuv —
+ * faqat {@link LedgerService#post} orqali, qulf ostida (§7.2).
+ */
 @Service
 @RequiredArgsConstructor
 public class BalanceTransactionService {
 
+    private static final Set<BalanceTransactionType> PAYMENT_LINKED =
+        Set.of(BalanceTransactionType.PAYMENT, BalanceTransactionType.DISCOUNT);
+
     private final BalanceTransactionRepository balanceTransactionRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final StudentRepository studentRepository;
-    private final UserRepository userRepository;
-    private final BalanceExpectationService balanceExpectationService;
-
-    /**
-     * SG balansini o'zgartiradi va audit yozuv yaratadi.
-     * student.balance = barcha StudentGroup.balance yig'indisi.
-     */
-    @Transactional
-    public BalanceTransaction record(
-            StudentGroup sg,
-            BalanceTransactionType type,
-            BigDecimal amount,
-            Long referenceId,
-            String note) {
-        if (sg == null) {
-            throw new BadRequestException("StudentGroup majburiy");
-        }
-        if (type == null) {
-            throw new BadRequestException("Transaction type majburiy");
-        }
-        if (amount == null) {
-            amount = BigDecimal.ZERO;
-        }
-
-        Student student = sg.getStudent();
-        if (student == null || student.getId() == null) {
-            throw new BadRequestException("Student topilmadi");
-        }
-
-        BigDecimal before = nz(sg.getBalance());
-        BigDecimal after = before.add(amount);
-        sg.setBalance(after);
-        studentGroupRepository.save(sg);
-
-        syncStudentBalanceFromGroups(student);
-
-        BalanceTransaction tx = BalanceTransaction.builder()
-            .studentGroup(sg)
-            .student(student)
-            .type(type)
-            .amount(amount)
-            .balanceAfter(after)
-            .referenceId(referenceId)
-            .note(note)
-            .createdBy(currentUserOrNull())
-            .createdAt(LocalDateTime.now())
-            .build();
-        return balanceTransactionRepository.save(tx);
-    }
-
-    /** Student.balance = barcha guruh balanslari yig'indisi. */
-    @Transactional
-    public void syncStudentBalanceFromGroups(Student student) {
-        if (student == null || student.getId() == null) {
-            return;
-        }
-        BigDecimal sum = studentGroupRepository.findByStudentId(student.getId()).stream()
-            .map(g -> nz(g.getBalance()))
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
-        student.setBalance(sum);
-        studentRepository.save(student);
-    }
-
-    /** @deprecated use {@link #record} */
-    @Transactional
-    public BalanceTransaction recordStudentOnly(
-            Student student,
-            StudentGroup sg,
-            BalanceTransactionType type,
-            BigDecimal amount,
-            Long referenceId,
-            String note) {
-        if (sg != null) {
-            return record(sg, type, amount, referenceId, note);
-        }
-        throw new BadRequestException("StudentGroup majburiy");
-    }
+    private final BillingPeriodRepository periodRepository;
+    private final PaymentRepository paymentRepository;
+    private final LedgerService ledgerService;
+    private final BillingLocks locks;
+    private final BillingSnapshotService snapshotService;
+    private final BillingStatusService statusService;
+    private final BillingGate gate;
 
     @Transactional(readOnly = true)
     public List<BalanceHistoryItemDto> getHistory(
@@ -122,94 +67,97 @@ public class BalanceTransactionService {
         }
         LocalDateTime fromDt = from != null ? from.atStartOfDay() : null;
         LocalDateTime toDt = to != null ? to.atTime(LocalTime.MAX) : null;
-        return balanceTransactionRepository.findHistory(studentId, groupId, fromDt, toDt)
-            .stream()
-            .map(this::toHistoryDto)
-            .toList();
+        List<BalanceTransaction> rows = balanceTransactionRepository.findHistory(studentId, groupId, fromDt, toDt);
+
+        Map<Long, BillingPeriod> periods = periodRepository.findAllById(rows.stream()
+                .map(BalanceTransaction::getBillingPeriodId).filter(Objects::nonNull).collect(Collectors.toSet()))
+            .stream().collect(Collectors.toMap(BillingPeriod::getId, Function.identity()));
+        Map<Long, Payment> payments = paymentRepository.findAllById(rows.stream()
+                .filter(t -> PAYMENT_LINKED.contains(t.getType()) && t.getReferenceId() != null)
+                .map(BalanceTransaction::getReferenceId).collect(Collectors.toSet()))
+            .stream().collect(Collectors.toMap(Payment::getId, Function.identity()));
+        return rows.stream().map(t -> toHistoryDto(t, periods, payments)).toList();
     }
 
     /**
-     * Balansni MUSTAQIL manbalar bilan solishtiradi.
-     *
-     * <p>Ilgari bu metod {@code sg.balance} ni ledger yig'indisi bilan solishtirardi —
-     * ikkalasi ham bitta yozuvdan hosil bo'lgani uchun u hech qachon xato topa olmasdi.
-     * Endi kutilgan balans {@code payments} + {@code attendance} dan qayta quriladi
-     * ({@link BalanceExpectationService}), ya'ni yetishmayotgan PERIOD_CHARGE,
-     * noto'g'ri PAYMENT krediti va MONTHLY guruhdagi LESSON_CHARGE ko'rinadi.
+     * {@code POST /api/students/{id}/balance-adjust} (SA): {@code MANUAL_ADJUST}, summa butun
+     * va nol emas, {@code effectiveDate} ixtiyoriy (default bugun).
      */
-    @Transactional(readOnly = true)
-    public Map<String, Object> verifyBalances() {
-        List<StudentGroup> all = studentGroupRepository.findAll();
-        List<Map<String, Object>> mismatched = new ArrayList<>();
-        int checked = 0;
-        BigDecimal totalDiff = BigDecimal.ZERO;
-
-        for (StudentGroup sg : all) {
-            checked++;
-            BalanceExpectationService.Expectation exp = balanceExpectationService.compute(sg);
-            if (!exp.hasIssue()) {
-                continue;
-            }
-            totalDiff = totalDiff.add(exp.diff());
-
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("studentGroupId", exp.studentGroupId());
-            row.put("studentId", exp.studentId());
-            row.put("studentName", exp.studentName());
-            row.put("groupName", exp.groupName());
-            row.put("paymentType", exp.paymentType() != null ? exp.paymentType().name() : null);
-            row.put("stored", exp.storedBalance());
-            row.put("expected", exp.expectedBalance());
-            row.put("diff", exp.diff());
-            // Qaysi komponent farq qilgani shu yerdan ko'rinadi
-            Map<String, Object> components = new LinkedHashMap<>();
-            components.put("cashIn", exp.cashIn());
-            components.put("periodCost", exp.periodCost());
-            components.put("lessonCost", exp.lessonCost());
-            components.put("carriedLedger", exp.carriedLedger());
-            components.put("ledgerSum", exp.ledgerSum());
-            row.put("components", components);
-            row.put("missingPeriodCharges", exp.missingPeriodCharges());
-            row.put("wrongCredits", exp.wrongCredits());
-            row.put("strayLessonCharges", exp.strayLessonCharges());
-            row.put("legacyFreezeEntries", exp.legacyFreezeEntries());
-            row.put("hasLegacyFreezeTransfer", exp.hasLegacyFreezeTransfer());
-            row.put("unlinkedPayments", exp.unlinkedPayments());
-            mismatched.add(row);
-        }
-
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("checked", checked);
-        result.put("mismatchCount", mismatched.size());
-        result.put("totalDiff", totalDiff);
-        result.put("mismatched", mismatched);
-        return result;
-    }
-
     @Transactional
     @Audited(action = AuditAction.UPDATE, entity = "Balance",
         summary = "'Balans qo''lda tuzatildi: ' + #amount + ' (' + #note + ')'",
         entityId = "#studentId")
-    public BalanceHistoryItemDto manualAdjust(Long studentId, Long groupId, BigDecimal amount, String note) {
+    public BalanceHistoryItemDto manualAdjust(Long studentId, Long groupId, BigDecimal amount, String note,
+                                              LocalDate effectiveDate) {
+        gate.requireWritable();
         if (note == null || note.isBlank()) {
-            throw new BadRequestException("Sabab majburiy");
+            throw CodedException.badRequest("balanceAdjust.note.required");
         }
-        if (amount == null) {
-            throw new BadRequestException("Summa majburiy");
+        if (amount == null || amount.signum() == 0) {
+            throw CodedException.badRequest("balanceAdjust.amount.required");
         }
-        StudentGroup sg = studentGroupRepository
-            .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, groupId)
-            .or(() -> studentGroupRepository.findByStudentId(studentId).stream()
-                .filter(g -> g.getGroup() != null && groupId.equals(g.getGroup().getId()))
-                .findFirst())
-            .orElseThrow(() -> new ResourceNotFoundException("StudentGroup", groupId));
+        if (!Money.isWhole(amount)) {
+            throw CodedException.badRequest("money.wholeSumRequired");
+        }
+        LocalDate today = statusService.today();
+        if (effectiveDate != null && effectiveDate.isAfter(today)) {
+            throw CodedException.badRequest("payment.date.future");
+        }
+        StudentGroup candidate = enrollment(studentId, groupId);
+        StudentGroup sg = locks.lockEnrollmentWithStudent(studentId, candidate.getId());
+        BalanceTransaction tx = ledgerService.post(LedgerService.Entry.builder()
+            .enrollment(sg)
+            .type(BalanceTransactionType.MANUAL_ADJUST)
+            .amount(amount)
+            .effectiveDate(effectiveDate != null ? effectiveDate : today)
+            .note(note.trim())
+            .build());
+        snapshotService.refresh(sg);
+        return toHistoryDto(tx, Map.of(), Map.of());
+    }
 
-        if (sg.getStudent() == null || !studentId.equals(sg.getStudent().getId())) {
-            throw new BadRequestException("Guruh bu o'quvchiga tegishli emas");
+    /**
+     * {@code POST /api/students/{id}/balance-transfer} (SA, §13 #6): bir o'quvchining ikki
+     * guruhi orasida qo'lda ko'chirish — {@code TRANSFER_OUT}/{@code TRANSFER_IN} juftligi.
+     * Avtomatik kesishuv yo'q; bu yagona qo'lda yo'l.
+     */
+    @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "Balance",
+        summary = "'Guruhlar orasida balans ko''chirildi: ' + #amount + ' (' + #note + ')'",
+        entityId = "#studentId")
+    public List<BalanceHistoryItemDto> transferBetweenGroups(Long studentId, Long fromGroupId, Long toGroupId,
+                                                             BigDecimal amount, String note) {
+        gate.requireWritable();
+        if (note == null || note.trim().length() < 3) {
+            throw CodedException.badRequest("balanceTransfer.note.required");
         }
-
-        BalanceTransaction tx = record(sg, BalanceTransactionType.MANUAL_ADJUST, amount, null, note.trim());
-        return toHistoryDto(tx);
+        if (amount == null || amount.signum() <= 0) {
+            throw CodedException.badRequest("payment.amount.positive");
+        }
+        if (!Money.isWhole(amount)) {
+            throw CodedException.badRequest("money.wholeSumRequired");
+        }
+        if (Objects.equals(fromGroupId, toGroupId)) {
+            throw CodedException.badRequest("balanceTransfer.sameGroup");
+        }
+        StudentGroup from = enrollment(studentId, fromGroupId);
+        StudentGroup to = enrollment(studentId, toGroupId);
+        BillingLocks.Locked locked = locks.acquire(BillingLocks.Plan.of()
+            .student(studentId).enrollments(List.of(from.getId(), to.getId())));
+        StudentGroup a = locked.enrollment(from.getId());
+        StudentGroup b = locked.enrollment(to.getId());
+        LocalDate today = statusService.today();
+        BalanceTransaction out = ledgerService.post(LedgerService.Entry.builder()
+            .enrollment(a).type(BalanceTransactionType.TRANSFER_OUT).amount(amount.negate())
+            .effectiveDate(today).referenceId(b.getId())
+            .note("Qo'lda ko'chirildi → " + groupName(b) + ": " + note.trim()).build());
+        BalanceTransaction in = ledgerService.post(LedgerService.Entry.builder()
+            .enrollment(b).type(BalanceTransactionType.TRANSFER_IN).amount(amount)
+            .effectiveDate(today).referenceId(a.getId()).relatedTxId(out.getId())
+            .note("Qo'lda ko'chirildi ← " + groupName(a) + ": " + note.trim()).build());
+        snapshotService.refresh(a);
+        snapshotService.refresh(b);
+        return List.of(toHistoryDto(out, Map.of(), Map.of()), toHistoryDto(in, Map.of(), Map.of()));
     }
 
     public static String typeLabel(BalanceTransactionType type) {
@@ -220,15 +168,40 @@ public class BalanceTransactionService {
             case LESSON_CHARGE -> "Dars uchun yechildi";
             case LESSON_REFUND -> "Davomat qaytarildi";
             case PAYMENT -> "To'lov qabul qilindi";
-            case PERIOD_CHARGE -> "Davr uchun yechildi";
-            case PERIOD_REFUND -> "Davr qaytarildi";
+            case PERIOD_CHARGE -> "Davr to'lovi";
+            case PERIOD_REFUND -> "Davr qaytarimi";
             case FREEZE -> "Muzlatish";
             case UNFREEZE -> "Muzlatishdan chiqarish";
             case MANUAL_ADJUST -> "Qo'lda tuzatish";
+            case DISCOUNT -> "Chegirma";
+            case BONUS -> "Bonus";
+            case PENALTY -> "Jarima";
+            case REVERSAL -> "Bekor qilindi";
+            case TRANSFER_OUT -> "Ko'chirish (chiqim)";
+            case TRANSFER_IN -> "Ko'chirish (kirim)";
+            case MIGRATION -> "Migratsiya";
+            case REFUND_PAYOUT -> "Pul qaytarildi";
         };
     }
 
-    private BalanceHistoryItemDto toHistoryDto(BalanceTransaction t) {
+    /** O'quvchining shu guruhdagi yozilmasi: faoli, bo'lmasa eng oxirgisi (yopilgan/muzlatilgan). */
+    private StudentGroup enrollment(Long studentId, Long groupId) {
+        if (groupId == null) {
+            throw CodedException.badRequest("payment.group.required");
+        }
+        return studentGroupRepository.findByStudentIdAndGroupIdAndIsActiveTrue(studentId, groupId)
+            .or(() -> studentGroupRepository.findByStudentId(studentId).stream()
+                .filter(g -> g.getGroup() != null && groupId.equals(g.getGroup().getId()))
+                .max(Comparator.comparing(StudentGroup::getId)))
+            .orElseThrow(() -> CodedException.notFound("payment.enrollment.notFound"));
+    }
+
+    private static String groupName(StudentGroup sg) {
+        return sg.getGroup() != null ? sg.getGroup().getGroupName() : "";
+    }
+
+    private BalanceHistoryItemDto toHistoryDto(BalanceTransaction t, Map<Long, BillingPeriod> periods,
+                                               Map<Long, Payment> payments) {
         String createdBy = null;
         if (t.getCreatedBy() != null) {
             createdBy = ((t.getCreatedBy().getFirstName() != null ? t.getCreatedBy().getFirstName() : "")
@@ -238,30 +211,28 @@ public class BalanceTransactionService {
                 createdBy = t.getCreatedBy().getUsername();
             }
         }
+        BillingPeriod period = t.getBillingPeriodId() != null ? periods.get(t.getBillingPeriodId()) : null;
+        Long paymentId = PAYMENT_LINKED.contains(t.getType()) ? t.getReferenceId() : null;
+        Payment payment = paymentId != null ? payments.get(paymentId) : null;
         return BalanceHistoryItemDto.builder()
+            .id(t.getId())
             .date(t.getCreatedAt())
+            .effectiveDate(t.getEffectiveDate())
             .type(t.getType())
             .typeLabel(typeLabel(t.getType()))
             .amount(t.getAmount())
             .balanceAfter(t.getBalanceAfter())
             .note(t.getNote())
+            .relatedTxId(t.getRelatedTxId())
+            .billingPeriod(period != null
+                ? new BalanceHistoryItemDto.PeriodRef(period.getPeriodStart(), period.getPeriodEnd()) : null)
+            .paymentId(paymentId)
+            .receiptNumber(payment != null ? payment.getReceiptNumber() : null)
             .groupId(t.getStudentGroup() != null && t.getStudentGroup().getGroup() != null
                 ? t.getStudentGroup().getGroup().getId() : null)
             .groupName(t.getStudentGroup() != null && t.getStudentGroup().getGroup() != null
                 ? t.getStudentGroup().getGroup().getGroupName() : null)
             .createdBy(createdBy)
             .build();
-    }
-
-    private User currentUserOrNull() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || auth.getName() == null || "anonymousUser".equals(auth.getName())) {
-            return null;
-        }
-        return userRepository.findByUsername(auth.getName()).orElse(null);
-    }
-
-    private static BigDecimal nz(BigDecimal v) {
-        return v != null ? v : BigDecimal.ZERO;
     }
 }

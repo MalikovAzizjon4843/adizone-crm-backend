@@ -105,7 +105,15 @@ public class Student extends BaseEntity {
     @Builder.Default
     private BigDecimal balance = BigDecimal.ZERO;
 
-    /** TRIAL, PENDING, PAID, OVERDUE, SUSPENDED, ARCHIVED, FROZEN — hech qachon null bo'lmasin. */
+    /** Billing v2 agregat: Σ max(0, −sg.balance) — barcha SG (§8). Snapshot. */
+    @Column(name = "debt", precision = 12, scale = 2)
+    private BigDecimal debt;
+
+    /** Billing v2 agregat: eng yaqin sg.nextPaymentDate dagi summalar yig'indisi (§8). */
+    @Column(name = "next_payment_amount", precision = 12, scale = 2)
+    private BigDecimal nextPaymentAmount;
+
+    /** Billing v2: SG lardan hosila (I7) — faqat BillingSnapshotService yozadi. */
     @Enumerated(EnumType.STRING)
     @Column(name = "payment_status", length = 20)
     @Builder.Default

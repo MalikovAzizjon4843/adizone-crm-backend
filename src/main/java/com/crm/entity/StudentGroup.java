@@ -1,6 +1,7 @@
 package com.crm.entity;
 
 import com.crm.entity.converter.StudyFormatConverter;
+import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.PaymentType;
 import com.crm.entity.enums.StudyFormat;
 import jakarta.persistence.*;
@@ -107,10 +108,22 @@ public class StudentGroup {
     @Column(name = "next_payment_due")
     private LocalDate nextPaymentDue;
 
-    /** TRIAL, PENDING, PAID, OVERDUE, SUSPENDED, ARCHIVED, FROZEN */
+    /**
+     * Billing v2: ledgerdan hosila (I7) — faqat {@code BillingSnapshotService} yozadi.
+     * PAID / PENDING / OVERDUE / FROZEN / TRIAL (§4.2). Ustun turi o'zgarmagan (varchar).
+     */
+    @Enumerated(EnumType.STRING)
     @Column(name = "payment_status", length = 20)
     @Builder.Default
-    private String paymentStatus = "PENDING";
+    private PaymentStatus paymentStatus = PaymentStatus.PENDING;
+
+    /** Eng eski to'lanmagan majburiyat sanasi (FIFO, §4.1); qarz yo'q — null. Snapshot. */
+    @Column(name = "debt_since")
+    private LocalDate debtSince;
+
+    /** Keyingi to'lov summasi (§4.3). Snapshot. */
+    @Column(name = "next_payment_amount", precision = 12, scale = 2)
+    private BigDecimal nextPaymentAmount;
 
     @Column(name = "suspended_at")
     private LocalDateTime suspendedAt;
@@ -124,6 +137,20 @@ public class StudentGroup {
 
     @Column(name = "exit_date")
     private LocalDate exitDate;
+
+    /**
+     * Billing v2: muzlatish sanasi (§6.7). Null emas — accrual yo'q, SG holati
+     * FROZEN (qarz bo'lmasa). Unfreeze da null qilinadi; SG o'zi qayta faollashadi.
+     */
+    @Column(name = "frozen_from")
+    private LocalDate frozenFrom;
+
+    /**
+     * Billing v2 migratsiyasi (§9.7): true — SG migratsiyadan chetlatilgan yoki qaytarilgan
+     * ({@code MIGRATION_PENDING}); accrual o'tkazib yuboradi, qo'lda qayta qo'llanadi.
+     */
+    @Column(name = "billing_hold")
+    private Boolean billingHold;
 
     @Column(name = "exit_notes", columnDefinition = "TEXT")
     private String exitNotes;
@@ -143,7 +170,7 @@ public class StudentGroup {
         if (nextPaymentDate == null) nextPaymentDate = paymentStartDate;
         if (isTrial == null) isTrial = false;
         if (paymentType == null) paymentType = PaymentType.MONTHLY;
-        if (paymentStatus == null) paymentStatus = Boolean.TRUE.equals(isTrial) ? "TRIAL" : "PENDING";
+        if (paymentStatus == null) paymentStatus = Boolean.TRUE.equals(isTrial) ? PaymentStatus.TRIAL : PaymentStatus.PAID;
         if (lessonsAttended == null) lessonsAttended = 0;
         if (lessonsPurchased == null) lessonsPurchased = 0;
         if (lessonsUsed == null) lessonsUsed = 0;

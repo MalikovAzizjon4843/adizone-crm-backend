@@ -20,6 +20,10 @@ import java.util.Optional;
 @Repository
 public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpecificationExecutor<Student> {
 
+    /** Billing v2: /api/admin/billing/refresh-snapshots. */
+    @Query("SELECT s.id FROM Student s ORDER BY s.id")
+    List<Long> findAllIds();
+
     Optional<Student> findByPhone(String phone);
 
     Page<Student> findByStatus(StudentStatus status, Pageable pageable);
@@ -71,9 +75,8 @@ public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpec
     @Query("SELECT DISTINCT s FROM Student s JOIN s.studentGroups sg "
            + "WHERE s.status IN (com.crm.entity.enums.StudentStatus.FROZEN, com.crm.entity.enums.StudentStatus.LEFT) "
            + "AND sg.isActive = false "
-           + "AND (sg.paymentStatus IN ('OVERDUE', 'SUSPENDED', 'ARCHIVED') "
-           + "OR (sg.nextPaymentDate IS NOT NULL AND sg.nextPaymentDate < :today))")
-    List<Student> findArchivedOrFrozenWithBalanceSignals(@Param("today") LocalDate today);
+           + "AND sg.balance < 0")
+    List<Student> findArchivedOrFrozenWithDebt();
 
     List<Student> findByStatusIn(List<StudentStatus> statuses);
 

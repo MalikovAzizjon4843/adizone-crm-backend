@@ -98,6 +98,21 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
         @Param("to") LocalDate to,
         @Param("presentStatuses") List<AttendanceStatus> presentStatuses);
 
+    /** Billing v2 (§13 #2): muzlatish sanasi oxirgi billable davomatdan oldin bo'lmasin. */
+    @Query("SELECT MAX(a.attendanceDate) FROM Attendance a WHERE a.student.id = :studentId "
+           + "AND a.group.id = :groupId AND a.status IN :statuses")
+    LocalDate findLastDateByStatuses(
+        @Param("studentId") Long studentId,
+        @Param("groupId") Long groupId,
+        @Param("statuses") List<AttendanceStatus> statuses);
+
+    @Query("SELECT MIN(a.attendanceDate) FROM Attendance a WHERE a.student.id = :studentId "
+           + "AND a.group.id = :groupId AND a.status IN :statuses")
+    LocalDate findFirstDateByStatuses(
+        @Param("studentId") Long studentId,
+        @Param("groupId") Long groupId,
+        @Param("statuses") List<AttendanceStatus> statuses);
+
     @Query("SELECT COUNT(a) FROM Attendance a WHERE a.student.id = :studentId "
            + "AND a.group.id = :groupId AND a.status IN :statuses")
     long countByStudentAndGroupAndStatuses(

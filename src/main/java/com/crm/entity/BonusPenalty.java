@@ -59,6 +59,17 @@ public class BonusPenalty {
     @Column(name = "applied_to_payment_id")
     private Long appliedToPaymentId;
 
+    /** Billing v2 (§6.5): qaysi yozilmaga — null bo'lsa o'quvchining istalgan SG si. */
+    @Column(name = "student_group_id")
+    private Long studentGroupId;
+
+    /** Qo'llanganda yozilgan BONUS/PENALTY ledger yozuvi. */
+    @Column(name = "ledger_tx_id")
+    private Long ledgerTxId;
+
+    @Column(name = "cancel_reason", length = 500)
+    private String cancelReason;
+
     @Column(name = "effective_date", nullable = false)
     private LocalDate effectiveDate;
 

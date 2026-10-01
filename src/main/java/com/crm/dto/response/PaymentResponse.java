@@ -41,4 +41,24 @@ public class PaymentResponse {
     private LocalDateTime createdAt;
     private Long cashRegisterId;
     private String cashRegisterName;
+
+    // ── Billing v2 (§10.2) ──
+    private Long studentGroupId;
+    /** Yozilgan qatorlar: accrual, PAYMENT, DISCOUNT, BONUS, PENALTY. */
+    private java.util.List<BillingLineDto> lines;
+    private BigDecimal balanceAfter;
+    private BigDecimal debtAfter;
+    private String statusAfter;
+    private LocalDate nextPaymentDate;
+    private BigDecimal nextPaymentAmount;
+    private String planHash;
+    // bekor qilish
+    private LocalDateTime cancelledAt;
+    private String cancelledByName;
+    private String cancelReason;
+    private java.util.List<BillingLineDto> reversalLines;
+    private java.util.List<String> warnings;
+    /** Idempotency-Key bo'yicha qaytarilgan (yangi to'lov yaratilmagan). */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private boolean replay;
 }

@@ -17,6 +17,8 @@ public class BonusPenaltyCreateDto {
     private BonusTargetType targetType;
     private Long studentId;
     private Long teacherId;
+    /** Billing v2 (§6.5): STUDENT uchun ixtiyoriy — bonus faqat shu guruh yozilmasiga qo'llanadi. */
+    private Long groupId;
     @NotNull(message = "{bonusPenalty.amount.required}")
     @DecimalMin(value = "0.01", message = "{bonusPenalty.amount.min}")
     private BigDecimal amount;

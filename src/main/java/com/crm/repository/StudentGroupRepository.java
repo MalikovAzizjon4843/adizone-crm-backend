@@ -14,7 +14,8 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long> {
+public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long>,
+        org.springframework.data.jpa.repository.JpaSpecificationExecutor<StudentGroup> {
 
     List<StudentGroup> findByStudentId(Long studentId);
 
@@ -73,29 +74,15 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
            + "AND sg.student.status = 'ACTIVE'")
     List<StudentGroup> findAllActiveEnrollments();
 
-    @Query("SELECT sg FROM StudentGroup sg WHERE sg.isActive = true AND sg.leaveDate IS NULL "
-           + "AND sg.nextPaymentDate < :today "
-           + "AND sg.student.status = 'ACTIVE'")
-    List<StudentGroup> findDebtors(@Param("today") LocalDate today);
-
-    @Query("SELECT sg FROM StudentGroup sg WHERE sg.isActive = true AND sg.leaveDate IS NULL "
-           + "AND sg.nextPaymentDate BETWEEN :today AND :soon")
-    List<StudentGroup> findPaymentsDueSoon(@Param("today") LocalDate today,
-                                            @Param("soon") LocalDate soon);
-
     @Query("SELECT COUNT(sg) FROM StudentGroup sg WHERE sg.isActive = true AND sg.leaveDate IS NULL")
     long countActiveEnrollments();
 
-    @Query("SELECT sg FROM StudentGroup sg WHERE sg.group.id = :groupId AND sg.paymentStatus = 'SUSPENDED'")
-    List<StudentGroup> findSuspendedByGroupId(@Param("groupId") Long groupId);
-
-    @Query("SELECT sg FROM StudentGroup sg WHERE sg.paymentStatus = 'SUSPENDED' "
-           + "AND sg.suspendedAt IS NOT NULL AND sg.suspendedAt <= :cutoff")
-    List<StudentGroup> findSuspendedOnOrBefore(@Param("cutoff") LocalDateTime cutoff);
-
-    @Query("SELECT sg FROM StudentGroup sg WHERE sg.paymentStatus = :paymentStatus "
-           + "AND sg.isActive = true AND sg.leaveDate IS NULL")
-    List<StudentGroup> findByPaymentStatusAndIsActiveTrue(@Param("paymentStatus") String paymentStatus);
+    /** Guruhning qarzli (balance &lt; 0) SG lari — OVERDUE/PENDING ajratish BillingStatusService da. */
+    @Query("""
+        SELECT sg FROM StudentGroup sg JOIN FETCH sg.student
+        WHERE sg.group.id = :groupId AND sg.balance < 0 AND sg.debtSince IS NOT NULL
+        """)
+    List<StudentGroup> findWithDebtByGroupId(@Param("groupId") Long groupId);
 
     @Query("SELECT COUNT(sg) FROM StudentGroup sg WHERE sg.group.id = :groupId "
            + "AND sg.isActive = true AND sg.leaveDate IS NULL")
@@ -117,7 +104,8 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
                                             @Param("to") LocalDate to);
 
     @Query("SELECT COUNT(sg) FROM StudentGroup sg WHERE sg.group.id IN :groupIds "
-           + "AND sg.joinDate BETWEEN :from AND :to AND sg.paymentStatus = 'PAID'")
+           + "AND sg.joinDate BETWEEN :from AND :to "
+           + "AND sg.paymentStatus = com.crm.entity.enums.PaymentStatus.PAID")
     long countPaidByGroupIdsAndJoinDateBetween(@Param("groupIds") List<Long> groupIds,
                                                 @Param("from") LocalDate from,
                                                 @Param("to") LocalDate to);
@@ -135,23 +123,27 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
      * teacherId, activeCount, paidCount, billableCount (not TRIAL),
      * debtorCount (OVERDUE or nextPaymentDate < today, not TRIAL)
      */
+    /**
+     * Billing v2 (§4.5): debtor — SG darajasida OVERDUE, ya'ni
+     * {@code balance < 0 AND debt_since < :overdueBefore} ({@code BillingStatusService.overdueBefore}).
+     * paid — snapshot holati PAID; billable — sinovda emas.
+     */
     @Query("""
         SELECT g.teacher.id,
-               COUNT(sg),
-               SUM(CASE WHEN sg.paymentStatus = 'PAID' THEN 1 ELSE 0 END),
-               SUM(CASE WHEN sg.paymentStatus IS NULL OR sg.paymentStatus <> 'TRIAL' THEN 1 ELSE 0 END),
-               SUM(CASE WHEN (sg.paymentStatus IS NULL OR sg.paymentStatus <> 'TRIAL')
-                         AND (sg.paymentStatus = 'OVERDUE'
-                              OR (sg.nextPaymentDate IS NOT NULL AND sg.nextPaymentDate < :today))
+               SUM(CASE WHEN sg.isActive = true THEN 1 ELSE 0 END),
+               SUM(CASE WHEN sg.isActive = true
+                         AND sg.paymentStatus = com.crm.entity.enums.PaymentStatus.PAID THEN 1 ELSE 0 END),
+               SUM(CASE WHEN sg.isActive = true AND (sg.isTrial = false OR sg.isTrial IS NULL)
+                        THEN 1 ELSE 0 END),
+               SUM(CASE WHEN sg.balance < 0 AND sg.debtSince IS NOT NULL AND sg.debtSince < :overdueBefore
                         THEN 1 ELSE 0 END)
         FROM StudentGroup sg
         JOIN sg.group g
         WHERE g.teacher IS NOT NULL
-          AND sg.isActive = true
-          AND sg.leaveDate IS NULL
+          AND ((sg.isActive = true AND sg.leaveDate IS NULL) OR sg.frozenFrom IS NOT NULL)
         GROUP BY g.teacher.id
         """)
-    List<Object[]> countActivePaymentStatsGroupedByTeacher(@Param("today") LocalDate today);
+    List<Object[]> countActivePaymentStatsGroupedByTeacher(@Param("overdueBefore") LocalDate overdueBefore);
 
     /**
      * Batch leavers in period by teacher:
@@ -202,4 +194,57 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
         ORDER BY sg.id
         """)
     List<Long> findIdsByPaymentTypeOrNull(@Param("type") PaymentType type);
+
+    /** I1: student.balance = barcha SG (yopilganlari ham) balanslari yig'indisi. */
+    @Query("SELECT COALESCE(SUM(sg.balance), 0) FROM StudentGroup sg WHERE sg.student.id = :studentId")
+    java.math.BigDecimal sumBalanceByStudentId(@Param("studentId") Long studentId);
+
+    @Query("SELECT sg.student.id FROM StudentGroup sg WHERE sg.id = :id")
+    Optional<Long> findStudentIdById(@Param("id") Long id);
+
+    /** Kunlik snapshot: holati vaqtga bog'liq bo'lishi mumkin bo'lgan (qarzli) SG lar o'quvchilari. */
+    @Query("""
+        SELECT DISTINCT sg.student.id FROM StudentGroup sg
+        WHERE sg.balance < 0
+           OR sg.paymentStatus = com.crm.entity.enums.PaymentStatus.PENDING
+           OR sg.paymentStatus = com.crm.entity.enums.PaymentStatus.OVERDUE
+        """)
+    List<Long> findStudentIdsForDailyRefresh();
+
+    /** Qarzli SG lar (balance < 0) — o'quvchi va guruh bilan, N+1 siz. */
+    @Query("""
+        SELECT sg FROM StudentGroup sg
+        JOIN FETCH sg.student s
+        JOIN FETCH sg.group g
+        WHERE sg.balance < 0 AND sg.debtSince IS NOT NULL
+        """)
+    List<StudentGroup> findWithDebt();
+
+    /** Kutilayotgan to'lovlar: snapshot bo'yicha keyingi sana oralig'ida. */
+    @Query("""
+        SELECT sg FROM StudentGroup sg
+        JOIN FETCH sg.student s
+        JOIN FETCH sg.group g
+        WHERE sg.nextPaymentDate IS NOT NULL
+          AND sg.nextPaymentDate BETWEEN :from AND :to
+        """)
+    List<StudentGroup> findWithNextPaymentBetween(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    @Query("SELECT sg FROM StudentGroup sg WHERE sg.isTrial = true AND sg.isActive = true")
+    List<StudentGroup> findActiveTrials();
+
+    /**
+     * Kunlik accrual nomzodlari (§3.7): faol, MONTHLY (eski NULL ham), sinov va
+     * muzlatilmagan, langari {@code date} gacha. Yakuniy qaror {@code AccrualCalculator.isAccruable} da.
+     */
+    @Query("""
+        SELECT sg.id FROM StudentGroup sg
+        WHERE sg.isActive = true
+          AND (sg.isTrial = false OR sg.isTrial IS NULL)
+          AND (sg.paymentType = :monthly OR sg.paymentType IS NULL)
+          AND sg.frozenFrom IS NULL
+          AND sg.paymentStartDate <= :date
+        ORDER BY sg.id
+        """)
+    List<Long> findAccrualCandidateIds(@Param("date") LocalDate date, @Param("monthly") PaymentType monthly);
 }

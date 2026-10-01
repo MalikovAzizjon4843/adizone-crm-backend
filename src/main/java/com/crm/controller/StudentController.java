@@ -1,9 +1,12 @@
 package com.crm.controller;
 
 
+import com.crm.billing.RefundPayoutService;
 import com.crm.dto.request.BalanceAdjustRequest;
+import com.crm.dto.request.BalanceTransferRequest;
 import com.crm.dto.request.FreezeStudentRequest;
 import com.crm.dto.request.PaymentStartDateRequest;
+import com.crm.dto.request.RefundPayoutRequest;
 import com.crm.dto.request.StudentRequest;
 import com.crm.dto.request.TransferGroupRequest;
 import com.crm.dto.request.UnfreezeStudentRequest;
@@ -32,6 +35,7 @@ public class StudentController {
     private final StudentService studentService;
     private final FileStorageService fileStorageService;
     private final ImportService importService;
+    private final RefundPayoutService refundPayoutService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<StudentResponse>>> getAllStudents(
@@ -100,7 +104,7 @@ public class StudentController {
     }
 
     @GetMapping("/{id:\\d+}/balance-history")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<List<BalanceHistoryItemDto>>> getBalanceHistory(
             @PathVariable Long id,
             @RequestParam(required = false) Long groupId,
@@ -117,6 +121,26 @@ public class StudentController {
             @Valid @RequestBody BalanceAdjustRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Balans tuzatildi",
             studentService.adjustBalance(id, request)));
+    }
+
+    /** Billing v2 (§13 #6): guruhlar orasida qo'lda balans ko'chirish (avtomatik kesishuv yo'q). */
+    @PostMapping("/{id:\\d+}/balance-transfer")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<List<BalanceHistoryItemDto>>> transferBalance(
+            @PathVariable Long id,
+            @Valid @RequestBody BalanceTransferRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Balans ko'chirildi",
+            studentService.transferBalance(id, request)));
+    }
+
+    /** Billing v2 (§13 #24): musbat balansdan pul qaytarish — kassa chiqimi bilan, sabab majburiy. */
+    @PostMapping("/{id:\\d+}/refund-payout")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<RefundPayoutResponse>> refundPayout(
+            @PathVariable Long id,
+            @Valid @RequestBody RefundPayoutRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Pul qaytarildi",
+            refundPayoutService.payout(id, request)));
     }
 
     @PostMapping
@@ -150,7 +174,7 @@ public class StudentController {
             @Valid @RequestBody PaymentStartDateRequest request) {
         return ResponseEntity.ok(ApiResponse.success("To'lov boshlanish sanasi yangilandi",
             studentService.updatePaymentStartDate(
-                id, request.getPaymentStartDate(), request.getIsTrial())));
+                id, request.getGroupId(), request.getPaymentStartDate(), request.getIsTrial())));
     }
 
     @DeleteMapping("/{id}")

@@ -81,6 +81,14 @@ public class CashTransaction {
     @Column(name = "transaction_date", nullable = false)
     private LocalDate transactionDate;
 
+    /** Billing v2 (I5): o'quvchi to'lovi kirimi va uning REVERSAL i. */
+    @Column(name = "payment_id")
+    private Long paymentId;
+
+    /** REVERSAL → asl kassa yozuvi. */
+    @Column(name = "related_tx_id")
+    private Long relatedTxId;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

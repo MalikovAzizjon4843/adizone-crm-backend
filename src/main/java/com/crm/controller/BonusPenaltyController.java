@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/bonus-penalties")
@@ -95,10 +96,28 @@ public class BonusPenaltyController {
             bonusPenaltyService.update(id, dto)));
     }
 
+    /**
+     * PENDING — SA/A/ACC, body ixtiyoriy. APPLIED (billing v2 §6.5) — faqat SUPER_ADMIN,
+     * {@code {"reason": "..."}} majburiy; ledger'ga REVERSAL yoziladi.
+     */
     @PatchMapping("/{id}/cancel")
-    public ResponseEntity<ApiResponse<BonusPenaltyDto>> cancel(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<BonusPenaltyDto>> cancel(
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : null;
         return ResponseEntity.ok(ApiResponse.success("Yozuv bekor qilindi",
-            bonusPenaltyService.cancel(id)));
+            bonusPenaltyService.cancel(id, reason)));
+    }
+
+    /** Billing v2 (§6.5): to'lovsiz qo'llash. O'quvchida bir nechta guruh bo'lsa {@code groupId} majburiy. */
+    @PostMapping("/{id}/apply")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<BonusPenaltyDto>> apply(
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, Long> body) {
+        Long groupId = body != null ? body.get("groupId") : null;
+        return ResponseEntity.ok(ApiResponse.success("Qo'llandi",
+            bonusPenaltyService.apply(id, groupId)));
     }
 
     /** O'chirish — faqat ma'muriyat; buxgalter yozuvni bekor qiladi ({@code PATCH /cancel}). */

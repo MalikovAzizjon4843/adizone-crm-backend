@@ -1,0 +1,85 @@
+package com.crm.entity;
+
+import com.crm.entity.enums.BillingPeriodStatus;
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+/**
+ * MONTHLY yozilmaning bitta hisob davri — docs/design/billing-v2.md §3.3.
+ *
+ * <p>I4: {@code UNIQUE (student_group_id, period_start)} — davr bir marta
+ * hisoblanadi. Oddiy (partial emas) constraint, shuning uchun {@code ddl-auto}
+ * yangi jadval yaratganda ham hosil bo'ladi.
+ *
+ * <p>{@code fee}, {@code discountPercentage}, {@code amount} — yozilgan paytdagi
+ * snapshot: narx keyin o'zgarsa ham bu davr qayta hisoblanmaydi (§3.4).
+ */
+@Entity
+@Table(name = "billing_periods",
+    uniqueConstraints = @UniqueConstraint(
+        name = "uk_billing_periods_sg_start",
+        columnNames = {"student_group_id", "period_start"}),
+    indexes = @Index(name = "idx_billing_periods_migration", columnList = "migration_run_id"))
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class BillingPeriod {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "student_group_id", nullable = false)
+    private Long studentGroupId;
+
+    @Column(name = "period_start", nullable = false)
+    private LocalDate periodStart;
+
+    @Column(name = "period_end", nullable = false)
+    private LocalDate periodEnd;
+
+    @Column(name = "fee", precision = 12, scale = 2)
+    private BigDecimal fee;
+
+    @Column(name = "discount_percentage", precision = 5, scale = 2)
+    private BigDecimal discountPercentage;
+
+    /** Chegirmadan keyingi, yaxlitlangan davr summasi ({@code c}). */
+    @Column(name = "amount", precision = 12, scale = 2)
+    private BigDecimal amount;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 20, nullable = false)
+    private BillingPeriodStatus status;
+
+    /** PERIOD_CHARGE yozuvi (MIGRATED / PREPAID_LEGACY va {@code amount = 0} da null). */
+    @Column(name = "charge_tx_id")
+    private Long chargeTxId;
+
+    @Column(name = "refunded_amount", precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal refundedAmount = BigDecimal.ZERO;
+
+    /** Migratsiya yaratgan qator (qisman rollback uchun belgi). */
+    @Column(name = "migration_run_id")
+    private Long migrationRunId;
+
+    @Column(name = "created_at", nullable = false)
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    protected void onCreate() {
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+        if (refundedAmount == null) {
+            refundedAmount = BigDecimal.ZERO;
+        }
+    }
+}

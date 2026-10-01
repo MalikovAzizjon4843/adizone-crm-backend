@@ -18,8 +18,8 @@ import java.time.Instant;
  * <p><b>Nega alohida bean.</b> {@code REQUIRES_NEW} faqat Spring proxysi
  * orqali chaqirilganda ishlaydi — {@link MetaLeadProcessingService} ichida
  * o'z-o'ziga chaqiruv tranzaksiyani ochmaydi va bitta buzuq lid butun
- * partiyani yiqitardi. Bu {@code MonthlyLedgerRepairWorker} dagi bilan
- * bir xil naqsh.
+ * partiyani yiqitardi. Billing'dagi {@code AccrualService.accrueInNewTransaction}
+ * bilan bir xil naqsh.
  *
  * <p><b>Nega uch metod.</b> PostgreSQL da tranzaksiya ichidagi bitta xato
  * seansni {@code 25P02} ("current transaction is aborted") holatiga

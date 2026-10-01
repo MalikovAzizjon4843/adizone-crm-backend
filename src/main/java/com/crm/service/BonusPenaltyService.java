@@ -1,5 +1,12 @@
 package com.crm.service;
 
+import com.crm.billing.BillingAuth;
+import com.crm.billing.BonusLedgerService;
+import com.crm.billing.Money;
+import com.crm.billing.PaymentPlanner;
+import com.crm.exception.CodedException;
+import com.crm.repository.StudentGroupRepository;
+
 import com.crm.dto.request.BonusPenaltyCreateDto;
 import com.crm.dto.response.BonusPenaltyDto;
 import com.crm.dto.response.BonusPenaltyPreviewDto;
@@ -39,6 +46,9 @@ public class BonusPenaltyService {
     private final StudentRepository studentRepository;
     private final TeacherRepository teacherRepository;
     private final UserRepository userRepository;
+    private final StudentGroupRepository studentGroupRepository;
+    private final PaymentPlanner paymentPlanner;
+    private final BonusLedgerService bonusLedgerService;
 
     @Transactional(readOnly = true)
     public PageResponse<BonusPenaltyDto> getAll(
@@ -193,30 +203,10 @@ public class BonusPenaltyService {
             .build();
     }
 
+    /** To'lovsiz qo'llash (billing v2 §6.5) — ledger'ga BONUS/PENALTY yoziladi. */
     @Transactional
-    public BigDecimal applyPendingForStudent(Long studentId, Long paymentId, LocalDate upToDate) {
-        LocalDate cutoff = upToDate != null ? upToDate : LocalDate.now();
-        List<BonusPenalty> pending = bonusPenaltyRepository
-            .findByStudentIdAndStatus(studentId, BonusPenaltyStatus.PENDING);
-
-        BigDecimal net = BigDecimal.ZERO;
-        for (BonusPenalty bp : pending) {
-            if (bp.getTargetType() != BonusTargetType.STUDENT) {
-                continue;
-            }
-            if (bp.getEffectiveDate() != null && bp.getEffectiveDate().isAfter(cutoff)) {
-                continue;
-            }
-            if (bp.getKind() == BonusPenaltyKind.BONUS) {
-                net = net.add(bp.getAmount());
-            } else {
-                net = net.subtract(bp.getAmount());
-            }
-            bp.setStatus(BonusPenaltyStatus.APPLIED);
-            bp.setAppliedToPaymentId(paymentId);
-            bonusPenaltyRepository.save(bp);
-        }
-        return net;
+    public BonusPenaltyDto apply(Long id, Long groupId) {
+        return toDto(bonusLedgerService.apply(id, groupId));
     }
 
     @Transactional
@@ -239,10 +229,23 @@ public class BonusPenaltyService {
         return toDto(bonusPenaltyRepository.save(entity));
     }
 
+    /**
+     * PENDING → CANCELLED (hozirgidek). APPLIED → CANCELLED (billing v2 §6.5): faqat SUPER_ADMIN,
+     * sabab majburiy, ledger'ga REVERSAL.
+     */
     @Transactional
-    public BonusPenaltyDto cancel(Long id) {
+    public BonusPenaltyDto cancel(Long id, String reason) {
         BonusPenalty entity = findById(id);
+        if (entity.getStatus() == BonusPenaltyStatus.APPLIED) {
+            if (!BillingAuth.hasAnyRole("SUPER_ADMIN")) {
+                throw CodedException.forbidden("bonus.cancel.forbidden");
+            }
+            return toDto(bonusLedgerService.cancelApplied(id, reason));
+        }
         ensurePending(entity, "Faqat kutilayotgan yozuvlar bekor qilinadi");
+        if (reason != null && !reason.isBlank()) {
+            entity.setCancelReason(reason.trim());
+        }
         entity.setStatus(BonusPenaltyStatus.CANCELLED);
         return toDto(bonusPenaltyRepository.save(entity));
     }
@@ -261,6 +264,9 @@ public class BonusPenaltyService {
         if (dto.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
             throw new BadRequestException("Summa musbat bo'lishi kerak");
         }
+        if (dto.getTargetType() == BonusTargetType.STUDENT && !Money.isWhole(dto.getAmount())) {
+            throw CodedException.badRequest("money.wholeSumRequired");
+        }
 
         entity.setKind(dto.getKind());
         entity.setTargetType(dto.getTargetType());
@@ -278,6 +284,9 @@ public class BonusPenaltyService {
                 .orElseThrow(() -> new ResourceNotFoundException("Student", dto.getStudentId()));
             entity.setStudent(student);
             entity.setTeacher(null);
+            entity.setStudentGroupId(dto.getGroupId() != null
+                ? paymentPlanner.resolveEnrollment(student.getId(), dto.getGroupId()).getId()
+                : null);
         } else {
             if (dto.getTeacherId() == null) {
                 throw new BadRequestException("TEACHER uchun teacherId ko'rsatilishi shart");
@@ -369,7 +378,15 @@ public class BonusPenaltyService {
             .effectiveDate(bp.getEffectiveDate())
             .createdAt(bp.getCreatedAt())
             .signedAmount(signedAmount(bp.getKind(), bp.getAmount()))
+            .studentGroupId(bp.getStudentGroupId())
+            .ledgerTxId(bp.getLedgerTxId())
+            .appliedToPaymentId(bp.getAppliedToPaymentId())
+            .cancelReason(bp.getCancelReason())
             .build();
+        if (bp.getStudentGroupId() != null) {
+            studentGroupRepository.findById(bp.getStudentGroupId())
+                .ifPresent(sg -> dto.setGroupId(sg.getGroup() != null ? sg.getGroup().getId() : null));
+        }
 
         if (bp.getStudent() != null) {
             String name = bp.getStudent().getFirstName() + " " + bp.getStudent().getLastName();

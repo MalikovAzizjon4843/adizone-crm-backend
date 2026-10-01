@@ -39,7 +39,13 @@ public class StudentResponse {
     private PaymentStatus paymentStatus;
     private LocalDate paymentStartDate;
     private LocalDate nextPaymentDate;
+    /** Billing v2: Σ c(sg) — faol MONTHLY SG lar, chegirmadan keyin (§8). */
     private BigDecimal monthlyFee;
+    /** Σ sg.balance (barcha SG). Bir SG ning ortiqchasi boshqasining qarzini yopmaydi. */
     private BigDecimal balance;
+    /** Billing v2: Σ max(0, −sg.balance). */
+    private BigDecimal debt;
+    /** Billing v2: eng yaqin nextPaymentDate dagi summalar. */
+    private BigDecimal nextPaymentAmount;
     private LocalDateTime createdAt;
 }

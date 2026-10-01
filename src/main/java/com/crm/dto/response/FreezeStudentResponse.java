@@ -20,6 +20,20 @@ public class FreezeStudentResponse {
     @Builder.Default
     private List<FrozenGroupBreakdown> groups = new ArrayList<>();
 
+    // ── Billing v2 (§6.7): preview va freeze bir xil FreezePlan dan ──
+    private java.time.LocalDate freezeDate;
+    private Long studentGroupId;
+    /** Yoziladigan (preview) / yozilgan (freeze) qatorlar: kerak bo'lsa PERIOD_CHARGE (pending), PERIOD_REFUND. */
+    @Builder.Default
+    private List<BillingLineDto> refundLines = new ArrayList<>();
+    private BigDecimal refundTotal;
+    private BigDecimal balanceBefore;
+    private BigDecimal balanceAfter;
+    private BigDecimal debtAfter;
+    private String statusAfter;
+    /** Muzlatishdan keyin o'quvchi holati: barcha faol guruhlari muzlatilsa FROZEN, aks holda ACTIVE. */
+    private String studentStatusAfter;
+
     @Data
     @Builder
     @NoArgsConstructor

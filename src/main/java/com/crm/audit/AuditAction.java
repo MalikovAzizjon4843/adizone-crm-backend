@@ -11,6 +11,10 @@ public final class AuditAction {
     public static final String EXPORT = "EXPORT";
     public static final String IMPORT = "IMPORT";
     public static final String PAYMENT = "PAYMENT";
+    /** Billing v2: to'lov bekor qilindi (§6.4). */
+    public static final String PAYMENT_CANCEL = "PAYMENT_CANCEL";
+    /** Billing v2: o'quvchiga pul qaytarildi (REFUND_PAYOUT, §13 #24). */
+    public static final String REFUND = "REFUND";
     public static final String REPAIR = "REPAIR";
 
     /** Lid bosqichi o'zgardi — kim, qaysi bosqichdan qaysi bosqichga. */

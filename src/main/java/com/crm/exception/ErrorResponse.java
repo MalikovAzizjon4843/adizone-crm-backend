@@ -17,5 +17,7 @@ public class ErrorResponse {
     private int status;
     private String error;
     private String message;
+    /** Mashina o'qiydigan xato kodi (CodedException); boshqa xatolarda yo'q. */
+    private String code;
     private Map<String, String> validationErrors;
 }

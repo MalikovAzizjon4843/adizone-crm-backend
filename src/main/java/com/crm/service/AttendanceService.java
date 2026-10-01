@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.billing.LessonChargeService;
+
 import com.crm.audit.AuditAction;
 import com.crm.audit.Audited;
 import com.crm.dto.request.AttendanceRequest;
@@ -44,7 +46,7 @@ public class AttendanceService {
     private final StudentPaymentLifecycleService studentPaymentLifecycleService;
     private final AttendanceUnlockRequestService attendanceUnlockRequestService;
     private final TeacherAccessService teacherAccessService;
-    private final BalanceTransactionService balanceTransactionService;
+    private final LessonChargeService lessonChargeService;
 
     @Transactional
     @Audited(action = AuditAction.UPDATE, entity = "Attendance",
@@ -135,14 +137,12 @@ public class AttendanceService {
             Attendance saved = attendanceRepository.save(attendance);
             results.add(toResponse(saved));
 
-            applyBalanceForAttendanceChange(student, group, previousStatus, saved);
+            // Billing v2 (§6.9): PER_LESSON ledger — davomat holatidan idempotent
+            lessonChargeService.sync(saved);
 
-            if (saved.getStatus() == AttendanceStatus.PRESENT || saved.getStatus() == AttendanceStatus.LATE) {
+            if (previousStatus != saved.getStatus()) {
                 studentPaymentLifecycleService.onLessonAttended(
                     item.getStudentId(), request.getGroupId(), request.getDate());
-            } else if (saved.getStatus() == AttendanceStatus.ABSENT) {
-                studentPaymentLifecycleService.onBillableAttendance(
-                    item.getStudentId(), request.getGroupId());
             }
 
             if (saved.getStatus() == AttendanceStatus.ABSENT) {
@@ -294,56 +294,6 @@ public class AttendanceService {
             case "SUNDAY" -> "Yakshanba";
             default -> day;
         };
-    }
-
-    /**
-     * Davomat balansga FAQAT PER_LESSON da ta'sir qiladi.
-     *
-     * <p>MONTHLY da davr qiymati to'lov paytida PERIOD_CHARGE bilan yechiladi
-     * ({@code PaymentService.writeLedgerForPayment}). Bu yerda ham yechilsa
-     * o'quvchidan ikki marta olingan bo'lardi.
-     */
-    private void applyBalanceForAttendanceChange(
-            Student student, Group group,
-            AttendanceStatus previous, Attendance saved) {
-        StudentGroup sg = studentGroupRepository
-            .findByStudentIdAndGroupIdAndIsActiveTrue(student.getId(), group.getId())
-            .orElse(null);
-        if (sg == null) {
-            return;
-        }
-        if (sg.getPaymentType() != PaymentType.PER_LESSON) {
-            return;
-        }
-        java.math.BigDecimal lessonPrice = PaymentScheduleService.resolveLessonPrice(sg);
-        if (lessonPrice.compareTo(java.math.BigDecimal.ZERO) <= 0) {
-            return;
-        }
-
-        boolean wasBillable = isBillable(previous);
-        boolean nowBillable = isBillable(saved.getStatus());
-
-        if (!wasBillable && nowBillable) {
-            balanceTransactionService.record(
-                sg,
-                com.crm.entity.enums.BalanceTransactionType.LESSON_CHARGE,
-                lessonPrice.negate(),
-                saved.getId(),
-                "Davomat: " + saved.getStatus() + " (" + saved.getAttendanceDate() + ")");
-        } else if (wasBillable && !nowBillable) {
-            balanceTransactionService.record(
-                sg,
-                com.crm.entity.enums.BalanceTransactionType.LESSON_REFUND,
-                lessonPrice,
-                saved.getId(),
-                "Davomat o'zgardi: " + previous + " → " + saved.getStatus());
-        }
-    }
-
-    private static boolean isBillable(AttendanceStatus status) {
-        return status == AttendanceStatus.PRESENT
-            || status == AttendanceStatus.ABSENT
-            || status == AttendanceStatus.LATE;
     }
 
     @Transactional(readOnly = true)

@@ -53,6 +53,30 @@ public class GlobalExceptionHandler {
         return buildResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
 
+    /** Billing va boshqa kodli xatolar: matn tarjima qilinadi, kod javobda qoladi. */
+    @ExceptionHandler(CodedException.class)
+    public ResponseEntity<ErrorResponse> handleCoded(CodedException ex) {
+        ErrorResponse response = ErrorResponse.builder()
+                .timestamp(LocalDateTime.now())
+                .status(ex.getStatus().value())
+                .error(ex.getStatus().getReasonPhrase())
+                .message(messages.get(ex.getCode(), ex.getArgs()))
+                .code(ex.getCode())
+                .build();
+        return ResponseEntity.status(ex.getStatus()).body(response);
+    }
+
+    /**
+     * Qulfni kutish chegarasi (§7.1) — repository qatlamida Spring tarjimasi bilan.
+     * {@code BillingLocks} o'zi {@link ConflictException} ga o'giradi.
+     */
+    @ExceptionHandler(org.springframework.dao.PessimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleLockTimeout(
+            org.springframework.dao.PessimisticLockingFailureException ex) {
+        log.warn("Lock timeout: {}", ex.getMessage());
+        return handleCoded(new ConflictException("concurrency.busy"));
+    }
+
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ApiResponse<Void>> handleUnauthorized(UnauthorizedException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)

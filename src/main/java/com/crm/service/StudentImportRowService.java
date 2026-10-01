@@ -76,7 +76,6 @@ public class StudentImportRowService {
         student.setNotes(data.notes());
         student.setStatus(StudentStatus.ACTIVE);
         // "Sinov darsi" = HA bo'lsa, guruhga yozilmasa ham TRIAL bo'lib qolsin.
-        student.setPaymentStatus(isTrial ? PaymentStatus.TRIAL : PaymentStatus.PENDING);
         student.setAdmissionNumber(studentService.generateNextAdmissionNumber());
         if (currentUser != null) {
             student.setCreatedBy(currentUser);
@@ -127,11 +126,9 @@ public class StudentImportRowService {
         BigDecimal lessonPrice = data.lessonPrice();
 
         PaymentType paymentType = data.paymentType() != null ? data.paymentType() : PaymentType.MONTHLY;
-        String initialStatus = isTrial ? "TRIAL" : "PENDING";
 
         student.setPaymentStartDate(paymentStart);
         student.setMonthlyFee(monthlyFee);
-        student.setPaymentStatus(isTrial ? PaymentStatus.TRIAL : PaymentStatus.PENDING);
         studentRepository.save(student);
 
         StudentGroup sg = StudentGroup.builder()
@@ -145,7 +142,6 @@ public class StudentImportRowService {
             .monthlyPriceOverride(monthlyFee)
             .paymentType(paymentType)
             .lessonPrice(lessonPrice)
-            .paymentStatus(initialStatus)
             .lessonsAttended(0)
             .build();
         studentGroupRepository.save(sg);

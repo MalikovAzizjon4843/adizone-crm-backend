@@ -11,4 +11,6 @@ public class PaymentStartDateRequest {
     private LocalDate paymentStartDate;
     /** Optional — true = TRIAL, false = to'lovli; null = o'zgartirilmaydi */
     private Boolean isTrial;
+    /** Billing v2: bir nechta faol guruhda majburiy (qaysi yozilma langari). */
+    private Long groupId;
 }

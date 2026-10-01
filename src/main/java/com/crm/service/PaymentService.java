@@ -2,6 +2,9 @@ package com.crm.service;
 
 import com.crm.audit.AuditAction;
 import com.crm.audit.Audited;
+import com.crm.billing.DebtorService;
+import com.crm.billing.PaymentBookingService;
+import com.crm.billing.PaymentPlanner;
 import com.crm.config.Messages;
 import com.crm.dto.request.PaymentPreviewRequest;
 import com.crm.dto.request.PaymentRequest;
@@ -44,6 +47,7 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -54,8 +58,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PaymentService {
 
-    /** PERIOD_CHARGE izohidagi sana formati. */
-    private static final DateTimeFormatter PERIOD_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
 
     private final PaymentRepository paymentRepository;
     private final Messages messages;
@@ -66,378 +68,105 @@ public class PaymentService {
     private final UserRepository userRepository;
     private final CashRegisterService cashRegisterService;
     private final BonusPenaltyService bonusPenaltyService;
-    private final PaymentScheduleService paymentScheduleService;
     private final BalanceTransactionService balanceTransactionService;
     private final EntityManager entityManager;
+    private final com.crm.billing.DebtorService debtorService;
+    private final com.crm.billing.BillingStatusService billingStatusService;
+    private final PaymentBookingService paymentBookingService;
 
+    /**
+     * Billing v2 to'lovi (docs/design/billing-v2.md §5.3): idempotent, qulf ostida,
+     * preview bilan bir xil reja. Takroriy so'rovda ({@code Idempotency-Key}) o'sha
+     * to'lov qaytariladi va audit qayta yozilmaydi.
+     */
     @Transactional
     @Audited(action = AuditAction.PAYMENT, entity = "Payment",
         summary = "'To''lov qabul qilindi: ' + #result.formattedAmount + ' (' + #result.receiptNumber + ')'",
         entityId = "#result.id",
         label = "#result.studentName")
+    public PaymentResponse createPayment(PaymentRequest request, String idempotencyKey) {
+        PaymentBookingService.Booked booked = paymentBookingService.create(request, idempotencyKey);
+        PaymentResponse response = toResponse(booked.payment());
+        response.setLines(booked.lines());
+        response.setPlanHash(booked.planHash());
+        response.setWarnings(booked.warnings());
+        response.setReplay(booked.replay());
+        applyAfter(response, booked.after());
+        return response;
+    }
+
+    /** Eski chaqiruvchilar uchun (kalitsiz). */
+    @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
-        Student student = studentRepository.findById(request.getStudentId())
-            .orElseThrow(() -> new ResourceNotFoundException(
-                messages.get("error.student.notFound", request.getStudentId())));
-
-        String username = SecurityContextHolder.getContext().getAuthentication().getName();
-        User receiver = userRepository.findByUsername(username).orElse(null);
-
-        LocalDate payDate = request.getPaymentDate() != null ? request.getPaymentDate() : LocalDate.now();
-
-        long seq = paymentRepository.count() + 1;
-        String receipt = "RCP-" + String.format("%05d", seq);
-
-        StudentGroup enrollment = resolveEnrollment(request.getStudentId(), request.getGroupId());
-        Group group = enrollment != null ? enrollment.getGroup() : null;
-        if (group == null && request.getGroupId() != null) {
-            group = groupRepository.findById(request.getGroupId())
-                .orElseThrow(() -> new ResourceNotFoundException(
-                    messages.get("error.group.notFound", request.getGroupId())));
-        }
-
-        // Butun hisob shu yerda — frontend XOM ma'lumot yuboradi (gross, discount, useBalance).
-        PaymentCalculation calc = calculate(
-            student, request.getAmount(), request.getDiscountAmount(), request.getUseBalance());
-        BigDecimal discount = calc.discount();
-        BigDecimal payable = calc.payable();
-        BigDecimal balanceUsed = calc.balanceUsed();
-        BigDecimal cashAmount = calc.cashAmount();
-
-        // Davr hisobi gross asosida — chegirma ham, balansdan qoplangan qism ham
-        // to'lov sanaladi (o'quvchi baribir o'sha davrni oladi).
-        PaymentPeriod period = resolvePaymentPeriod(student, enrollment, request, calc.gross());
-        LocalDate periodStart = period.periodStart();
-        LocalDate periodEnd = period.periodEnd();
-
-        Payment payment = Payment.builder()
-            .student(student)
-            .group(group)
-            .studentGroup(enrollment)
-            .amount(calc.gross())
-            .payableAmount(payable)
-            .cashAmount(cashAmount)
-            .balanceUsed(balanceUsed)
-            .discountAmount(discount)
-            .receiptNumber(receipt)
-            .paymentDate(payDate)
-            .paymentMethod(request.getPaymentMethod())
-            .status(PaymentStatus.PAID)
-            .periodStart(periodStart)
-            .periodEnd(periodEnd)
-            .description(request.getDescription())
-            .notes(request.getNotes())
-            .receivedBy(receiver)
-            .build();
-
-        Payment saved = paymentRepository.save(payment);
-
-        writeLedgerForPayment(saved, enrollment, calc, period);
-
-        if (shouldApplyBonuses(request)) {
-            BigDecimal bpNet = bonusPenaltyService.applyPendingForStudent(
-                student.getId(), saved.getId(), saved.getPaymentDate());
-            BigDecimal bonusDiscount = bpNet.max(BigDecimal.ZERO);
-            saved.setBonusDiscount(bonusDiscount);
-            BigDecimal totalDiscount = (saved.getDiscountAmount() != null
-                ? saved.getDiscountAmount() : BigDecimal.ZERO).add(bonusDiscount);
-            saved.setDiscountAmount(totalDiscount);
-            if (bpNet.compareTo(BigDecimal.ZERO) < 0) {
-                String penaltyNote = "Jarima qo'llandi: " + bpNet.abs().toPlainString();
-                saved.setNotes(appendNote(saved.getNotes(), penaltyNote));
-            }
-            saved = paymentRepository.save(saved);
-        }
-
-        if (cashAmount.compareTo(BigDecimal.ZERO) > 0) {
-            Income income = Income.builder()
-                .category(IncomeCategory.STUDENT_PAYMENT)
-                .amount(cashAmount)
-                .payment(saved)
-                .description("Student payment: " + student.getFirstName() + " " + student.getLastName())
-                .incomeDate(payDate)
-                .receivedBy(receiver)
-                .build();
-            incomeRepository.save(income);
-
-            if (request.getCashRegisterId() != null) {
-                PaymentMethod cashMethod = resolveCashPaymentMethod(request);
-                CashTransaction cashTx = cashRegisterService.recordIncome(
-                    request.getCashRegisterId(),
-                    cashAmount,
-                    cashMethod,
-                    student,
-                    "O'quvchi to'lovi",
-                    "To'lov #" + saved.getReceiptNumber(),
-                    saved.getPaymentDate(),
-                    request.getCashPart(),
-                    request.getCardPart());
-                saved.setCashRegister(cashTx.getCashRegister());
-                saved = paymentRepository.save(saved);
-            }
-        } else if (balanceUsed.compareTo(BigDecimal.ZERO) > 0) {
-            String note = "To'liq balansdan qoplandı: " + balanceUsed.toPlainString();
-            saved.setNotes(appendNote(saved.getNotes(), note));
-            saved = paymentRepository.save(saved);
-        }
-
-        // PER_LESSON: periodEnd taxminiy — lessons purchased asosida
-        if (enrollment != null && enrollment.getPaymentType() == PaymentType.PER_LESSON) {
-            applyPerLessonPaymentPeriod(saved, enrollment, payable);
-            saved = paymentRepository.save(saved);
-        }
-
-        paymentRepository.flush();
-        paymentScheduleService.recalculateForStudent(student);
-
-        return toResponse(saved);
+        return createPayment(request, null);
     }
 
-    /**
-     * Balans daftariga ikki tomonlama yozuv.
-     *
-     * <pre>
-     * KREDIT (ikkala tur uchun): PAYMENT, amount = cashAmount — kassaga tushgan REAL pul.
-     *     Chegirma pul emas, shuning uchun kreditga kirmaydi.
-     * DEBET (faqat MONTHLY):     PERIOD_CHARGE, amount = -(months x monthlyFee - discount).
-     *     Chegirma bu yerda ayriladi — natijada u balansga NEYTRAL bo'ladi
-     *     ({@link PeriodChargeFormula}). PER_LESSON da debet davomat orqali
-     *     keladi (LESSON_CHARGE), bu yerda yozilmaydi.
-     * </pre>
-     */
-    private void writeLedgerForPayment(Payment saved, StudentGroup enrollment,
-                                       PaymentCalculation calc, PaymentPeriod period) {
-        if (enrollment == null) {
-            return;
-        }
-
-        BigDecimal balanceUsed = calc.balanceUsed();
-
-        // 1. KREDIT — cashAmount 0 bo'lsa ham audit uchun yozuv qoldiriladi
-        String payNote = "To'lov #" + saved.getReceiptNumber();
-        if (balanceUsed.compareTo(BigDecimal.ZERO) > 0) {
-            payNote += " (balansdan qoplandi: " + balanceUsed.toPlainString() + ")";
-        }
-        balanceTransactionService.record(
-            enrollment,
-            BalanceTransactionType.PAYMENT,
-            calc.cashAmount(),
-            saved.getId(),
-            payNote);
-
-        // 2. DEBET — faqat MONTHLY, faqat to'liq oy(lar) sotib olinganda
-        PaymentType paymentType = enrollment.getPaymentType() != null
-            ? enrollment.getPaymentType()
-            : PaymentType.MONTHLY;
-        if (paymentType != PaymentType.MONTHLY) {
-            return;
-        }
-
-        int months = period.chargeMonths();
-        BigDecimal debit = PeriodChargeFormula.debit(months, calc.discount(), period.monthlyFee());
-        if (debit.compareTo(BigDecimal.ZERO) <= 0) {
-            // gross < monthlyFee (davr sotib olinmadi) yoki chegirma davr qiymatini
-            // to'liq qopladi — ikkala holda ham debet yozilmaydi.
-            return;
-        }
-
-        String chargeNote = "Davr sotib olindi: " + formatDate(period.periodStart())
-            + " – " + formatDate(period.periodEnd())
-            + " (" + months + " oy)";
-        if (calc.discount().compareTo(BigDecimal.ZERO) > 0) {
-            chargeNote += ", chegirma: " + calc.discount().toPlainString();
-        }
-
-        balanceTransactionService.record(
-            enrollment,
-            BalanceTransactionType.PERIOD_CHARGE,
-            debit.negate(),
-            saved.getId(),
-            chargeNote);
-    }
-
-    private static String formatDate(LocalDate date) {
-        return date != null ? date.format(PERIOD_FMT) : "-";
-    }
-
-    private void applyPerLessonPaymentPeriod(Payment payment, StudentGroup sg, BigDecimal payable) {
-        BigDecimal lessonPrice = PaymentScheduleService.resolveLessonPrice(sg);
-        if (lessonPrice.compareTo(BigDecimal.ZERO) <= 0) {
-            return;
-        }
-        int bought = payable.divide(lessonPrice, 0, RoundingMode.DOWN).intValue();
-        if (bought < 1) {
-            bought = 1;
-        }
-        LocalDate start = payment.getPeriodStart() != null ? payment.getPeriodStart() : LocalDate.now();
-        payment.setPeriodStart(start);
-        // periodEnd: taxminiy — dars kunlari bo'yicha (recalc aniqroq yangilaydi)
-        payment.setPeriodEnd(start.plusDays(Math.max(bought, 1)));
-    }
-
-    /** To'lov hisobining natijasi — createPayment va preview bir xil qiymatlardan foydalanadi. */
-    public record PaymentCalculation(
-        BigDecimal gross,
-        BigDecimal discount,
-        BigDecimal payable,
-        BigDecimal balanceUsed,
-        BigDecimal cashAmount,
-        BigDecimal studentBalance,
-        BigDecimal balanceAfter) {}
-
-    /**
-     * To'lov hisobining YAGONA manbai. Frontend hisoblagan qiymatlarga ishonilmaydi:
-     * balans miqdori bu yerda o'quvchining haqiqiy balansidan olinadi.
-     *
-     * <pre>
-     * payable     = gross - discount
-     * balanceUsed = useBalance ? min(max(balance, 0), payable) : 0
-     * cashAmount  = payable - balanceUsed
-     * </pre>
-     */
-    private PaymentCalculation calculate(Student student, BigDecimal amount,
-                                         BigDecimal discountAmount, Boolean useBalance) {
-        // Manfiy yoki null summa 0 deb olinadi — bu yerda 500 chiqmasligi kerak.
-        BigDecimal gross = nz(amount).max(BigDecimal.ZERO);
-        BigDecimal discount = nz(discountAmount).max(BigDecimal.ZERO);
-        if (discount.compareTo(gross) > 0) {
-            throw new IllegalArgumentException(messages.get("payment.discount.tooLarge"));
-        }
-
-        BigDecimal payable = gross.subtract(discount);
-
-        BigDecimal studentBalance = nz(student.getBalance());
-        BigDecimal balanceUsed = BigDecimal.ZERO;
-        if (Boolean.TRUE.equals(useBalance)) {
-            BigDecimal avail = studentBalance.max(BigDecimal.ZERO);
-            balanceUsed = avail.min(payable);
-        }
-
-        BigDecimal cashAmount = payable.subtract(balanceUsed);
-
-        return new PaymentCalculation(gross, discount, payable, balanceUsed, cashAmount,
-            studentBalance, studentBalance.subtract(balanceUsed));
-    }
-
-    /** Dry-run: hech narsa saqlanmaydi, createPayment bilan bir xil formula. */
+    /** Dry-run: hech narsa saqlanmaydi, create bilan BITTA reja (§5.1). */
     @Transactional(readOnly = true)
-    public PaymentPreviewResponse previewPayment(PaymentPreviewRequest request) {
-        if (request.getStudentId() == null) {
-            throw new BadRequestException(messages.get("payment.student.required"));
-        }
-        Student student = studentRepository.findById(request.getStudentId())
-            .orElseThrow(() -> new ResourceNotFoundException(
-                messages.get("error.student.notFound", request.getStudentId())));
-
-        // groupId hisobga ta'sir qilmaydi — balans o'quvchi darajasida yuritiladi,
-        // shuning uchun guruhsiz ham to'g'ri ishlaydi.
-        PaymentCalculation calc = calculate(
-            student, request.getAmount(), request.getDiscountAmount(), request.getUseBalance());
-
+    public PaymentPreviewResponse previewPayment(PaymentRequest request) {
+        PaymentPlanner.PaymentPlan plan = paymentBookingService.preview(request);
+        StudentGroup sg = plan.enrollment();
+        Student student = sg.getStudent();
         return PaymentPreviewResponse.builder()
-            .gross(calc.gross())
-            .discount(calc.discount())
-            .payable(calc.payable())
-            .balanceUsed(calc.balanceUsed())
-            .cashAmount(calc.cashAmount())
-            .studentBalance(calc.studentBalance())
-            .balanceAfter(calc.balanceAfter())
+            .studentGroupId(sg.getId())
+            .groupName(sg.getGroup() != null ? sg.getGroup().getGroupName() : null)
+            .lines(plan.lines())
+            .balanceBefore(plan.balanceBefore())
+            .debtBefore(plan.debtBefore())
+            .debtAfter(plan.after().debt())
+            .statusAfter(plan.after().status().name())
+            .nextPaymentDateAfter(plan.after().nextPaymentDate())
+            .nextPaymentAmountAfter(plan.after().nextPaymentAmount())
+            .convertsTrial(plan.convertTrial())
+            .planHash(plan.planHash())
+            .warnings(plan.warnings())
+            .gross(plan.gross())
+            .discount(plan.discount())
+            .payable(plan.cashAmount())
+            .balanceUsed(BigDecimal.ZERO)
+            .cashAmount(plan.cashAmount())
+            .studentBalance(nz(student.getBalance()))
+            .balanceAfter(plan.after().balance())
             .build();
     }
 
-    private StudentGroup resolveEnrollment(Long studentId, Long groupId) {
-        if (groupId != null) {
-            return studentGroupRepository
-                .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, groupId)
-                .orElseGet(() -> studentGroupRepository.findActiveByStudentId(studentId)
-                    .stream().findFirst().orElse(null));
+    /**
+     * To'lovni bekor qilish (§6.4) — faqat SUPER_ADMIN (controller), sabab majburiy,
+     * {@code paymentDate ≥ bugun − 31 kun} (§13 #23).
+     */
+    @Transactional
+    @Audited(action = AuditAction.PAYMENT_CANCEL, entity = "Payment",
+        summary = "'To''lov bekor qilindi: ' + #result.receiptNumber + ' (' + #reason + ')'",
+        entityId = "#paymentId",
+        label = "#result.studentName")
+    public PaymentResponse cancelPayment(Long paymentId, String reason) {
+        PaymentBookingService.Cancelled c = paymentBookingService.cancel(paymentId, reason);
+        PaymentResponse response = toResponse(c.payment());
+        response.setReversalLines(c.reversals());
+        response.setWarnings(c.warnings());
+        applyAfter(response, c.after());
+        return response;
+    }
+
+    private static void applyAfter(PaymentResponse response, com.crm.billing.BillingSnapshot after) {
+        if (after == null) {
+            return;
         }
-        return studentGroupRepository.findActiveByStudentId(studentId)
-            .stream().findFirst().orElse(null);
+        response.setBalanceAfter(after.balance());
+        response.setDebtAfter(after.debt());
+        response.setStatusAfter(after.status().name());
+        response.setNextPaymentDate(after.nextPaymentDate());
+        response.setNextPaymentAmount(after.nextPaymentAmount());
     }
 
     /**
-     * To'lov davri va uning ledger qiymati.
-     *
-     * <p>{@code chargeMonths} — PERIOD_CHARGE debiti uchun HAQIQIY to'langan oylar soni,
-     * u {@code periodEnd} dagi kabi 1 ga clamp QILINMAYDI. Ikkalasi ataylab ajratilgan:
-     * {@code periodEnd} → nextPaymentDate zanjiri (eski xatti-harakat saqlanadi),
-     * {@code chargeMonths} → balans daftari. payable &lt; monthlyFee bo'lsa chargeMonths=0,
-     * ya'ni davr sotib olinmagan va pul balansda qoladi.
+     * @deprecated SUSPENDED holati hech qachon qo'yilmagan — ro'yxat doim bo'sh edi.
+     * Billing v2 da qarzdorlar {@code GET /api/payments/debtors} da. v2.1 da o'chiriladi.
      */
-    private record PaymentPeriod(
-        LocalDate periodStart,
-        LocalDate periodEnd,
-        int chargeMonths,
-        BigDecimal monthlyFee) {}
-
-    /**
-     * <pre>
-     * periodStart  = request.periodFrom ?? sg.nextPaymentDate ?? sg.paymentStartDate ?? sg.joinDate
-     * chargeMonths = floor(gross / monthlyFee)          // 0 bo'lishi mumkin — ledger uchun
-     * periodEnd    = periodStart + max(chargeMonths, 1) - 1 kun
-     * </pre>
-     * Davr qo'lda berilgan bo'lsa (periodFrom + periodTo) chargeMonths o'sha davrdan olinadi.
-     */
-    private PaymentPeriod resolvePaymentPeriod(Student student, StudentGroup sg, PaymentRequest request,
-                                               BigDecimal gross) {
-        LocalDate periodStart = request.getPeriodFrom();
-        LocalDate periodEnd = request.getPeriodTo();
-
-        if (periodStart == null) {
-            if (sg != null && sg.getNextPaymentDate() != null) {
-                periodStart = sg.getNextPaymentDate();
-            } else if (student.getNextPaymentDate() != null) {
-                periodStart = student.getNextPaymentDate();
-            } else if (sg != null && sg.getPaymentStartDate() != null) {
-                periodStart = sg.getPaymentStartDate();
-            } else if (student.getPaymentStartDate() != null) {
-                periodStart = student.getPaymentStartDate();
-            } else if (sg != null && sg.getJoinDate() != null) {
-                periodStart = sg.getJoinDate();
-            } else {
-                periodStart = LocalDate.now();
-            }
-        }
-
-        BigDecimal fee = student.getMonthlyFee();
-        if ((fee == null || fee.compareTo(BigDecimal.ZERO) <= 0) && sg != null) {
-            fee = PaymentScheduleService.resolveMonthlyFee(sg);
-        }
-        fee = nz(fee);
-
-        BigDecimal credit = gross != null ? gross : request.getAmount();
-        int chargeMonths = PeriodChargeFormula.months(credit, fee);
-
-        if (periodEnd == null) {
-            // periodEnd eski qoida bo'yicha: kamida 1 oy (nextPaymentDate zanjiri o'zgarmasin)
-            periodEnd = periodStart.plusMonths(Math.max(chargeMonths, 1)).minusDays(1);
-        } else if (request.getPeriodTo() != null && request.getPeriodFrom() != null) {
-            // Davr qo'lda berilgan — debet ham o'sha davrga mos bo'lsin
-            chargeMonths = (int) ChronoUnit.MONTHS.between(periodStart, periodEnd.plusDays(1));
-            if (chargeMonths < 0) {
-                chargeMonths = 0;
-            }
-        }
-
-        return new PaymentPeriod(periodStart, periodEnd, chargeMonths, fee);
-    }
-
+    @Deprecated
     @Transactional(readOnly = true)
     public List<SuspendedStudentResponse> getArchivedSuspendedStudents() {
-        LocalDateTime cutoff = LocalDateTime.now().minusDays(3);
-        return studentGroupRepository.findSuspendedOnOrBefore(cutoff).stream()
-            .map(sg -> SuspendedStudentResponse.builder()
-                .studentId(sg.getStudent().getId())
-                .studentName(sg.getStudent().getFirstName() + " " + sg.getStudent().getLastName())
-                .groupId(sg.getGroup().getId())
-                .groupName(sg.getGroup().getGroupName())
-                .suspendedAt(sg.getSuspendedAt())
-                .suspensionReason(sg.getSuspensionReason())
-                .daysSinceSuspended(sg.getSuspendedAt() != null
-                    ? ChronoUnit.DAYS.between(sg.getSuspendedAt().toLocalDate(), LocalDate.now()) : null)
-                .build())
-            .collect(Collectors.toList());
+        return List.of();
     }
 
     @Transactional(readOnly = true)
@@ -465,7 +194,10 @@ public class PaymentService {
     @Transactional(readOnly = true)
     public PaymentSummary getPaymentsSummary(
             Long studentId, Long groupId, String status, String from, String to) {
-        return summarize(buildPaymentSpec(studentId, groupId, status, from, to));
+        // Billing v2 (§10.2): status filtri berilmasa jami summalar faqat PAID dan —
+        // bekor qilingan to'lovlar ro'yxatda ko'rinadi, lekin jamiga kirmaydi.
+        String effective = (status == null || status.isBlank()) ? PaymentStatus.PAID.name() : status;
+        return summarize(buildPaymentSpec(studentId, groupId, effective, from, to));
     }
 
     private Specification<Payment> buildPaymentSpec(
@@ -561,17 +293,6 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
-    public List<PaymentResponse> getAllPayments(LocalDate from, LocalDate to) {
-        List<Payment> list;
-        if (from != null && to != null) {
-            list = paymentRepository.findByDateRange(from, to);
-        } else {
-            list = paymentRepository.findAll(Sort.by(Sort.Direction.DESC, "paymentDate"));
-        }
-        return list.stream().map(this::toResponse).collect(Collectors.toList());
-    }
-
-    @Transactional(readOnly = true)
     public List<PaymentHistoryResponse> getPaymentHistory() {
         return paymentRepository.findAllByOrderByPaymentDateDesc().stream()
             .map(this::toHistoryResponse)
@@ -590,7 +311,13 @@ public class PaymentService {
 
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("totalCollected", nz(paymentRepository.sumCashAmountByStatus(PaymentStatus.PAID)));
-        stats.put("totalPending", nz(paymentRepository.sumAmountByStatus(PaymentStatus.PENDING)));
+        // v2: kutilayotgan = PENDING (grace ichidagi) SG lar qarzi (§10.2)
+        LocalDate billingToday = billingStatusService.today();
+        BigDecimal pendingDebt = studentGroupRepository.findWithDebt().stream()
+            .filter(sg -> billingStatusService.isPending(sg, billingToday))
+            .map(sg -> sg.getBalance().negate())
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        stats.put("totalPending", pendingDebt);
         stats.put("thisMonth", nz(paymentRepository.sumCashPaidBetween(monthStart, monthEnd)));
         stats.put("lastMonth", nz(paymentRepository.sumCashPaidBetween(prevStart, prevEnd)));
         return stats;
@@ -611,35 +338,21 @@ public class PaymentService {
         return v != null ? v : BigDecimal.ZERO;
     }
 
+    /** Yagona ta'rif (§4.5): ro'yxatda faqat OVERDUE o'quvchilar. */
     @Transactional(readOnly = true)
-    public DebtorsListResponse getDebtors() {
-        return paymentScheduleService.getDebtorsByDate();
+    public DebtorsListResponse getDebtors(DebtorService.Filter filter) {
+        return debtorService.debtors(filter, billingStatusService.today());
     }
 
     @Transactional(readOnly = true)
     public ExpectedPaymentsResponse getExpectedPayments(LocalDate from, LocalDate to) {
-        return paymentScheduleService.getExpectedPayments(from, to);
+        return debtorService.expected(from, to, billingStatusService.today());
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> getDebtorsSummary() {
-        return paymentScheduleService.getDebtorsSummary();
-    }
-
-    /** Legacy list for Telegram reminders. */
-    @Transactional(readOnly = true)
-    public List<DebtorResponse> getDebtorsLegacy() {
-        return paymentScheduleService.getDebtorsByDate().getStudents().stream()
-            .map(d -> DebtorResponse.builder()
-                .studentId(d.getStudentId())
-                .studentName(d.getFullName())
-                .phone(d.getPhone())
-                .groupName(d.getGroupName())
-                .nextPaymentDate(d.getNextPaymentDate())
-                .daysOverdue(d.getDaysOverdue())
-                .monthlyAmount(d.getAmount())
-                .build())
-            .collect(Collectors.toList());
+    public Map<String, Object> getDebtorsSummary(DebtorService.Scope scope) {
+        return debtorService.debtorSummary(
+            new DebtorService.Filter(scope, null, null, null, null), billingStatusService.today()).toMap();
     }
 
     private PaymentResponse toResponse(Payment p) {
@@ -667,40 +380,12 @@ public class PaymentService {
             .createdAt(p.getCreatedAt())
             .cashRegisterId(p.getCashRegister() != null ? p.getCashRegister().getId() : null)
             .cashRegisterName(p.getCashRegister() != null ? p.getCashRegister().getName() : null)
+            .studentGroupId(p.getStudentGroup() != null ? p.getStudentGroup().getId() : null)
+            .cancelledAt(p.getCancelledAt())
+            .cancelledByName(p.getCancelledBy() != null
+                ? (p.getCancelledBy().getFirstName() + " " + p.getCancelledBy().getLastName()).trim() : null)
+            .cancelReason(p.getCancelReason())
             .build();
-    }
-
-    /**
-     * Kassaga yoziladigan usul. Endi to'lovning haqiqiy usuli saqlanadi (CLICK, PAYME, ...) —
-     * ilgari hammasi PLASTIC ga aylanardi. Naqd/plastik balans taqsimotini
-     * CashRegisterService o'zi enum bo'yicha hal qiladi.
-     */
-    private PaymentMethod resolveCashPaymentMethod(PaymentRequest request) {
-        if (request.getPaymentMethodForCash() != null
-                && !request.getPaymentMethodForCash().isBlank()) {
-            PaymentMethod override = PaymentMethod.parseOrNull(request.getPaymentMethodForCash());
-            if (override == null) {
-                throw new BadRequestException(messages.get(
-                    "payment.methodForCash.invalid", request.getPaymentMethodForCash()));
-            }
-            return override;
-        }
-        return request.getPaymentMethod() != null
-            ? request.getPaymentMethod() : PaymentMethod.CASH;
-    }
-
-    private static boolean shouldApplyBonuses(PaymentRequest request) {
-        return request.getApplyBonuses() == null || Boolean.TRUE.equals(request.getApplyBonuses());
-    }
-
-    private static String appendNote(String existing, String addition) {
-        if (addition == null || addition.isBlank()) {
-            return existing;
-        }
-        if (existing == null || existing.isBlank()) {
-            return addition;
-        }
-        return existing + "\n" + addition;
     }
 
     private PaymentHistoryResponse toHistoryResponse(Payment p) {
@@ -727,62 +412,34 @@ public class PaymentService {
         return s + " so'm";
     }
 
-    public Map<String, Object> calculateStudentDebt(
-            Long studentId, Long groupId) {
-
+    /**
+     * @deprecated v2.1 da o'chiriladi. Eski "kun/30 × narx − Σgross" formulasi o'rniga
+     * yagona snapshot (§4.4): {@code {debt, balance, debtSince, status}}.
+     */
+    @Deprecated
+    @Transactional(readOnly = true)
+    public Map<String, Object> calculateStudentDebt(Long studentId, Long groupId) {
         Map<String, Object> result = new LinkedHashMap<>();
-
-        // Find student group
-        StudentGroup sg = studentGroupRepository
-            .findByStudentIdAndGroupIdAndIsActiveTrue(
-                studentId, groupId)
+        StudentGroup sg = studentGroupRepository.findByStudentId(studentId).stream()
+            .filter(g -> g.getGroup() != null && g.getGroup().getId().equals(groupId))
+            .max(Comparator.comparing(StudentGroup::getId))
             .orElse(null);
-
+        result.put("studentId", studentId);
+        result.put("groupId", groupId);
         if (sg == null) {
-            result.put("debt", 0);
+            result.put("debt", BigDecimal.ZERO);
             result.put("message", "Guruh topilmadi");
             return result;
         }
-
-        Group group = sg.getGroup();
-        BigDecimal monthlyPrice = sg.getMonthlyPriceOverride() != null
-            ? sg.getMonthlyPriceOverride()
-            : (group.getCourse() != null
-                ? group.getCourse().getMonthlyPrice()
-                : BigDecimal.ZERO);
-
-        // Calculate days since join
-        LocalDate joinDate = sg.getJoinDate() != null
-            ? sg.getJoinDate() : LocalDate.now();
-        LocalDate today = LocalDate.now();
-
-        long daysSinceJoin = ChronoUnit.DAYS
-            .between(joinDate, today);
-
-        // Total should pay
-        double totalShouldPay =
-            (daysSinceJoin / 30.0) * monthlyPrice.doubleValue();
-
-        // Total paid
-        BigDecimal totalPaid = paymentRepository
-            .sumPaidByStudentAndGroup(studentId, groupId);
-        if (totalPaid == null) totalPaid = BigDecimal.ZERO;
-
-        double debt = Math.max(0, totalShouldPay - totalPaid.doubleValue());
-
-        result.put("studentId", studentId);
-        result.put("groupId", groupId);
-        result.put("joinDate", joinDate);
-        result.put("daysSinceJoin", daysSinceJoin);
-        result.put("monthlyPrice", monthlyPrice);
-        result.put("totalShouldPay", Math.round(totalShouldPay));
-        result.put("totalPaid", totalPaid);
-        result.put("debt", Math.round(debt));
-        result.put("message", debt > 0
-            ? String.format("%.0f kun uchun %.0f UZS qarzdorlik",
-                (double) daysSinceJoin, debt)
-            : "Qarzdorlik yo'q");
-
+        com.crm.billing.BillingSnapshot s = billingStatusService.snapshot(sg, billingStatusService.today());
+        result.put("studentGroupId", sg.getId());
+        result.put("debt", s.debt());
+        result.put("balance", s.balance());
+        result.put("debtSince", s.debtSince());
+        result.put("status", s.status());
+        result.put("nextPaymentDate", s.nextPaymentDate());
+        result.put("nextPaymentAmount", s.nextPaymentAmount());
+        result.put("message", s.debt().signum() > 0 ? "Qarz: " + formatUzs(s.debt()) : "Qarzdorlik yo'q");
         return result;
     }
 

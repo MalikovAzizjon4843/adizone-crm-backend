@@ -44,6 +44,9 @@ public class StudentDetailResponse {
     private LocalDate nextPaymentDate;
     private BigDecimal monthlyFee;
     private BigDecimal balance;
+    /** Billing v2: Σ max(0, −sg.balance). */
+    private BigDecimal debt;
+    private BigDecimal nextPaymentAmount;
     private List<GroupSummary> activeGroups;
     private List<PaymentSummary> paymentHistory;
     private Map<String, Integer> attendanceSummary;
@@ -67,6 +70,23 @@ public class StudentDetailResponse {
         private BigDecimal monthlyPrice;
         /** ONLINE yoki OFFLINE; eski yozuvlarda null. */
         private StudyFormat studyFormat;
+
+        // ── Billing v2 (SG kesimida, §8) ──
+        private Long studentGroupId;
+        private String paymentType;
+        private BigDecimal balance;
+        private BigDecimal debt;
+        private LocalDate debtSince;
+        private LocalDate nextPaymentDate;
+        private BigDecimal nextPaymentAmount;
+        /** c(sg) yoki l(sg) — chegirmadan keyingi joriy narx. */
+        private BigDecimal effectiveFee;
+        private BigDecimal discountPercentage;
+        /** Davr boshlanadigan oy kuni (langar kuni). */
+        private Integer billingDay;
+        private LocalDate paymentStartDate;
+        private LocalDate frozenFrom;
+        private Boolean isTrial;
     }
 
     @Data

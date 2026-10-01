@@ -4,6 +4,7 @@ import com.crm.audit.AuditAction;
 import com.crm.audit.Audited;
 import com.crm.config.Messages;
 import com.crm.dto.request.BalanceAdjustRequest;
+import com.crm.dto.request.BalanceTransferRequest;
 import com.crm.dto.request.FreezeStudentRequest;
 import com.crm.dto.request.StudentParentRequest;
 import com.crm.dto.request.StudentRequest;
@@ -27,6 +28,10 @@ import com.crm.entity.enums.PaymentType;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.entity.enums.StudyFormat;
 import com.crm.exception.BadRequestException;
+import com.crm.billing.BillingSnapshotService;
+import com.crm.billing.BillingStatusService;
+import com.crm.billing.EnrollmentLifecycleService;
+import com.crm.billing.EnrollmentPricing;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
@@ -59,6 +64,9 @@ public class StudentService {
     private final PaymentScheduleService paymentScheduleService;
     private final TeacherAccessService teacherAccessService;
     private final BalanceTransactionService balanceTransactionService;
+    private final EnrollmentLifecycleService enrollmentLifecycleService;
+    private final BillingStatusService billingStatusService;
+    private final BillingSnapshotService billingSnapshotService;
 
     @Transactional(readOnly = true)
     public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status) {
@@ -112,7 +120,7 @@ public class StudentService {
 
     @Transactional(readOnly = true)
     public List<StudentResponse> getArchivedStudents() {
-        return studentRepository.findArchivedOrFrozenWithBalanceSignals(LocalDate.now()).stream()
+        return studentRepository.findArchivedOrFrozenWithDebt().stream()
             .map(this::toResponse)
             .collect(Collectors.toList());
     }
@@ -156,12 +164,6 @@ public class StudentService {
             student.setStatus(StudentStatus.ACTIVE);
         }
 
-        if (student.getPaymentStatus() == null) {
-            student.setPaymentStatus(PaymentStatus.PENDING);
-        }
-        if (student.getBalance() == null) {
-            student.setBalance(BigDecimal.ZERO);
-        }
 
         if (request.getReferralStudentId() != null) {
             Student referral = findById(request.getReferralStudentId());
@@ -349,6 +351,11 @@ public class StudentService {
         return (first + " " + last).trim();
     }
 
+    /**
+     * Billing v2 (§6.8): {@code fromGroupId} bo'lsa — eski SG yopiladi, narx shartlari va
+     * balans ({@code TRANSFER_OUT}/{@code TRANSFER_IN}) yangi SG ga ko'chadi, langar uzluksiz.
+     * {@code fromGroupId} siz — oddiy qo'shish (kurs narxi, override yo'q).
+     */
     @Transactional
     @Audited(action = AuditAction.UPDATE, entity = "Student",
         summary = "'O''quvchi boshqa guruhga ko''chirildi'",
@@ -367,60 +374,34 @@ public class StudentService {
                 studentId, request.getToGroupId())) {
             throw new BadRequestException(messages.get("student.transfer.alreadyInGroup"));
         }
-
-        String reason = request.getReason() != null && !request.getReason().isBlank()
-            ? request.getReason().trim() : "TRANSFERRED";
-        String note = request.getNote();
-
-        // Format so'rovda berilmasa yopilayotgan yozuvdan meros olinadi.
-        StudyFormat format = request.getStudyFormat();
-
-        if (request.getFromGroupId() != null) {
-            StudentGroup from = studentGroupRepository
-                .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, request.getFromGroupId())
-                .orElseThrow(() -> new ResourceNotFoundException(
-                    "Student is not active in group " + request.getFromGroupId()));
-            if (format == null) {
-                format = from.getStudyFormat();
-            }
-            LocalDate today = LocalDate.now();
-            from.setIsActive(false);
-            from.setLeaveDate(today);
-            from.setExitDate(today);
-            from.setExitReason(reason);
-            from.setExitNotes(note);
-            studentGroupRepository.save(from);
-        }
-
         long current = studentGroupRepository.countByGroupIdAndIsActiveTrue(toGroup.getId());
         if (toGroup.getMaxStudents() != null && current >= toGroup.getMaxStudents()) {
             throw new BadRequestException(messages.get("group.full", toGroup.getMaxStudents()));
         }
 
-        LocalDate joinDate = LocalDate.now();
-        BigDecimal fee = toGroup.getCourse() != null && toGroup.getCourse().getMonthlyPrice() != null
-            ? toGroup.getCourse().getMonthlyPrice() : BigDecimal.ZERO;
-        student.setPaymentStartDate(joinDate);
-        student.setMonthlyFee(fee);
-        student.setPaymentStatus(PaymentStatus.PENDING);
-        studentRepository.save(student);
+        String reason = request.getReason() != null && !request.getReason().isBlank()
+            ? request.getReason().trim() : "TRANSFERRED";
+        String note = request.getNote();
 
-        StudentGroup newEnrollment = StudentGroup.builder()
-            .student(student)
-            .group(toGroup)
-            .joinDate(joinDate)
-            .paymentStartDate(joinDate)
-            .nextPaymentDate(joinDate)
-            .studyFormat(format)
-            .isTrial(false)
-            .isActive(true)
-            .monthlyPriceOverride(fee)
-            .paymentStatus("PENDING")
-            .lessonsAttended(0)
-            .build();
-        studentGroupRepository.save(newEnrollment);
-        studentGroupRepository.flush();
-        paymentScheduleService.recalculateForStudent(student);
+        if (request.getFromGroupId() != null) {
+            enrollmentLifecycleService.transfer(studentId, request.getFromGroupId(), toGroup,
+                request.getStudyFormat(), reason, note, null);
+        } else {
+            LocalDate joinDate = billingStatusService.today();
+            studentGroupRepository.save(StudentGroup.builder()
+                .student(student)
+                .group(toGroup)
+                .joinDate(joinDate)
+                .paymentStartDate(joinDate)
+                .studyFormat(request.getStudyFormat())
+                .paymentType(PaymentType.MONTHLY)
+                .isTrial(false)
+                .isActive(true)
+                .lessonsAttended(0)
+                .build());
+            studentGroupRepository.flush();
+            billingSnapshotService.refreshStudentFully(studentId);
+        }
 
         String previousStatus = student.getStatus() != null ? student.getStatus().name() : "ACTIVE";
         StudentStatusHistory history = new StudentStatusHistory();
@@ -463,9 +444,7 @@ public class StudentService {
         student.setAdmissionNumber(generateNextAdmissionNumber());
         student.setAdmissionDate(LocalDate.now());
         student.setStatus(StudentStatus.ACTIVE);
-        student.setPaymentStatus(PaymentStatus.PENDING);
         student.setPaymentStartDate(req.getPaymentStartDate());
-        student.setBalance(BigDecimal.ZERO);
 
         PaymentType paymentType = req.getPaymentType() != null
             ? req.getPaymentType() : PaymentType.MONTHLY;
@@ -513,13 +492,11 @@ public class StudentService {
             .nextPaymentDate(req.getPaymentStartDate())
             .isTrial(Boolean.TRUE.equals(req.getIsTrial()))
             .isActive(true)
-            .monthlyPriceOverride(fee)
+            // Billing v2 (§9.5): override faqat kurs narxidan farq qilsa
+            .monthlyPriceOverride(EnrollmentPricing.explicitOverride(fee, group.getCourse()))
             .paymentType(paymentType)
             .lessonPrice(lessonPrice)
-            .lessonsPurchased(0)
-            .lessonsUsed(0)
             .balance(BigDecimal.ZERO)
-            .paymentStatus(Boolean.TRUE.equals(req.getIsTrial()) ? "TRIAL" : "PENDING")
             .lessonsAttended(0)
             .build();
         studentGroupRepository.save(sg);
@@ -540,9 +517,10 @@ public class StudentService {
     }
 
     @Transactional
-    public StudentDetailResponse updatePaymentStartDate(Long studentId,
+    public StudentDetailResponse updatePaymentStartDate(Long studentId, Long groupId,
             LocalDate paymentStartDate, Boolean isTrial) {
-        paymentScheduleService.updatePaymentStartDate(studentId, paymentStartDate, isTrial);
+        // Billing v2 (§3.6): langar o'zgarishi — ustma-ust davr bo'lsa 409 billing.anchor.overlap
+        enrollmentLifecycleService.reanchor(studentId, groupId, paymentStartDate, isTrial);
         return getStudentById(studentId);
     }
 
@@ -682,6 +660,8 @@ public class StudentService {
             .nextPaymentDate(s.getNextPaymentDate())
             .monthlyFee(s.getMonthlyFee())
             .balance(s.getBalance() != null ? s.getBalance() : BigDecimal.ZERO)
+            .debt(s.getDebt() != null ? s.getDebt() : BigDecimal.ZERO)
+            .nextPaymentAmount(s.getNextPaymentAmount())
             .createdAt(s.getCreatedAt());
 
         if (currentGroup != null && currentGroup.getGroup() != null) {
@@ -730,7 +710,6 @@ public class StudentService {
             ? group.getCourse().getMonthlyPrice() : BigDecimal.ZERO;
         student.setPaymentStartDate(joinDate);
         student.setMonthlyFee(fee);
-        student.setPaymentStatus(PaymentStatus.PENDING);
         studentRepository.save(student);
 
         StudentGroup sg = StudentGroup.builder()
@@ -742,8 +721,6 @@ public class StudentService {
             .studyFormat(studyFormat)
             .isTrial(false)
             .isActive(true)
-            .monthlyPriceOverride(fee)
-            .paymentStatus("PENDING")
             .lessonsAttended(0)
             .build();
         studentGroupRepository.save(sg);
@@ -808,6 +785,8 @@ public class StudentService {
             .nextPaymentDate(s.getNextPaymentDate())
             .monthlyFee(s.getMonthlyFee())
             .balance(s.getBalance() != null ? s.getBalance() : BigDecimal.ZERO)
+            .debt(s.getDebt() != null ? s.getDebt() : BigDecimal.ZERO)
+            .nextPaymentAmount(s.getNextPaymentAmount())
             .activeGroups(activeGroups)
             .paymentHistory(paymentHistory)
             .attendanceSummary(attendanceSummary)
@@ -830,7 +809,7 @@ public class StudentService {
                 .joinDate(sg.getJoinDate())
                 .leaveDate(sg.getLeaveDate())
                 .isActive(sg.getIsActive())
-                .paymentStatus(sg.getPaymentStatus())
+                .paymentStatus(sg.getPaymentStatus() != null ? sg.getPaymentStatus().name() : null)
                 .monthlyPrice(sg.getMonthlyPriceOverride())
                 .build();
         }
@@ -845,11 +824,28 @@ public class StudentService {
             .courseName(course != null ? course.getCourseName() : null)
             .teacherName(g.getTeacher() != null
                 ? g.getTeacher().getFirstName() + " " + g.getTeacher().getLastName() : null)
-            .paymentStatus(sg.getPaymentStatus())
+            .paymentStatus(sg.getPaymentStatus() != null ? sg.getPaymentStatus().name() : null)
             .joinDate(sg.getJoinDate())
             .leaveDate(sg.getLeaveDate())
             .isActive(sg.getIsActive())
             .monthlyPrice(monthlyPrice)
+            // Billing v2 — snapshot (§8): har SG alohida qator
+            .studentGroupId(sg.getId())
+            .paymentType(sg.getPaymentType() != null ? sg.getPaymentType().name() : null)
+            .balance(sg.getBalance() != null ? sg.getBalance() : BigDecimal.ZERO)
+            .debt(sg.getBalance() != null && sg.getBalance().signum() < 0
+                ? sg.getBalance().negate() : BigDecimal.ZERO)
+            .debtSince(sg.getDebtSince())
+            .nextPaymentDate(sg.getNextPaymentDate())
+            .nextPaymentAmount(sg.getNextPaymentAmount())
+            .effectiveFee(sg.getPaymentType() == PaymentType.PER_LESSON
+                ? com.crm.billing.EnrollmentPricing.effectiveLessonPrice(sg)
+                : com.crm.billing.EnrollmentPricing.effectiveMonthlyFee(sg))
+            .discountPercentage(sg.getDiscountPercentage())
+            .billingDay(sg.getPaymentStartDate() != null ? sg.getPaymentStartDate().getDayOfMonth() : null)
+            .paymentStartDate(sg.getPaymentStartDate())
+            .frozenFrom(sg.getFrozenFrom())
+            .isTrial(sg.getIsTrial())
             .build();
     }
 
@@ -899,7 +895,7 @@ public class StudentService {
 
     public List<Map<String, Object>> getTrialStudents() {
         return studentGroupRepository
-            .findByPaymentStatusAndIsActiveTrue("TRIAL")
+            .findActiveTrials()
             .stream()
             .map(sg -> {
                 Map<String, Object> m = new LinkedHashMap<>();
@@ -936,287 +932,38 @@ public class StudentService {
             .collect(Collectors.toList());
     }
 
+    /** Billing v2 (§6.7): preview va freeze bitta {@code FreezePlan} dan. */
     @Transactional(readOnly = true)
     public FreezeStudentResponse previewFreeze(Long studentId, FreezeStudentRequest request) {
-        Student student = findById(studentId);
-        List<StudentGroup> enrollments = resolveFreezeEnrollments(studentId, request);
-        FreezeBreakdownResult calc = computeFreezeBreakdown(studentId, enrollments);
-        return FreezeStudentResponse.builder()
-            .studentId(studentId)
-            .totalBalance(calc.totalBalance())
-            .groups(calc.breakdowns())
-            .build();
+        FreezeStudentRequest r = request != null ? request : new FreezeStudentRequest();
+        return enrollmentLifecycleService.previewFreeze(studentId, r.getGroupId(), r.getFreezeDate());
     }
 
+    /**
+     * Billing v2 (§6.7): faqat tanlangan yozilma muzlatiladi, MONTHLY da proporsional
+     * {@code PERIOD_REFUND}. O'quvchi FROZEN — faqat barcha faol guruhlari muzlatilganda.
+     */
     @Transactional
     @Audited(action = AuditAction.UPDATE, entity = "Student",
         summary = "'O''quvchi muzlatildi'",
         entityId = "#studentId")
     public FreezeStudentResponse freezeStudent(Long studentId, FreezeStudentRequest request) {
-        Student student = findById(studentId);
-        if (student.getStatus() == StudentStatus.FROZEN) {
-            throw new BadRequestException(messages.get("student.freeze.already"));
-        }
-
-        List<StudentGroup> enrollments = resolveFreezeEnrollments(studentId, request);
-        FreezeBreakdownResult calc = computeFreezeBreakdown(studentId, enrollments);
-
-        String previousStatus = student.getStatus() != null ? student.getStatus().name() : "ACTIVE";
-
-        for (int i = 0; i < enrollments.size(); i++) {
-            StudentGroup sg = enrollments.get(i);
-            FreezeStudentResponse.FrozenGroupBreakdown row = calc.breakdowns().get(i);
-            BigDecimal groupBalance = row.getBalance() != null ? row.getBalance() : BigDecimal.ZERO;
-
-            sg.setIsActive(false);
-            sg.setLeaveDate(LocalDate.now());
-            sg.setExitDate(LocalDate.now());
-            sg.setExitReason("FROZEN");
-            sg.setExitNotes(request.getNote());
-            sg.setPaymentStatus("FROZEN");
-            sg.setLessonsUsed(row.getLessonsUsed());
-
-            PaymentType type = sg.getPaymentType() != null
-                ? sg.getPaymentType() : PaymentType.MONTHLY;
-
-            // MONTHLY: balans ledgerdan olinadi, delta har doim 0 — yozuv ortiqcha.
-            // PER_LESSON: eski mantiq saqlanadi.
-            if (type == PaymentType.PER_LESSON) {
-                BigDecimal currentSgBalance = nzAmount(sg.getBalance());
-                BigDecimal delta = groupBalance.subtract(currentSgBalance);
-                String note = "Muzlatish hisobi (paid - used): " + groupBalance.toPlainString()
-                    + (request.getNote() != null ? " | " + request.getNote() : "");
-                balanceTransactionService.record(
-                    sg,
-                    com.crm.entity.enums.BalanceTransactionType.FREEZE,
-                    delta,
-                    null,
-                    note);
-            }
-
-            studentGroupRepository.save(sg);
-        }
-
-        balanceTransactionService.syncStudentBalanceFromGroups(student);
-        student.setStatus(StudentStatus.FROZEN);
-        student.setNextPaymentDate(null);
-        student.setPaymentStatus(PaymentStatus.FROZEN);
-        studentRepository.save(student);
-
-        StudentStatusHistory history = new StudentStatusHistory();
-        history.setStudent(student);
-        history.setFromStatus(previousStatus);
-        history.setToStatus(StudentStatus.FROZEN.name());
-        history.setReason(request.getReason() != null ? request.getReason() : "FROZEN");
-        // Summa endi alohida ustunda — izoh faqat matn bo'lib qoladi va
-        // frontend uni regex bilan ajratib olishga majbur emas.
-        history.setBalanceSnapshot(calc.totalBalance());
-        history.setNotes(request.getNote() != null && !request.getNote().isBlank()
-            ? "Muzlatildi | " + request.getNote()
-            : "Muzlatildi");
-        history.setChangedAt(LocalDateTime.now());
-        studentStatusHistoryRepository.save(history);
-
-        paymentScheduleService.clearPaymentSchedule(studentId);
-
-        return FreezeStudentResponse.builder()
-            .studentId(studentId)
-            .totalBalance(student.getBalance() != null ? student.getBalance() : calc.totalBalance())
-            .groups(calc.breakdowns())
-            .build();
-    }
-
-    private List<StudentGroup> resolveFreezeEnrollments(Long studentId, FreezeStudentRequest request) {
-        List<StudentGroup> enrollments;
-        if (request != null && request.getGroupId() != null) {
-            StudentGroup sg = studentGroupRepository
-                .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, request.getGroupId())
-                .orElseThrow(() -> new ResourceNotFoundException(
-                    messages.get("error.studentGroup.notFound", request.getGroupId())));
-            enrollments = List.of(sg);
-        } else {
-            enrollments = studentGroupRepository.findActiveByStudentId(studentId);
-        }
-        if (enrollments.isEmpty()) {
-            throw new BadRequestException(messages.get("student.freeze.noActiveGroup"));
-        }
-        return enrollments;
+        FreezeStudentRequest r = request != null ? request : new FreezeStudentRequest();
+        return enrollmentLifecycleService.freeze(studentId, r.getGroupId(), r.getFreezeDate(),
+            r.getReason(), r.getNote());
     }
 
     /**
-     * Freeze/preview umumiy hisob — preview va freeze AYNAN shu metodni ishlatadi.
-     *
-     * <p><b>MONTHLY:</b> balans QAYTA HISOBLANMAYDI, ledgerdagi joriy qiymat olinadi.
-     * Eski {@code paid - used} formulasi PERIOD_CHARGE larni ko'rmaydi va gross to'lovni
-     * (chegirma + balansdan qoplangan qism bilan birga) balansga aylantirib yuboradi —
-     * shu sababli muzlatish yo'qdan pul yaratardi.
-     *
-     * <p><b>PER_LESSON:</b> eski {@code paid - used} mantiqi saqlanadi (u yerda
-     * LESSON_CHARGE davomat bo'yicha to'g'ri ishlaydi), faqat {@code paid} endi gross
-     * emas, kassaga tushgan real pul.
+     * Billing v2 (§6.7): o'sha SG qayta faollashadi — yangi SG yaratilmaydi, balans
+     * ko'chirilmaydi; yangi langardan accrual.
      */
-    private FreezeBreakdownResult computeFreezeBreakdown(Long studentId, List<StudentGroup> enrollments) {
-        List<AttendanceStatus> billable = List.of(
-            AttendanceStatus.PRESENT, AttendanceStatus.ABSENT, AttendanceStatus.LATE);
-        LocalDate today = LocalDate.now();
-        BigDecimal total = BigDecimal.ZERO;
-        List<FreezeStudentResponse.FrozenGroupBreakdown> breakdowns = new ArrayList<>();
-
-        for (StudentGroup sg : enrollments) {
-            LocalDate from = sg.getPaymentStartDate() != null
-                ? sg.getPaymentStartDate()
-                : (sg.getJoinDate() != null ? sg.getJoinDate() : today);
-
-            int lessonsAttended = (int) attendanceRepository.countByStudentAndGroupAndStatusesSince(
-                studentId, sg.getGroup().getId(), billable, from);
-
-            PaymentType type = sg.getPaymentType() != null
-                ? sg.getPaymentType() : PaymentType.MONTHLY;
-
-            BigDecimal lessonPrice;
-            BigDecimal paid;
-            BigDecimal used;
-            BigDecimal groupBalance;
-
-            if (type == PaymentType.MONTHLY) {
-                groupBalance = nzAmount(sg.getBalance());
-                paid = nzAmount(paymentRepository.sumCashByStudentGroupId(sg.getId()));
-                // used — ko'rsatish uchun hosila: paid - used = balance bo'lib tursin
-                used = paid.subtract(groupBalance);
-                // MONTHLY da dars narxi qo'llanilmaydi (u aslida oylik summa edi)
-                lessonPrice = BigDecimal.ZERO;
-            } else {
-                lessonPrice = paymentScheduleService.resolveFreezeLessonPrice(sg, from, today);
-                used = lessonPrice.multiply(BigDecimal.valueOf(lessonsAttended));
-                paid = nzAmount(paymentRepository.sumCashByStudentGroupId(sg.getId()));
-                if (paid.compareTo(BigDecimal.ZERO) == 0) {
-                    paid = nzAmount(paymentRepository.sumCashByStudentAndGroup(
-                        studentId, sg.getGroup().getId()));
-                }
-                groupBalance = paid.subtract(used).max(BigDecimal.ZERO);
-            }
-
-            total = total.add(groupBalance);
-
-            breakdowns.add(FreezeStudentResponse.FrozenGroupBreakdown.builder()
-                .groupId(sg.getGroup().getId())
-                .groupName(sg.getGroup().getGroupName())
-                .lessonsAttended(lessonsAttended)
-                .lessonsUsed(lessonsAttended)
-                .lessonPrice(lessonPrice)
-                .used(used)
-                .paid(paid)
-                .balance(groupBalance)
-                .build());
-        }
-
-        return new FreezeBreakdownResult(total, breakdowns);
-    }
-
-    private static BigDecimal nzAmount(BigDecimal v) {
-        return v != null ? v : BigDecimal.ZERO;
-    }
-
-    private record FreezeBreakdownResult(
-        BigDecimal totalBalance,
-        List<FreezeStudentResponse.FrozenGroupBreakdown> breakdowns) {}
-
     @Transactional
     @Audited(action = AuditAction.UPDATE, entity = "Student",
         summary = "'O''quvchi muzlatishdan chiqarildi'",
         entityId = "#studentId")
     public StudentDetailResponse unfreezeStudent(Long studentId, UnfreezeStudentRequest request) {
-        Student student = findById(studentId);
-        if (student.getStatus() != StudentStatus.FROZEN) {
-            throw new BadRequestException(messages.get("student.unfreeze.notFrozen"));
-        }
-
-        Group group = groupRepository.findById(request.getGroupId())
-            .orElseThrow(() -> new ResourceNotFoundException(
-                messages.get("error.group.notFound", request.getGroupId())));
-
-        if (studentGroupRepository.findByStudentIdAndGroupIdAndIsActiveTrue(studentId, group.getId())
-                .isPresent()) {
-            throw new BadRequestException(messages.get("student.unfreeze.alreadyActive"));
-        }
-
-        // paymentStartDate ixtiyoriy — yuborilmasa bugundan boshlanadi
-        LocalDate paymentStartDate = request.getPaymentStartDate() != null
-            ? request.getPaymentStartDate()
-            : LocalDate.now();
-
-        String previousStatus = student.getStatus().name();
-        student.setStatus(StudentStatus.ACTIVE);
-        student.setPaymentStatus(PaymentStatus.PENDING);
-        student.setPaymentStartDate(paymentStartDate);
-        // balance saqlanadi
-        studentRepository.save(student);
-
-        BigDecimal fee = group.getCourse() != null && group.getCourse().getMonthlyPrice() != null
-            ? group.getCourse().getMonthlyPrice() : BigDecimal.ZERO;
-        BigDecimal lessonPrice = group.getCourse() != null ? group.getCourse().getLessonPrice() : null;
-
-        StudentGroup sg = StudentGroup.builder()
-            .student(student)
-            .group(group)
-            .joinDate(LocalDate.now())
-            .paymentStartDate(paymentStartDate)
-            .nextPaymentDate(paymentStartDate)
-            .isTrial(false)
-            .isActive(true)
-            .monthlyPriceOverride(fee)
-            .paymentType(PaymentType.MONTHLY)
-            .lessonPrice(lessonPrice)
-            .lessonsPurchased(0)
-            .lessonsUsed(0)
-            .balance(BigDecimal.ZERO)
-            .paymentStatus("PENDING")
-            .lessonsAttended(0)
-            .build();
-        studentGroupRepository.save(sg);
-        studentGroupRepository.flush();
-
-        // Oldingi muzlatilgan guruh balansini yangi SG ga o'tkazish
-        StudentGroup frozenSg = studentGroupRepository.findByStudentIdOrderByJoinDateDesc(studentId)
-            .stream()
-            .filter(g -> g.getGroup() != null && group.getId().equals(g.getGroup().getId())
-                && "FROZEN".equals(g.getExitReason()))
-            .findFirst()
-            .orElse(null);
-        BigDecimal carry = frozenSg != null && frozenSg.getBalance() != null
-            ? frozenSg.getBalance() : BigDecimal.ZERO;
-        if (carry.compareTo(BigDecimal.ZERO) > 0 && frozenSg != null) {
-            balanceTransactionService.record(
-                frozenSg,
-                com.crm.entity.enums.BalanceTransactionType.UNFREEZE,
-                carry.negate(),
-                null,
-                "Balans yangi guruhga o'tkazildi");
-            balanceTransactionService.record(
-                sg,
-                com.crm.entity.enums.BalanceTransactionType.UNFREEZE,
-                carry,
-                null,
-                "Muzlatishdan qaytganda tiklandi");
-        } else {
-            balanceTransactionService.record(
-                sg,
-                com.crm.entity.enums.BalanceTransactionType.UNFREEZE,
-                BigDecimal.ZERO,
-                null,
-                "Muzlatishdan chiqarildi: " + group.getGroupName());
-        }
-
-        StudentStatusHistory history = new StudentStatusHistory();
-        history.setStudent(student);
-        history.setFromStatus(previousStatus);
-        history.setToStatus(StudentStatus.ACTIVE.name());
-        history.setReason("UNFROZEN");
-        history.setNotes("Guruhga qayta qo'shildi: " + group.getGroupName());
-        history.setChangedAt(LocalDateTime.now());
-        studentStatusHistoryRepository.save(history);
-
-        paymentScheduleService.recalculateForStudent(student);
+        findById(studentId);
+        enrollmentLifecycleService.unfreeze(studentId, request.getGroupId(), request.getPaymentStartDate());
         return getStudentById(studentId);
     }
 
@@ -1229,7 +976,14 @@ public class StudentService {
     @Transactional
     public BalanceHistoryItemDto adjustBalance(Long studentId, BalanceAdjustRequest request) {
         return balanceTransactionService.manualAdjust(
-            studentId, request.getGroupId(), request.getAmount(), request.getNote());
+            studentId, request.getGroupId(), request.getAmount(), request.getNote(), request.getEffectiveDate());
+    }
+
+    /** Billing v2 (§13 #6): SA qo'lda guruhlar orasida balans ko'chiradi. */
+    @Transactional
+    public List<BalanceHistoryItemDto> transferBalance(Long studentId, BalanceTransferRequest request) {
+        return balanceTransactionService.transferBetweenGroups(studentId, request.getFromGroupId(),
+            request.getToGroupId(), request.getAmount(), request.getNote());
     }
 
     @Transactional(readOnly = true)

@@ -33,6 +33,7 @@ public class PromotionService {
     private final UserRepository userRepository;
     private final GroupRepository groupRepository;
     private final StudentGroupRepository studentGroupRepository;
+    private final com.crm.billing.EnrollmentLifecycleService enrollmentLifecycleService;
 
     @Transactional(readOnly = true)
     public PageResponse<PromotionResponse> getAllPromotions(int page, int size) {
@@ -119,24 +120,15 @@ public class PromotionService {
         int count = 0;
 
         for (StudentGroup sg : sourceEnrollments) {
-            // Deactivate old enrollment
-            sg.setIsActive(false);
-            sg.setLeaveDate(LocalDate.now());
-            sg.setExitReason("TRANSFERRED");
-            sg.setExitNotes("Bulk promoted to group: " + targetGroup.getGroupName());
-            studentGroupRepository.save(sg);
-
-            // Create new enrollment in target group
-            StudentGroup newEnrollment = StudentGroup.builder()
-                .student(sg.getStudent())
-                .group(targetGroup)
-                .joinDate(LocalDate.of(request.getTargetYear(), request.getTargetMonth(), 1))
-                .isActive(true)
-                .paymentStatus("PENDING")
-                .monthlyPriceOverride(sg.getMonthlyPriceOverride())
-                .discountPercentage(sg.getDiscountPercentage())
-                .build();
-            studentGroupRepository.save(newEnrollment);
+            if (studentGroupRepository.existsByStudentIdAndGroupIdAndIsActiveTrue(
+                    sg.getStudent().getId(), targetGroup.getId())) {
+                continue;
+            }
+            // Billing v2 (§6.8): transfer-group bilan bitta kod yo'li — narx shartlari,
+            // balans (TRANSFER_OUT/IN) va uzluksiz langar ko'chadi
+            enrollmentLifecycleService.transfer(sg.getStudent().getId(), sourceGroup.getId(), targetGroup,
+                null, "TRANSFERRED", "Bulk promoted to group: " + targetGroup.getGroupName(),
+                LocalDate.of(request.getTargetYear(), request.getTargetMonth(), 1));
 
             // Record promotion
             Promotion promotion = Promotion.builder()

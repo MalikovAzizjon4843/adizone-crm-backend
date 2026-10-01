@@ -18,6 +18,7 @@ buildNumber.properties
 # Prod sirlari (docs/ops/env.md) — masalan crm.env
 *.env
 application.properties.example # if used to store sensitive info
+config/application-local.yml
 
 # IDE specific files
 # Eslatma: gitignore qator oxiridagi izohni QO'LLAB-QUVVATLAMAYDI —

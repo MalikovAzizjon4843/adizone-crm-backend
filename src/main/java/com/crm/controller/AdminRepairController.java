@@ -1,11 +1,10 @@
 package com.crm.controller;
 
 import com.crm.dto.response.ApiResponse;
-import com.crm.service.BalanceTransactionService;
+import com.crm.exception.CodedException;
+import org.springframework.http.HttpStatus;
 import com.crm.service.GroupService;
 import com.crm.service.LeadService;
-import com.crm.service.MonthlyLedgerRepairService;
-import com.crm.service.PaymentScheduleService;
 import com.crm.service.TeacherService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -13,7 +12,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
@@ -27,10 +25,7 @@ public class AdminRepairController {
 
     private final TeacherService teacherService;
     private final GroupService groupService;
-    private final PaymentScheduleService paymentScheduleService;
     private final LeadService leadService;
-    private final BalanceTransactionService balanceTransactionService;
-    private final MonthlyLedgerRepairService monthlyLedgerRepairService;
 
     @PostMapping("/link-teacher-users")
     public ResponseEntity<ApiResponse<Map<String, Object>>> linkTeacherUsers() {
@@ -46,20 +41,6 @@ public class AdminRepairController {
             groupService.linkTimetableRoomsFromGroups()));
     }
 
-    @PostMapping("/recalculate-payment-dates")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> recalculatePaymentDates() {
-        return ResponseEntity.ok(ApiResponse.success(
-            "To'lov sanalari qayta hisoblandi",
-            paymentScheduleService.recalculateAllActiveStudents()));
-    }
-
-    @PostMapping("/fix-payment-periods")
-    public ResponseEntity<ApiResponse<Map<String, Integer>>> fixPaymentPeriods() {
-        return ResponseEntity.ok(ApiResponse.success(
-            "To'lov davrlari tuzatildi",
-            paymentScheduleService.fixPaymentPeriods()));
-    }
-
     @PostMapping("/migrate-lead-statuses")
     public ResponseEntity<ApiResponse<Map<String, Object>>> migrateLeadStatuses() {
         return ResponseEntity.ok(ApiResponse.success(
@@ -67,24 +48,19 @@ public class AdminRepairController {
             leadService.migrateLeadStatuses()));
     }
 
-    @GetMapping("/verify-balances")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> verifyBalances() {
-        return ResponseEntity.ok(ApiResponse.success(
-            "Balans tekshiruvi",
-            balanceTransactionService.verifyBalances()));
+    /**
+     * Billing v2: to'lov sanalari, davrlar va ledger endi accrual + snapshot dan hosila
+     * (docs/design/billing-v2.md §10.2). Eski ta'mirlash amallari ledgerga qo'lda
+     * PERIOD_CHARGE yozardi va accrual bilan to'qnashardi — 410, o'rniga /api/admin/billing/*.
+     */
+    @PostMapping({"/recalculate-payment-dates", "/fix-payment-periods", "/rebuild-monthly-ledger"})
+    public ResponseEntity<ApiResponse<Void>> removedBillingRepairs() {
+        throw new CodedException(HttpStatus.GONE, "billing.endpoint.gone", "/api/admin/billing");
     }
 
-    /**
-     * MONTHLY balans daftarini qayta quradi (yetishmagan PERIOD_CHARGE, noto'g'ri
-     * PAYMENT krediti, ortiqcha LESSON_CHARGE). Default dryRun=true — yozmaydi.
-     */
-    @PostMapping("/rebuild-monthly-ledger")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> rebuildMonthlyLedger(
-            @RequestParam(name = "dryRun", defaultValue = "true") boolean dryRun) {
-        return ResponseEntity.ok(ApiResponse.success(
-            dryRun ? "MONTHLY ledger tahlili (dryRun — hech narsa yozilmadi)"
-                   : "MONTHLY ledger qayta qurildi",
-            monthlyLedgerRepairService.rebuildMonthlyLedger(dryRun)));
+    @GetMapping("/verify-balances")
+    public ResponseEntity<ApiResponse<Void>> removedVerifyBalances() {
+        throw new CodedException(HttpStatus.GONE, "billing.endpoint.gone", "/api/admin/billing/verify");
     }
 
     /**

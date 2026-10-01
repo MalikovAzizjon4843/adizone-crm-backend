@@ -44,4 +44,26 @@ public interface BalanceTransactionRepository extends JpaRepository<BalanceTrans
 
     /** Bitta enrollment daftari — tekshiruv va ta'mirlash uchun (yozilish tartibida). */
     List<BalanceTransaction> findByStudentGroup_IdOrderByIdAsc(Long studentGroupId);
+
+    /** FIFO va snapshot uchun: (effective_date, id) tartibida. */
+    @Query("""
+        SELECT t FROM BalanceTransaction t
+        WHERE t.studentGroup.id = :sgId
+        ORDER BY t.effectiveDate ASC, t.id ASC
+        """)
+    List<BalanceTransaction> findLedgerForFifo(@Param("sgId") Long sgId);
+
+    List<BalanceTransaction> findByRelatedTxId(Long relatedTxId);
+
+    List<BalanceTransaction> findByStudentGroup_IdAndReferenceIdAndTypeIn(
+        Long studentGroupId, Long referenceId, java.util.Collection<BalanceTransactionType> types);
+
+    List<BalanceTransaction> findByReferenceIdAndTypeIn(
+        Long referenceId, java.util.Collection<BalanceTransactionType> types);
+
+    List<BalanceTransaction> findByMigrationRunIdAndStudentGroup_Id(Long migrationRunId, Long studentGroupId);
+
+    /** Migratsiya (§9.6): dry-run/tasdiqdan keyin ledger o'zgarmaganini tekshirish. */
+    @Query("SELECT MAX(t.id) FROM BalanceTransaction t")
+    Long findMaxId();
 }

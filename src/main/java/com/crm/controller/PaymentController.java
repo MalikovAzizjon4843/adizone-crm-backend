@@ -1,5 +1,6 @@
 package com.crm.controller;
 
+import com.crm.billing.DebtorService;
 import com.crm.dto.request.PaymentPreviewRequest;
 import com.crm.dto.request.PaymentRequest;
 import com.crm.dto.response.*;
@@ -72,22 +73,50 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getPaymentHistory()));
     }
 
-    /** Saqlamasdan hisoblab beradi — frontend summani o'zi hisoblamasligi uchun. */
+    /**
+     * Saqlamasdan hisoblab beradi (billing v2 §5.4). Body — create bilan bir xil
+     * {@link PaymentRequest}; eski {@code PaymentPreviewRequest} maydonlari ham shu ichida.
+     */
     @PostMapping("/preview")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<PaymentPreviewResponse>> previewPayment(
-            @Valid @RequestBody PaymentPreviewRequest request) {
+            @Valid @RequestBody PaymentRequest request) {
         return ResponseEntity.ok(ApiResponse.success(paymentService.previewPayment(request)));
     }
 
+    /**
+     * To'lov. {@code Idempotency-Key} sarlavhasi (frontend dialog ochilganda UUID): takroriy
+     * so'rov o'sha to'lovni 200 + {@code X-Idempotent-Replay: true} bilan qaytaradi,
+     * boshqa body bilan — 409. Kalitsiz ham ishlaydi (eski front), lekin himoyasiz.
+     */
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
-    public ResponseEntity<ApiResponse<PaymentResponse>> createPayment(@Valid @RequestBody PaymentRequest request) {
+    public ResponseEntity<ApiResponse<PaymentResponse>> createPayment(
+            @Valid @RequestBody PaymentRequest request,
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey) {
+        PaymentResponse response = paymentService.createPayment(request, idempotencyKey);
+        if (response.isReplay()) {
+            return ResponseEntity.ok()
+                .header("X-Idempotent-Replay", "true")
+                .body(ApiResponse.success("Payment already recorded", response));
+        }
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success("Payment recorded", paymentService.createPayment(request)));
+            .body(ApiResponse.success("Payment recorded", response));
+    }
+
+    /** Billing v2 (§6.4): faqat SUPER_ADMIN, {@code reason} majburiy (3..500), ≤ 31 kunlik to'lov. */
+    @PostMapping("/{id}/cancel")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<PaymentResponse>> cancelPayment(
+            @PathVariable(name = "id") Long id,
+            @RequestBody(required = false) Map<String, String> body) {
+        String reason = body != null ? body.get("reason") : null;
+        return ResponseEntity.ok(ApiResponse.success("Payment cancelled",
+            paymentService.cancelPayment(id, reason)));
     }
 
     @GetMapping("/student/{studentId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','SALES_MANAGER')")
     public ResponseEntity<ApiResponse<List<PaymentResponse>>> getStudentPayments(@PathVariable Long studentId) {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getStudentPayments(studentId)));
     }
@@ -103,8 +132,14 @@ public class PaymentController {
 
     @GetMapping("/debtors")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
-    public ResponseEntity<ApiResponse<DebtorsListResponse>> getDebtors() {
-        return ResponseEntity.ok(ApiResponse.success(paymentService.getDebtors()));
+    public ResponseEntity<ApiResponse<DebtorsListResponse>> getDebtors(
+            @RequestParam(name = "scope", required = false) String scope,
+            @RequestParam(name = "minDays", required = false) Integer minDays,
+            @RequestParam(name = "groupId", required = false) Long groupId,
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size) {
+        return ResponseEntity.ok(ApiResponse.success(paymentService.getDebtors(
+            new DebtorService.Filter(DebtorService.Scope.parse(scope), minDays, groupId, page, size))));
     }
 
     @GetMapping("/calculate-debt")
@@ -118,8 +153,9 @@ public class PaymentController {
 
     @GetMapping("/debtors/summary")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getDebtorsSummary() {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getDebtorsSummary(
+            @RequestParam(name = "scope", required = false) String scope) {
         return ResponseEntity.ok(ApiResponse.success(
-            paymentService.getDebtorsSummary()));
+            paymentService.getDebtorsSummary(DebtorService.Scope.parse(scope))));
     }
 }

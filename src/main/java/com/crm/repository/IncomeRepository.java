@@ -15,10 +15,15 @@ public interface IncomeRepository extends JpaRepository<Income, Long> {
 
     List<Income> findByIncomeDateBetweenOrderByIncomeDateDesc(LocalDate from, LocalDate to);
 
-    @Query("SELECT SUM(i.amount) FROM Income i WHERE i.incomeDate BETWEEN :from AND :to")
+    /** Billing v2: bekor qilingan to'lov kirimi saqlanadi, lekin hisobotga kirmaydi (§6.4). */
+    @Query("SELECT SUM(i.amount) FROM Income i LEFT JOIN i.payment p "
+           + "WHERE i.incomeDate BETWEEN :from AND :to "
+           + "AND (p IS NULL OR p.status = com.crm.entity.enums.PaymentStatus.PAID)")
     BigDecimal sumByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);
 
-    @Query("SELECT i.category, SUM(i.amount) FROM Income i " +
-           "WHERE i.incomeDate BETWEEN :from AND :to GROUP BY i.category")
+    @Query("SELECT i.category, SUM(i.amount) FROM Income i LEFT JOIN i.payment p "
+           + "WHERE i.incomeDate BETWEEN :from AND :to "
+           + "AND (p IS NULL OR p.status = com.crm.entity.enums.PaymentStatus.PAID) "
+           + "GROUP BY i.category")
     List<Object[]> sumByCategory(@Param("from") LocalDate from, @Param("to") LocalDate to);
 }

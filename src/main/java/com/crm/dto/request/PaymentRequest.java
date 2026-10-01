@@ -41,4 +41,13 @@ public class PaymentRequest {
     private BigDecimal balanceAmount;
     /** Apply pending student bonus/penalty on create. Defaults to true when null. */
     private Boolean applyBonuses;
+
+    /**
+     * Billing v2 (§13 #10): {@code discountAmount > 0} bo'lsa sabab majburiy
+     * (yuborilmasa {@code notes} ishlatiladi). Chegirma — faqat SUPER_ADMIN, ADMIN.
+     */
+    private String discountReason;
+
+    /** Preview qaytargan {@code planHash}: hisob o'zgargan bo'lsa 409 {@code payment.plan.changed}. */
+    private String expectedPlanHash;
 }

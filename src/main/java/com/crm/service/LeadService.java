@@ -760,7 +760,7 @@ public class LeadService {
             amounts.put(code, BigDecimal.ZERO);
         });
 
-        long unassigned = 0L;
+        long unassignedCount = 0L;
         BigDecimal unassignedAmount = BigDecimal.ZERO;
         for (Object[] row : rows) {
             String code = row[0] != null ? row[0].toString() : null;
@@ -770,7 +770,7 @@ public class LeadService {
                 counts.merge(code, toCount(row[1]), Long::sum);
                 amounts.merge(code, toAmount(row[3]), BigDecimal::add);
             }
-            unassigned += toCount(row[2]);
+            unassignedCount += toCount(row[2]);
             unassignedAmount = unassignedAmount.add(toAmount(row[4]));
         }
 
@@ -785,7 +785,7 @@ public class LeadService {
         return LeadKanbanStatsResponse.builder()
                 .columns(columns)
                 .unassigned(LeadKanbanColumnDto.builder()
-                        .count(unassigned)
+                        .count(unassignedCount)
                         .totalAmount(unassignedAmount)
                         .build())
                 .build();

@@ -13,7 +13,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/adizone
     username: postgres
-    password: root123
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 20
@@ -65,7 +65,7 @@ app:
     unlock-valid-hours: 48
 
 jwt:
-  secret: 3E5kwhqZ+aF9OsLfz7cN2CaJmOoaI6qkgDYYKa73XYpUxnC3O6GAT2pA8xe/bbG4ffpzlQ9GnOcamtBvfkv1Lw==
+  secret: ${JWT_SECRET}
   expiration: 28800000  # 24 hours in ms
   refresh-expiration: 604800000  # 7 days in ms
 

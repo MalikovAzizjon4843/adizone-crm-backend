@@ -20,6 +20,19 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
 
     List<Payment> findByStudentIdOrderByPaymentDateDesc(Long studentId);
 
+    /** Billing v2 idempotentlik (§7.3). */
+    Optional<Payment> findByIdempotencyKey(String idempotencyKey);
+
+    /** Migratsiya (§9.6): dry-run/tasdiqdan keyin to'lovlar o'zgarmaganini tekshirish. */
+    @Query("SELECT MAX(p.id) FROM Payment p")
+    Long findMaxId();
+
+    /** Migratsiya A2: yozilmasiz (studentGroup = null) to'lovlar. */
+    List<Payment> findByStudent_IdAndStudentGroupIsNullAndStatus(Long studentId, PaymentStatus status);
+
+    /** Rollback (§9.7): cutover'dan keyin kiritilgan/o'zgargan to'lovlar. */
+    List<Payment> findByCreatedAtGreaterThanEqualOrderByIdAsc(java.time.LocalDateTime from);
+
     List<Payment> findByStudent_IdOrderByCreatedAtDesc(Long studentId);
 
     Page<Payment> findByStudentId(Long studentId, Pageable pageable);
@@ -120,37 +133,9 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
 
     Optional<Payment> findFirstByStudent_IdAndPeriodEndIsNotNullOrderByPeriodEndDesc(Long studentId);
 
-    Optional<Payment> findFirstByStudentGroup_IdAndPeriodEndIsNotNullOrderByPeriodEndDesc(Long studentGroupId);
-
-    Optional<Payment> findFirstByStudentGroup_IdOrderByPaymentDateDesc(Long studentGroupId);
-
-    Optional<Payment> findFirstByStudent_IdOrderByPaymentDateDesc(Long studentId);
-
-    @Query("SELECT p FROM Payment p WHERE p.periodStart IS NULL OR p.periodEnd IS NULL")
-    List<Payment> findWithMissingPeriods();
-
     /** Bitta enrollment bo'yicha to'lovlar — balans tekshiruvi va ta'mirlash uchun. */
     List<Payment> findByStudentGroup_IdAndStatusOrderByPaymentDateAscIdAsc(
         Long studentGroupId, PaymentStatus status);
-
-    /**
-     * student_group_id to'ldirilmagan to'lovlar (faqat group_id bo'yicha bog'langan).
-     * Bunday satrni qaysi enrollmentga tegishli ekanini aniq aytib bo'lmaydi —
-     * o'quvchi shu guruhga qayta qo'shilgan bo'lsa ikkita nomzod bor. Shuning uchun
-     * balans hisobiga QO'SHILMAYDI, faqat hisobotda ogohlantirish sifatida chiqadi.
-     */
-    @Query("""
-        SELECT p FROM Payment p
-        WHERE p.studentGroup IS NULL
-          AND p.student.id = :studentId
-          AND p.group.id = :groupId
-          AND p.status = :status
-        ORDER BY p.paymentDate ASC, p.id ASC
-        """)
-    List<Payment> findUnlinkedByStudentAndGroup(
-        @Param("studentId") Long studentId,
-        @Param("groupId") Long groupId,
-        @Param("status") PaymentStatus status);
 
     Page<Payment> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
@@ -171,75 +156,6 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
         @Param("from") LocalDate from,
         @Param("to") LocalDate to,
         Pageable pageable);
-
-    /**
-     * Gross: qarz hisobida totalShouldPay ham gross bo'lgani uchun bu ham gross
-     * bo'lishi shart, aks holda balansdan qoplangan qism soxta qarz bo'lib qoladi.
-     * Eski satrlarda payableAmount NULL — o'shanda amount naqd summani bildirgan.
-     */
-    @Query("""
-        SELECT COALESCE(SUM(
-            CASE WHEN p.payableAmount IS NULL
-                 THEN COALESCE(p.amount, 0) + COALESCE(p.balanceUsed, 0)
-                 ELSE COALESCE(p.amount, 0) END), 0)
-        FROM Payment p
-        WHERE p.student.id = :studentId
-          AND p.group.id = :groupId
-          AND p.status = 'PAID'
-        """)
-    BigDecimal sumPaidByStudentAndGroup(
-        @Param("studentId") Long studentId,
-        @Param("groupId") Long groupId);
-
-    @Query("""
-        SELECT COALESCE(SUM(
-            CASE WHEN p.payableAmount IS NULL
-                 THEN COALESCE(p.amount, 0) + COALESCE(p.balanceUsed, 0)
-                 ELSE COALESCE(p.amount, 0) END), 0)
-        FROM Payment p
-        WHERE p.studentGroup.id = :studentGroupId
-          AND p.status = 'PAID'
-        """)
-    BigDecimal sumCreditsByStudentGroupId(@Param("studentGroupId") Long studentGroupId);
-
-    @Query("""
-        SELECT COALESCE(SUM(
-            CASE WHEN p.payableAmount IS NULL
-                 THEN COALESCE(p.amount, 0) + COALESCE(p.balanceUsed, 0)
-                 ELSE COALESCE(p.amount, 0) END), 0)
-        FROM Payment p
-        WHERE p.student.id = :studentId
-          AND p.group.id = :groupId
-          AND p.status = 'PAID'
-        """)
-    BigDecimal sumCreditsByStudentAndGroup(
-        @Param("studentId") Long studentId,
-        @Param("groupId") Long groupId);
-
-    /**
-     * Kassaga tushgan REAL pul (enrollment bo'yicha). sumCreditsByStudentGroupId dan
-     * farqi: u gross qaytaradi — chegirma va balansdan qoplangan qism ham kiradi,
-     * shuning uchun balans hisobiga yaramaydi.
-     */
-    @Query("""
-        SELECT COALESCE(SUM(COALESCE(p.cashAmount, p.amount)), 0)
-        FROM Payment p
-        WHERE p.studentGroup.id = :studentGroupId
-          AND p.status = 'PAID'
-        """)
-    BigDecimal sumCashByStudentGroupId(@Param("studentGroupId") Long studentGroupId);
-
-    /** Kassaga tushgan real pul (student+group juftligi bo'yicha). */
-    @Query("""
-        SELECT COALESCE(SUM(COALESCE(p.cashAmount, p.amount)), 0)
-        FROM Payment p
-        WHERE p.student.id = :studentId
-          AND p.group.id = :groupId
-          AND p.status = 'PAID'
-        """)
-    BigDecimal sumCashByStudentAndGroup(
-        @Param("studentId") Long studentId,
-        @Param("groupId") Long groupId);
 
     /** Batch: userId, paymentCount, paymentSum */
     @Query("""

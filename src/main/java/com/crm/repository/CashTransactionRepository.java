@@ -15,6 +15,12 @@ public interface CashTransactionRepository extends JpaRepository<CashTransaction
 
     long countByCashRegister_Id(Long cashRegisterId);
 
+    /** Billing v2 dan oldingi to'lov kirimi — chek raqami izohi bo'yicha (bekor qilish uchun). */
+    java.util.Optional<CashTransaction> findFirstByCashRegister_IdAndTypeAndNote(
+        Long cashRegisterId, com.crm.entity.enums.CashTransactionType type, String note);
+
+    List<CashTransaction> findByPaymentId(Long paymentId);
+
     @Query("SELECT c FROM CashTransaction c WHERE c.teacher.id = :teacherId AND c.cashRegister.id = :cashRegisterId AND c.type = com.crm.entity.enums.CashTransactionType.EXPENSE AND c.note LIKE :notePattern")
     List<CashTransaction> findPayrollTransactions(
         @Param("teacherId") Long teacherId,

@@ -80,8 +80,9 @@ public class TelegramService {
         );
     }
 
+    /** {@code amount} — qarz (billing v2), BigDecimal: pul summasida double ishlatilmaydi. */
     public String buildPaymentMessage(String studentName,
-            String groupName, int daysOverdue, double amount) {
+            String groupName, int daysOverdue, java.math.BigDecimal amount) {
         return String.format(
             "💰 <b>To'lov eslatmasi</b>%n%n"
                 + "Hurmatli ota-ona!%n%n"

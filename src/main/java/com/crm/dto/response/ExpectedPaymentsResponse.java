@@ -42,8 +42,12 @@ public class ExpectedPaymentsResponse {
         private Long studentId;
         private String fullName;
         private String phone;
+        private Long studentGroupId;
+        private Long groupId;
         private String groupName;
+        /** Billing v2: SG {@code nextPaymentAmount}. */
         private BigDecimal amount;
+        /** PAID yoki PENDING (bugungi / grace ichidagi). */
         private String paymentStatus;
         private long daysUntil;
     }

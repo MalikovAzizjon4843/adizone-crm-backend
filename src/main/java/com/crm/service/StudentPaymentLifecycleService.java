@@ -1,10 +1,11 @@
 package com.crm.service;
 
-import com.crm.entity.Student;
+import com.crm.billing.BillingStatusService;
+import com.crm.billing.EnrollmentLifecycleService;
 import com.crm.entity.StudentGroup;
+import com.crm.entity.enums.AttendanceStatus;
 import com.crm.repository.AttendanceRepository;
 import com.crm.repository.StudentGroupRepository;
-import com.crm.repository.StudentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -12,27 +13,28 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
- * Davomat va arxivlash yordamchi xizmati.
- * To'lov statusi faqat {@link PaymentScheduleService} (sana/period) orqali yangilanadi.
+ * Davomat hisoblagichlari va avto-arxiv. Pul/holat — billing paketida (ledger, snapshot).
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class StudentPaymentLifecycleService {
 
+    private static final List<AttendanceStatus> ATTENDED =
+        List.of(AttendanceStatus.PRESENT, AttendanceStatus.LATE);
+    static final int AUTO_ARCHIVE_DAYS = 30;
+
     private final StudentGroupRepository studentGroupRepository;
     private final AttendanceRepository attendanceRepository;
-    private final StudentRepository studentRepository;
-    private final PaymentScheduleService paymentScheduleService;
+    private final EnrollmentLifecycleService lifecycleService;
+    private final BillingStatusService statusService;
 
     /**
-     * Davomat belgilanganda faqat dars soni / birinchi dars sanasi yangilanadi.
-     * paymentStatus o'zgartirilmaydi — schedule service yagona manba.
+     * Dars soni va birinchi dars sanasi davomatdan QAYTA HISOBLANADI — qayta yuborish
+     * yoki holat o'zgarishi hisoblagichni buzmaydi (billing v2 §6.9, idempotent).
      */
     @Transactional
     public void onLessonAttended(Long studentId, Long groupId, LocalDate lessonDate) {
@@ -42,87 +44,40 @@ public class StudentPaymentLifecycleService {
         if (sg == null) {
             return;
         }
-
-        int attended = (sg.getLessonsAttended() == null ? 0 : sg.getLessonsAttended()) + 1;
+        int attended = (int) attendanceRepository.countByStudentAndGroupAndStatuses(studentId, groupId, ATTENDED);
         sg.setLessonsAttended(attended);
-
-        if (sg.getFirstLessonDate() == null) {
-            sg.setFirstLessonDate(lessonDate);
-        }
-
+        sg.setFirstLessonDate(attendanceRepository.findFirstDateByStatuses(studentId, groupId, ATTENDED));
         studentGroupRepository.save(sg);
-        log.info("Lesson attended student={} group={} date={} total={} (paymentStatus unchanged)",
-            studentId, groupId, lessonDate, attended);
-
-        if (sg.getPaymentType() == com.crm.entity.enums.PaymentType.PER_LESSON) {
-            paymentScheduleService.recalculate(sg);
-            if (sg.getStudent() != null) {
-                paymentScheduleService.recalculateForStudent(sg.getStudent());
-            }
-        }
-    }
-
-    /** ABSENT ham darsbay hisobdan yeydi (EXCUSED emas). */
-    @Transactional
-    public void onBillableAttendance(Long studentId, Long groupId) {
-        StudentGroup sg = studentGroupRepository
-            .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, groupId)
-            .orElse(null);
-        if (sg == null || sg.getPaymentType() != com.crm.entity.enums.PaymentType.PER_LESSON) {
-            return;
-        }
-        paymentScheduleService.recalculate(sg);
-        if (sg.getStudent() != null) {
-            paymentScheduleService.recalculateForStudent(sg.getStudent());
-        }
+        log.debug("Lesson counters student={} group={} date={} attended={}", studentId, groupId, lessonDate, attended);
     }
 
     /**
-     * O'chirilgan: PaymentScheduleService.updateOverdueStatusesDaily (00:05) sana asosida qiladi.
+     * Avto-arxiv (§13 #25): 30 kundan beri davomati yo'q faol yozilma §6.7 dagi muzlatish
+     * bilan yopiladi ({@code freezeDate = bugun}, qaytarim va tarix bilan). Har SG o'z
+     * tranzaksiyasida — biri yiqilsa qolganlari davom etadi.
      */
-    // @Scheduled(cron = "0 0 9 * * *") — disabled, use PaymentScheduleService instead
-    @Deprecated
-    public void checkOverduePayments() {
-        log.debug("checkOverduePayments disabled — use PaymentScheduleService.updateOverdueStatusesDaily");
-    }
-
     @Scheduled(cron = "0 0 8 * * *", zone = "Asia/Tashkent")
-    @Transactional
     public void archiveInactiveStudents() {
-        LocalDate thirtyDaysAgo = LocalDate.now().minusDays(30);
-        Set<Long> affectedStudentIds = new HashSet<>();
-
-        List<StudentGroup> activeGroups = studentGroupRepository.findAllActiveEnrollments();
-
-        for (StudentGroup sg : activeGroups) {
-            if ("TRIAL".equals(sg.getPaymentStatus())) {
+        LocalDate threshold = statusService.today().minusDays(AUTO_ARCHIVE_DAYS);
+        int frozen = 0;
+        for (StudentGroup sg : studentGroupRepository.findAllActiveEnrollments()) {
+            if (Boolean.TRUE.equals(sg.getIsTrial()) || sg.getStudent() == null || sg.getGroup() == null) {
                 continue;
             }
-
-            LocalDate lastAttendance = attendanceRepository.findLastAttendanceDate(
-                sg.getStudent().getId(),
-                sg.getGroup().getId());
-
-            if (lastAttendance != null && lastAttendance.isBefore(thirtyDaysAgo)) {
-                sg.setPaymentStatus("ARCHIVED");
-                sg.setIsActive(false);
-                sg.setLeaveDate(LocalDate.now());
-                studentGroupRepository.save(sg);
-
-                Student student = sg.getStudent();
-                student.setStatus(com.crm.entity.enums.StudentStatus.FROZEN);
-                studentRepository.save(student);
-                affectedStudentIds.add(student.getId());
-
-                log.info("Student {} archived — no attendance since {}", student.getId(), lastAttendance);
+            LocalDate last = attendanceRepository.findLastAttendanceDate(sg.getStudent().getId(), sg.getGroup().getId());
+            if (last == null || !last.isBefore(threshold)) {
+                continue;
+            }
+            try {
+                lifecycleService.freezeInNewTransaction(sg.getId(), "AUTO_ARCHIVE",
+                    "Avto-arxiv: " + AUTO_ARCHIVE_DAYS + " kundan beri davomat yo'q (oxirgi " + last + ")");
+                frozen++;
+            } catch (RuntimeException e) {
+                log.error("Avto-arxiv sg={} muzlatilmadi: {}", sg.getId(), e.getMessage());
             }
         }
-
-        for (Long studentId : affectedStudentIds) {
-            Student student = studentRepository.findById(studentId).orElse(null);
-            if (student != null) {
-                paymentScheduleService.recalculateAllForStudent(student);
-            }
+        if (frozen > 0) {
+            log.info("Avto-arxiv: {} yozilma muzlatildi", frozen);
         }
     }
 }

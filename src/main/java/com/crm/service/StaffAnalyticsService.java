@@ -61,6 +61,7 @@ public class StaffAnalyticsService {
     private final GroupRepository groupRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final TeacherKpiService teacherKpiService;
+    private final com.crm.billing.BillingStatusService billingStatusService;
 
     @Transactional(readOnly = true)
     public StaffAnalyticsResponse getStaffAnalytics(String period, LocalDate from, LocalDate to) {
@@ -93,7 +94,8 @@ public class StaffAnalyticsService {
             .computeScoresForTeachers(teacherIds, rangeFrom, rangeTo);
         Map<Long, Integer> groupCounts = toIntMap(groupRepository.countGroupsGroupedByTeacher());
         Map<Long, long[]> paymentStudentStats = toPaymentStudentMap(
-            studentGroupRepository.countActivePaymentStatsGroupedByTeacher(LocalDate.now()));
+            studentGroupRepository.countActivePaymentStatsGroupedByTeacher(
+                billingStatusService.overdueBefore(billingStatusService.today())));
 
         List<StaffMemberMetricsDto> staff = new ArrayList<>();
         for (User user : users) {

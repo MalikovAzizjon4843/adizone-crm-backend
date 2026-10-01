@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.billing.BillingStatusService;
+import com.crm.billing.DebtorService;
 import com.crm.dto.response.DashboardStatsDto;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.entity.enums.StudentStatus;
@@ -27,6 +29,8 @@ public class DashboardService {
     private final LeadRepository leadRepository;
     private final LeadStageService leadStageService;
     private final PaymentRepository paymentRepository;
+    private final DebtorService debtorService;
+    private final BillingStatusService billingStatusService;
 
     @Transactional(readOnly = true)
     public DashboardStatsDto getStats() {
@@ -47,7 +51,8 @@ public class DashboardService {
             studentGroupRepository.countDistinctLeftBetween(monthStart, now));
         dto.setNewLeftStudents(
             studentRepository.countByStatusAndUpdatedAtBetween(StudentStatus.LEFT, from, to));
-        dto.setDebtors(studentRepository.countByBalanceLessThan(BigDecimal.ZERO));
+        // Billing v2 yagona ta'rifi (§4.5): kamida bitta OVERDUE SG
+        dto.setDebtors(debtorService.countDebtors(billingStatusService.today()));
         dto.setGroups(groupRepository.countByStatus(GroupStatus.ACTIVE));
         dto.setFirstPaymentStudents(paymentRepository.countFirstPaymentsThisMonth(monthStart));
         dto.setFrozen(studentRepository.countByStatus(StudentStatus.FROZEN));

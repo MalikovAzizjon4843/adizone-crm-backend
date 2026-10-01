@@ -61,6 +61,8 @@ public class GroupService {
     private final PaymentScheduleService paymentScheduleService;
     private final TeacherAccessService teacherAccessService;
     private final Messages messages;
+    private final com.crm.billing.BillingStatusService billingStatusService;
+    private final com.crm.billing.EnrollmentLifecycleService enrollmentLifecycleService;
 
     @Transactional(readOnly = true)
     public List<GroupResponse> getAllGroups(GroupStatus status) {
@@ -160,16 +162,19 @@ public class GroupService {
     public List<SuspendedStudentResponse> getSuspendedStudents(Long groupId) {
         Group group = findById(groupId);
         teacherAccessService.assertOwnsGroup(group);
-        return studentGroupRepository.findSuspendedByGroupId(groupId).stream()
+        // Billing v2: SUSPENDED holati yo'q — guruhning OVERDUE (muddati o'tgan qarzli) SG lari (§4.5)
+        LocalDate today = billingStatusService.today();
+        return studentGroupRepository.findWithDebtByGroupId(groupId).stream()
+            .filter(sg -> billingStatusService.isOverdue(sg, today))
             .map(sg -> SuspendedStudentResponse.builder()
                 .studentId(sg.getStudent().getId())
                 .studentName(sg.getStudent().getFirstName() + " " + sg.getStudent().getLastName())
                 .groupId(groupId)
-                .groupName(sg.getGroup().getGroupName())
-                .suspendedAt(sg.getSuspendedAt())
-                .suspensionReason(sg.getSuspensionReason())
-                .daysSinceSuspended(sg.getSuspendedAt() != null
-                    ? ChronoUnit.DAYS.between(sg.getSuspendedAt().toLocalDate(), LocalDate.now()) : null)
+                .groupName(group.getGroupName())
+                .suspendedAt(sg.getDebtSince() != null ? sg.getDebtSince().atStartOfDay() : null)
+                .suspensionReason("OVERDUE")
+                .daysSinceSuspended(sg.getDebtSince() != null
+                    ? ChronoUnit.DAYS.between(sg.getDebtSince(), today) : null)
                 .build())
             .collect(Collectors.toList());
     }
@@ -525,15 +530,10 @@ public class GroupService {
             lessonPrice = group.getCourse().getLessonPrice();
         }
 
-        String initialStatus = isTrial ? "TRIAL" : "PENDING";
 
         student.setPaymentStartDate(paymentStart);
         if (paymentType == PaymentType.MONTHLY) {
             student.setMonthlyFee(fee);
-        }
-        student.setPaymentStatus(isTrial ? PaymentStatus.TRIAL : PaymentStatus.PENDING);
-        if (student.getBalance() == null) {
-            student.setBalance(BigDecimal.ZERO);
         }
         studentRepository.save(student);
 
@@ -546,15 +546,13 @@ public class GroupService {
             .studyFormat(request.getStudyFormat())
             .isTrial(isTrial)
             .isActive(true)
-            .discountPercentage(request.getDiscountPercentage())
-            .monthlyPriceOverride(fee)
+            // Billing v2 (§3.5, §9.5): chegirma 0..100 (null → 0), override faqat kurs narxidan farq qilsa
+            .discountPercentage(com.crm.billing.EnrollmentPricing.requestDiscount(request.getDiscountPercentage()))
+            .monthlyPriceOverride(com.crm.billing.EnrollmentPricing.explicitOverride(fee, group.getCourse()))
             .paymentType(paymentType)
             .lessonPrice(lessonPrice)
-            .lessonsPurchased(0)
-            .lessonsUsed(0)
             .balance(BigDecimal.ZERO)
             .notes(request.getNotes())
-            .paymentStatus(initialStatus)
             .lessonsAttended(0)
             .build();
 
@@ -570,12 +568,8 @@ public class GroupService {
         summary = "'O''quvchi guruhdan chiqarildi'",
         entityId = "#groupId")
     public void removeStudentFromGroup(Long studentId, Long groupId) {
-        StudentGroup sg = studentGroupRepository.findByStudentIdAndGroupIdAndIsActiveTrue(studentId, groupId)
-            .orElseThrow(() -> new ResourceNotFoundException("Student is not in this group"));
-        sg.setIsActive(false);
-        sg.setLeaveDate(LocalDate.now());
-        studentGroupRepository.save(sg);
-        paymentScheduleService.clearPaymentSchedule(studentId);
+        // Billing v2 (§6.10): bugungacha boshlangan davrlar yoziladi, keyingilari yo'q; qaytarim yo'q
+        enrollmentLifecycleService.leave(studentId, groupId, null, null);
     }
 
     @Transactional
@@ -584,16 +578,8 @@ public class GroupService {
         entityId = "#groupId")
     public void removeStudentFromGroup(Long groupId, Long studentId,
             String reason, String notes) {
-        StudentGroup sg = studentGroupRepository
-            .findByStudentIdAndGroupIdAndIsActiveTrue(studentId, groupId)
-            .orElseThrow(() -> new ResourceNotFoundException("StudentGroup", studentId));
-
-        sg.setIsActive(false);
-        sg.setExitDate(LocalDate.now());
-        sg.setLeaveDate(LocalDate.now());
-        sg.setExitReason(reason);
-        sg.setExitNotes(notes);
-        studentGroupRepository.save(sg);
+        // Billing v2 (§6.10): yopish ledger/accrual bilan — balans SG da qoladi
+        StudentGroup sg = enrollmentLifecycleService.leave(studentId, groupId, reason, notes);
 
         // Update student status based on reason
         Student student = sg.getStudent();
@@ -617,8 +603,6 @@ public class GroupService {
         history.setNotes(notes);
         history.setChangedAt(LocalDateTime.now());
         studentStatusHistoryRepository.save(history);
-
-        paymentScheduleService.clearPaymentSchedule(student.getId());
     }
 
     /** POST, PUT va PATCH /status uchun yagona tahlil; noto'g'ri qiymat — 400. */
@@ -719,7 +703,7 @@ public class GroupService {
                     LocalDate joined = sg.getJoinDate();
                     BigDecimal fee = st.getMonthlyFee() != null
                         ? st.getMonthlyFee()
-                        : PaymentScheduleService.resolveMonthlyFee(sg);
+                        : com.crm.billing.EnrollmentPricing.monthlyFee(sg);
                     LocalDate payStart = st.getPaymentStartDate() != null
                         ? st.getPaymentStartDate()
                         : sg.getPaymentStartDate();
@@ -728,7 +712,7 @@ public class GroupService {
                         : sg.getNextPaymentDate();
                     String payStatus = st.getPaymentStatus() != null
                         ? st.getPaymentStatus().name()
-                        : sg.getPaymentStatus();
+                        : (sg.getPaymentStatus() != null ? sg.getPaymentStatus().name() : null);
                     if (payStatus == null) {
                         payStatus = PaymentStatus.PENDING.name();
                     }

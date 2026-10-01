@@ -8,6 +8,9 @@ import java.math.BigDecimal;
 
 @Data
 public class BalanceAdjustRequest {
+    /** Billing v2: ixtiyoriy, default bugun ({@code ≤ bugun}); FIFO shu sana bilan. */
+    private java.time.LocalDate effectiveDate;
+
     @NotNull(message = "{balanceAdjust.groupId.required}")
     private Long groupId;
     @NotNull(message = "{balanceAdjust.amount.required}")

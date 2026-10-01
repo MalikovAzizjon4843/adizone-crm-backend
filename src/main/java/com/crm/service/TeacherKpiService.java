@@ -43,6 +43,7 @@ public class TeacherKpiService {
     private final GroupRepository groupRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final AttendanceRepository attendanceRepository;
+    private final com.crm.billing.BillingStatusService billingStatusService;
 
     @Transactional(readOnly = true)
     public TeacherKpiScoresDto computeScores(Long teacherId, LocalDate from, LocalDate to) {
@@ -97,7 +98,8 @@ public class TeacherKpiService {
         Map<Long, TeacherKpiScoresDto> scores = computeScoresForTeachers(teacherIds, from, to);
         Map<Long, Integer> groupCounts = toIntMap(groupRepository.countGroupsGroupedByTeacher());
         Map<Long, long[]> paymentStats = toPaymentStatsMap(
-            studentGroupRepository.countActivePaymentStatsGroupedByTeacher(LocalDate.now()));
+            studentGroupRepository.countActivePaymentStatsGroupedByTeacher(
+                billingStatusService.overdueBefore(billingStatusService.today())));
 
         List<TeacherKpiRankingItemDto> items = new ArrayList<>();
         for (Teacher t : teachers) {
@@ -152,7 +154,8 @@ public class TeacherKpiService {
         Map<Long, long[]> attendance = toLongPairMap(
             attendanceRepository.countAttendanceStatsGroupedByTeacher(from, to, PRESENT_STATUSES));
         Map<Long, long[]> payment = toPaymentStatsMap(
-            studentGroupRepository.countActivePaymentStatsGroupedByTeacher(LocalDate.now()));
+            studentGroupRepository.countActivePaymentStatsGroupedByTeacher(
+                billingStatusService.overdueBefore(billingStatusService.today())));
         Map<Long, long[]> leaves = toLongPairMap(
             studentGroupRepository.countLeaveStatsGroupedByTeacher(from, to));
 

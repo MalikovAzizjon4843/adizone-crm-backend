@@ -100,6 +100,32 @@ public class Payment {
     @Column(name = "cash_amount", precision = 12, scale = 2)
     private BigDecimal cashAmount;
 
+    /**
+     * {@code Idempotency-Key} sarlavhasi (§7.3). UNIQUE, NULL ruxsat — eski front
+     * kalitsiz ham ishlaydi (himoyasiz).
+     */
+    @Column(name = "idempotency_key", length = 64, unique = true)
+    private String idempotencyKey;
+
+    /** So'rov tanasining barmoq izi — bir xil kalit, boshqa body → 409. */
+    @Column(name = "idempotency_hash", length = 64)
+    private String idempotencyHash;
+
+    /** Kassa kirimi ({@code cash_transactions.id}) — I5. */
+    @Column(name = "cash_transaction_id")
+    private Long cashTransactionId;
+
+    // ── Bekor qilish (§6.4) ──
+    @Column(name = "cancelled_at")
+    private LocalDateTime cancelledAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "cancelled_by_id")
+    private User cancelledBy;
+
+    @Column(name = "cancel_reason", length = 500)
+    private String cancelReason;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

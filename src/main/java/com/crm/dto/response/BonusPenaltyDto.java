@@ -33,4 +33,10 @@ public class BonusPenaltyDto {
     private String createdByName;
     private String targetName;
     private BigDecimal signedAmount;
+    /** Billing v2 (§6.5). */
+    private Long studentGroupId;
+    private Long groupId;
+    private Long ledgerTxId;
+    private Long appliedToPaymentId;
+    private String cancelReason;
 }

@@ -19,6 +19,7 @@ import com.crm.entity.enums.CashRegisterStatus;
 import com.crm.entity.enums.CashTransactionStatus;
 import com.crm.entity.enums.CashTransactionType;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.CodedException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.CashRegisterRepository;
 import com.crm.repository.CashTransactionRepository;
@@ -64,6 +65,7 @@ public class CashRegisterService {
     private final CashTransactionRepository cashTransactionRepository;
     private final UserRepository userRepository;
     private final StudentRepository studentRepository;
+    private final com.crm.billing.BillingLocks billingLocks;
 
     @Transactional(readOnly = true)
     public List<CashRegisterDto> getAll(String status) {
@@ -339,8 +341,28 @@ public class CashRegisterService {
             LocalDate transactionDate,
             BigDecimal cashPart,
             BigDecimal cardPart) {
+        return recordIncome(cashRegisterId, amount, method, student, transactionName, note,
+            transactionDate, cashPart, cardPart, null);
+    }
 
-        CashRegister register = findRegisterById(cashRegisterId);
+    /**
+     * Kirim. Kassa qatori qulf ostida o'zgaradi (§7, I6) — parallel ikki kirim
+     * bir-birini yo'qotmaydi. {@code paymentId} — o'quvchi to'lovi (I5).
+     */
+    @Transactional
+    public CashTransaction recordIncome(
+            Long cashRegisterId,
+            BigDecimal amount,
+            PaymentMethod method,
+            Student student,
+            String transactionName,
+            String note,
+            LocalDate transactionDate,
+            BigDecimal cashPart,
+            BigDecimal cardPart,
+            Long paymentId) {
+
+        CashRegister register = billingLocks.lockCashRegister(cashRegisterId);
         BigDecimal positiveAmount = requirePositiveAmount(amount);
         PaymentMethod cashMethod = requirePaymentMethod(method);
         SplitParts parts = validateParts(cashMethod, positiveAmount, cashPart, cardPart);
@@ -365,10 +387,49 @@ public class CashRegisterService {
         tx.setTransactionDate(transactionDate != null ? transactionDate : LocalDate.now());
         tx.setStatus(CashTransactionStatus.COMPLETED);
         tx.setCreatedBy(currentUser());
+        tx.setPaymentId(paymentId);
         if (student != null) {
             tx.setStudent(student);
         }
         return cashTransactionRepository.save(tx);
+    }
+
+    /** Teskari kassa yozuvi natijasi: manfiy chelak — ogohlantirish (§13 #22). */
+    public record ReversalResult(CashTransaction transaction, boolean negativeBalance) {
+    }
+
+    /**
+     * To'lov bekor qilinganda kirimning teskarisi (§6.4): {@code type = REVERSAL},
+     * chelaklar ASL taqsimot bo'yicha kamayadi, manfiyga tushishi mumkin.
+     * Asl yozuv o'chirilmaydi.
+     */
+    @Transactional
+    public ReversalResult recordReversal(CashTransaction original, String note) {
+        CashRegister register = billingLocks.lockCashRegister(original.getCashRegister().getId());
+        BucketAmounts parts = bucketAmounts(original);
+
+        CashTransaction tx = new CashTransaction();
+        tx.setCashRegister(register);
+        tx.setType(CashTransactionType.REVERSAL);
+        tx.setPaymentMethod(original.getPaymentMethod());
+        tx.setAmount(original.getAmount());
+        tx.setCashPart(original.getCashPart());
+        tx.setCardPart(original.getCardPart());
+        tx.setTransactionName("Bekor qilindi: " + (original.getTransactionName() != null
+            ? original.getTransactionName() : "kirim"));
+        tx.setNote(note);
+        tx.setTransactionDate(LocalDate.now());
+        tx.setStatus(CashTransactionStatus.COMPLETED);
+        tx.setCreatedBy(currentUser());
+        tx.setStudent(original.getStudent());
+        tx.setPaymentId(original.getPaymentId());
+        tx.setRelatedTxId(original.getId());
+        CashTransaction saved = cashTransactionRepository.save(tx);
+
+        subtractFromBalanceAllowNegative(register, parts);
+        cashRegisterRepository.save(register);
+        boolean negative = register.getCashBalance().signum() < 0 || register.getPlasticBalance().signum() < 0;
+        return new ReversalResult(saved, negative);
     }
 
     @Transactional
@@ -376,28 +437,23 @@ public class CashRegisterService {
         summary = "'Kassaga kirim: ' + #dto.amount",
         entityId = "#cashRegisterId")
     public CashTransactionDto addIncome(Long cashRegisterId, IncomeCreateDto dto) {
-        Student student = null;
+        // Billing v2 (I2): o'quvchi pulini faqat /api/payments qabul qiladi — u
+        // ledger, chek va kassani bitta tranzaksiyada yozadi. Bu yerda
+        // student.balance ledgersiz o'zgarardi va keyingi sync uni yo'q qilardi.
         if (dto.getStudentId() != null) {
-            student = findStudentById(dto.getStudentId());
+            throw CodedException.badRequest("cash.income.studentPaymentViaPayments");
         }
 
         CashTransaction tx = recordIncome(
             cashRegisterId,
             dto.getAmount(),
             dto.getPaymentMethod(),
-            student,
+            null,
             dto.getTransactionType(),
             dto.getNote(),
             dto.getTransactionDate(),
             dto.getCashPart(),
             dto.getCardPart());
-
-        if (student != null && dto.getAmount() != null) {
-            BigDecimal current = student.getBalance() != null
-                ? student.getBalance() : BigDecimal.ZERO;
-            student.setBalance(current.add(requirePositiveAmount(dto.getAmount())));
-            studentRepository.save(student);
-        }
 
         return toTransactionDto(tx);
     }
@@ -451,7 +507,7 @@ public class CashRegisterService {
             BigDecimal cashPart,
             BigDecimal cardPart) {
 
-        CashRegister register = findRegisterById(registerId);
+        CashRegister register = billingLocks.lockCashRegister(registerId);
         BigDecimal positiveAmount = requirePositiveAmount(amount);
         PaymentMethod cashMethod = requirePaymentMethod(method);
         SplitParts parts = validateParts(cashMethod, positiveAmount, cashPart, cardPart);
@@ -520,7 +576,7 @@ public class CashRegisterService {
         CashTransaction tx = cashTransactionRepository.findById(transactionId)
             .orElseThrow(() -> new ResourceNotFoundException("CashTransaction", transactionId));
 
-        CashRegister register = tx.getCashRegister();
+        CashRegister register = billingLocks.lockCashRegister(tx.getCashRegister().getId());
 
         // Chiqim o'chirilyapti — summa chelaklarga qanday yozilgan bo'lsa, shunday qaytariladi.
         addToBalance(register, bucketAmounts(tx));
@@ -540,8 +596,13 @@ public class CashRegisterService {
             throw new BadRequestException("Kassalar bir xil bo'lishi mumkin emas");
         }
 
-        CashRegister from = findRegisterById(dto.getFromCashRegisterId());
-        CashRegister to = findRegisterById(dto.getToCashRegisterId());
+        // Qulf tartibi (§7.2): kichik id avval — teskari yo'nalishdagi o'tkazma bilan deadlock yo'q
+        Long firstId = Math.min(dto.getFromCashRegisterId(), dto.getToCashRegisterId());
+        Long secondId = Math.max(dto.getFromCashRegisterId(), dto.getToCashRegisterId());
+        CashRegister first = billingLocks.lockCashRegister(firstId);
+        CashRegister second = billingLocks.lockCashRegister(secondId);
+        CashRegister from = first.getId().equals(dto.getFromCashRegisterId()) ? first : second;
+        CashRegister to = from == first ? second : first;
         BigDecimal amount = requirePositiveAmount(dto.getAmount());
         PaymentMethod method = requirePaymentMethod(dto.getPaymentMethod());
         SplitParts parts = validateParts(method, amount, dto.getCashPart(), dto.getCardPart());
@@ -712,8 +773,11 @@ public class CashRegisterService {
     }
 
     private User currentUser() {
-        String username = SecurityContextHolder.getContext().getAuthentication().getName();
-        return userRepository.findByUsername(username).orElse(null);
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null) {
+            return null;
+        }
+        return userRepository.findByUsername(auth.getName()).orElse(null);
     }
 
     private static BigDecimal requirePositiveAmount(BigDecimal amount) {

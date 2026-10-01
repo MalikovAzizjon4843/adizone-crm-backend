@@ -1,5 +1,7 @@
 package com.crm.service;
 
+import com.crm.billing.BillingStatusService;
+import com.crm.billing.DebtorService;
 import com.crm.dto.response.*;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.entity.enums.StudentStatus;
@@ -33,6 +35,8 @@ public class AnalyticsService {
     private final PayrollRepository payrollRepository;
     private final NoticeRepository noticeRepository;
     private final CourseRepository courseRepository;
+    private final DebtorService debtorService;
+    private final BillingStatusService billingStatusService;
     private static final DateTimeFormatter MONTH_LABEL = DateTimeFormatter.ofPattern("yyyy-MM");
     private static final DateTimeFormatter YEAR_LABEL = DateTimeFormatter.ofPattern("yyyy");
 
@@ -53,7 +57,8 @@ public class AnalyticsService {
 
         long totalCourses = courseRepository.count();
 
-        long debtorCount = studentGroupRepository.findDebtors(now).size();
+        // Billing v2 yagona ta'rifi (§4.5) — o'quvchilar soni, dashboard bilan bir xil
+        long debtorCount = debtorService.countDebtors(billingStatusService.today());
 
         BigDecimal monthlyRevenue = Optional.ofNullable(
             paymentRepository.sumCashAmountByDateRange(monthStart, monthEnd)
@@ -300,7 +305,7 @@ public class AnalyticsService {
             .forEach(row -> bySource.put(row[0].toString(), (Long) row[1]));
         result.put("byMarketingSource", bySource);
 
-        result.put("debtors", studentGroupRepository.findDebtors(LocalDate.now()).size());
+        result.put("debtors", debtorService.countDebtors(billingStatusService.today()));
         return result;
     }
 }
