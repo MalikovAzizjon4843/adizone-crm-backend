@@ -6,12 +6,21 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 
 @Repository
 public interface GroupScheduleDayRepository extends JpaRepository<GroupScheduleDay, Long> {
 
     List<GroupScheduleDay> findByGroup_IdOrderByDayOfWeekAsc(Long groupId);
+
+    /**
+     * Ro'yxat (GET /api/groups) uchun: barcha guruhlarning jadval kunlari BITTA so'rovda, xona bilan
+     * (har kun uchun alohida lazy so'rov bo'lmasin). Tartib — findByGroup_IdOrderByDayOfWeekAsc bilan bir xil.
+     */
+    @Query(value = "SELECT s FROM GroupScheduleDay s LEFT JOIN FETCH s.room " +
+           "WHERE s.group.id IN :groupIds ORDER BY s.group.id ASC, s.dayOfWeek ASC")
+    List<GroupScheduleDay> findWithRoomByGroupIds(@Param(value = "groupIds") Collection<Long> groupIds);
 
     boolean existsByGroup_IdAndDayOfWeekIgnoreCase(Long groupId, String dayOfWeek);
 

@@ -18,7 +18,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -33,19 +32,17 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AttendanceService {
 
-    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
     private static final int DEFAULT_MISSING_DAYS = 30;
 
     private final AttendanceRepository attendanceRepository;
     private final StudentRepository studentRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final GroupRepository groupRepository;
-    private final GroupScheduleDayRepository groupScheduleDayRepository;
-    private final TimetableRepository timetableRepository;
+    private final GroupScheduleService groupScheduleService;
     private final TelegramService telegramService;
     private final ParentRepository parentRepository;
     private final StudentPaymentLifecycleService studentPaymentLifecycleService;
-    private final AttendanceUnlockRequestRepository attendanceUnlockRequestRepository;
+    private final AttendanceUnlockRequestService attendanceUnlockRequestService;
     private final TeacherAccessService teacherAccessService;
     private final BalanceTransactionService balanceTransactionService;
 
@@ -60,29 +57,41 @@ public class AttendanceService {
         teacherAccessService.assertOwnsGroup(group);
 
         LocalDate date = request.getDate();
+        // "Bugun" — Asia/Tashkent (JVM default zonasi, CrmApplication.main).
+        LocalDate today = LocalDate.now();
+        if (date != null && date.isAfter(today)) {
+            throw new BadRequestException("Kelajakdagi sana uchun davomat kiritib bo'lmaydi");
+        }
         assertGroupHasLessonOnDate(group.getId(), date);
 
         User marker = teacherAccessService.getCurrentUserOrThrow();
 
-        LocalDate today = LocalDate.now();
         boolean isAdmin = teacherAccessService.isCurrentUserAdmin();
 
         if (!isAdmin && date != null && date.isBefore(today)) {
             Teacher teacher = teacherAccessService.getCurrentTeacherOrThrow();
 
-            boolean hasUnlock = attendanceUnlockRequestRepository.existsByTeacherIdAndGroupIdAndAttendanceDateAndStatus(
-                teacher.getId(), request.getGroupId(), date, com.crm.entity.enums.UnlockRequestStatus.APPROVED
-            );
-
-            if (!hasUnlock) {
-                throw new com.crm.exception.ForbiddenException("Bu kun uchun ruxsat kerak. Admindan so'rang.");
+            // APPROVED ruxsat muddatli (reviewedAt + app.attendance.unlock-valid-hours).
+            switch (attendanceUnlockRequestService.unlockState(teacher.getId(), request.getGroupId(), date)) {
+                case VALID -> {
+                    // ruxsat amal qilmoqda
+                }
+                case EXPIRED -> throw new com.crm.exception.ForbiddenException(
+                    "Ruxsat muddati tugagan, qayta so'rang");
+                case NONE -> throw new com.crm.exception.ForbiddenException(
+                    "Bu kun uchun ruxsat kerak. Admindan so'rang.");
             }
         }
 
         List<AttendanceResponse> results = new ArrayList<>();
 
         for (AttendanceRequest.StudentAttendanceItem item : request.getAttendances()) {
-            AttendanceStatus itemStatus = item.getStatus() != null ? item.getStatus() : AttendanceStatus.PRESENT;
+            // Holati yo'q element o'tkazib yuboriladi (avval PRESENT deb yozilardi — "belgilanmagan"
+            // o'quvchi "keldi" bo'lib qolardi; eski panel hali yuborishi mumkin).
+            if (item.getStatus() == null) {
+                continue;
+            }
+            AttendanceStatus itemStatus = item.getStatus();
             if (itemStatus == AttendanceStatus.ABSENT || itemStatus == AttendanceStatus.EXCUSED || itemStatus == AttendanceStatus.LATE) {
                 boolean hasNote = (item.getNotes() != null && !item.getNotes().isBlank()) ||
                                   (item.getExcuseReason() != null && !item.getExcuseReason().isBlank());
@@ -109,7 +118,7 @@ public class AttendanceService {
                     .build();
             }
 
-            attendance.setStatus(item.getStatus() != null ? item.getStatus() : AttendanceStatus.PRESENT);
+            attendance.setStatus(itemStatus);
             attendance.setNotes(item.getNotes());
             attendance.setMarkedBy(marker);
 
@@ -167,27 +176,18 @@ public class AttendanceService {
         return results;
     }
 
-    /** Dars bo'lmagan kunga davomat kiritishni bloklaydi (admin uchun ham). */
+    /**
+     * Dars bo'lmagan kunga davomat kiritishni bloklaydi (admin uchun ham). Manba —
+     * {@link GroupScheduleService} (GET /groups/{id}/lesson-days bilan bir xil).
+     */
     void assertGroupHasLessonOnDate(Long groupId, LocalDate date) {
         if (date == null) {
             throw new BadRequestException("Sana majburiy");
         }
-        String day = date.getDayOfWeek().name();
-        if (!hasLessonOnDayOfWeek(groupId, day)) {
+        if (!groupScheduleService.hasLessonOn(groupId, date)) {
             throw new BadRequestException(
-                "Bu kunda guruhda dars yo'q (" + dayToUzbek(day) + ")");
+                "Bu kunda guruhda dars yo'q (" + dayToUzbek(date.getDayOfWeek().name()) + ")");
         }
-    }
-
-    boolean hasLessonOnDayOfWeek(Long groupId, String dayOfWeek) {
-        if (dayOfWeek == null || dayOfWeek.isBlank()) {
-            return false;
-        }
-        String day = dayOfWeek.trim().toUpperCase(Locale.ROOT);
-        if (groupScheduleDayRepository.existsByGroup_IdAndDayOfWeekIgnoreCase(groupId, day)) {
-            return true;
-        }
-        return timetableRepository.existsByGroup_IdAndDayOfWeek(groupId, day);
     }
 
     @Transactional(readOnly = true)
@@ -271,39 +271,13 @@ public class AttendanceService {
             .build();
     }
 
-    /** dayOfWeek → startTime (birinchi topilgan) */
+    /** dayOfWeek → startTime (birinchi topilgan). Manba — {@link GroupScheduleService}. */
     private Map<String, String> loadLessonStartTimes(Long groupId) {
         Map<String, String> map = new LinkedHashMap<>();
-        for (GroupScheduleDay day : groupScheduleDayRepository.findByGroup_IdOrderByDayOfWeekAsc(groupId)) {
-            if (day.getDayOfWeek() == null || day.getDayOfWeek().isBlank()) {
-                continue;
-            }
-            String key = day.getDayOfWeek().trim().toUpperCase(Locale.ROOT);
-            map.putIfAbsent(key, normalizeTime(day.getStartTime()));
-        }
-        if (!map.isEmpty()) {
-            return map;
-        }
-        for (Timetable t : timetableRepository.findByGroupId(groupId)) {
-            if (t.getDayOfWeek() == null || t.getDayOfWeek().isBlank()) {
-                continue;
-            }
-            String key = t.getDayOfWeek().trim().toUpperCase(Locale.ROOT);
-            String start = t.getStartTime() != null ? t.getStartTime().format(TIME_FMT) : null;
-            map.putIfAbsent(key, start);
+        for (GroupScheduleService.LessonSlot slot : groupScheduleService.lessonSlots(groupId)) {
+            map.putIfAbsent(slot.dayOfWeek(), slot.startTime());
         }
         return map;
-    }
-
-    private static String normalizeTime(String time) {
-        if (time == null || time.isBlank()) {
-            return null;
-        }
-        String t = time.trim();
-        if (t.length() >= 5) {
-            return t.substring(0, 5);
-        }
-        return t;
     }
 
     static String dayToUzbek(String day) {

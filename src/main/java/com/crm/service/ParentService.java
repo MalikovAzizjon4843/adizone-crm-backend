@@ -66,7 +66,12 @@ public class ParentService {
         Parent parent = findById(id);
         parent.setFullName(request.getFullName());
         parent.setPhone(request.getPhone());
-        parent.setTelegramChatId(request.getTelegramChatId());
+        // telegramChatId bot orqali bog'lanadi va javobda qaytmaydi — admin paneli uni yubormaydi.
+        // null kelsa mavjud bog'lanish SAQLANADI; bo'sh satr — ataylab uzish.
+        if (request.getTelegramChatId() != null) {
+            String chatId = request.getTelegramChatId().trim();
+            parent.setTelegramChatId(chatId.isEmpty() ? null : chatId);
+        }
         parent.setAddress(request.getAddress());
         if (request.getRelation() != null) {
             parent.setRelation(request.getRelation());

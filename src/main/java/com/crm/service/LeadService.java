@@ -43,6 +43,12 @@ import com.crm.repository.LeadRepository;
 import com.crm.repository.LeadStatusHistoryRepository;
 import com.crm.repository.StudentRepository;
 import com.crm.repository.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -103,6 +109,7 @@ public class LeadService {
     private final LeadAccessService leadAccessService;
     private final LeadStageService leadStageService;
     private final Messages messages;
+    private final EntityManager entityManager;
 
     @Transactional
     @Audited(action = AuditAction.CREATE, entity = "Lead",
@@ -206,7 +213,7 @@ public class LeadService {
     public PageResponse<LeadResponse> getAll(
             int page, int size, String status, String search,
             Long assignedUserId, Boolean unassigned,
-            String fromDate, String toDate) {
+            String fromDate, String toDate, String source) {
         // SALES_MANAGER uchun operator filtri majburlab qo'yiladi: so'rovdagi
         // assignedUserId ham, unassigned ham e'tiborga olinmaydi.
         Optional<Long> scope = leadAccessService.resolveOperatorScope();
@@ -217,7 +224,7 @@ public class LeadService {
         int safePage = Math.max(page, 0);
         Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by("createdAt").descending());
         Specification<Lead> spec = buildLeadSpec(
-            status, search, effectiveUserId, effectiveUnassigned, fromDate, toDate);
+            status, search, effectiveUserId, effectiveUnassigned, fromDate, toDate, source);
         Page<Lead> leads = leadRepository.findAll(spec, pageable);
         return toPageResponse(leads);
     }
@@ -716,13 +723,34 @@ public class LeadService {
      * <p>{@code totalAmount} — ustundagi lidlar summasining yig'indisi.
      * Summasi yo'q lid nol deb sanaladi, ya'ni bo'sh ustun ham null emas,
      * nol qaytaradi.
+     *
+     * <p>Filtrlar ({@code search, assignedUserId, unassigned, fromDate, toDate, source}) —
+     * {@link #getAll} bilan bir xil spetsifikatsiya ({@link #buildLeadSpec}) va bir xil
+     * SALES_MANAGER qoidasi. Filtr berilmasa — avvalgi so'rovlar (natija o'zgarmaydi).
      */
     @Transactional(readOnly = true)
-    public LeadKanbanStatsResponse getKanbanStats() {
+    public LeadKanbanStatsResponse getKanbanStats(
+            String search, Long assignedUserId, Boolean unassigned,
+            String fromDate, String toDate, String source) {
         Optional<Long> scope = leadAccessService.resolveOperatorScope();
-        List<Object[]> rows = scope
-                .map(leadRepository::countKanbanGroupedByUser)
-                .orElseGet(leadRepository::countKanbanGrouped);
+        boolean filtered = (search != null && !search.isBlank())
+                || assignedUserId != null
+                || Boolean.TRUE.equals(unassigned)
+                || (fromDate != null && !fromDate.isBlank())
+                || (toDate != null && !toDate.isBlank())
+                || (source != null && !source.isBlank());
+
+        List<Object[]> rows;
+        if (filtered) {
+            Long effectiveUserId = scope.orElse(assignedUserId);
+            Boolean effectiveUnassigned = scope.isPresent() ? null : unassigned;
+            rows = countKanbanGrouped(buildLeadSpec(
+                    null, search, effectiveUserId, effectiveUnassigned, fromDate, toDate, source));
+        } else {
+            rows = scope
+                    .map(leadRepository::countKanbanGroupedByUser)
+                    .orElseGet(leadRepository::countKanbanGrouped);
+        }
 
         // Bosqichlar tartibi lead_stages dan — bo'sh ustun ham qaytadi.
         Map<String, Long> counts = new LinkedHashMap<>();
@@ -776,6 +804,36 @@ public class LeadService {
             return BigDecimal.valueOf(n.doubleValue());
         }
         return BigDecimal.ZERO;
+    }
+
+    /**
+     * {@link LeadRepository#countKanbanGrouped} ning filtrli varianti: ustunlar shakli bir xil —
+     * {@code [status, count, unassignedCount, amountSum, unassignedAmountSum]}.
+     */
+    private List<Object[]> countKanbanGrouped(Specification<Lead> spec) {
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<Object[]> cq = cb.createQuery(Object[].class);
+        Root<Lead> root = cq.from(Lead.class);
+
+        Expression<BigDecimal> amount = cb.coalesce(root.<BigDecimal>get("amount"), BigDecimal.ZERO);
+        Predicate isUnassigned = cb.isNull(root.get("assignedUser"));
+        Expression<Integer> unassignedOne = cb.<Integer>selectCase().when(isUnassigned, 1).otherwise(0);
+        Expression<BigDecimal> unassignedAmount = cb.<BigDecimal>selectCase()
+                .when(isUnassigned, amount)
+                .otherwise(BigDecimal.ZERO);
+
+        cq.multiselect(
+                root.get("status"),
+                cb.count(root),
+                cb.sum(unassignedOne),
+                cb.coalesce(cb.sum(amount), BigDecimal.ZERO),
+                cb.coalesce(cb.sum(unassignedAmount), BigDecimal.ZERO));
+        Predicate where = spec.toPredicate(root, cq, cb);
+        if (where != null) {
+            cq.where(where);
+        }
+        cq.groupBy(root.get("status"));
+        return entityManager.createQuery(cq).getResultList();
     }
 
     @Transactional(readOnly = true)
@@ -863,8 +921,20 @@ public class LeadService {
 
     private Specification<Lead> buildLeadSpec(
             String status, String search, Long assignedUserId, Boolean unassigned,
-            String fromDate, String toDate) {
+            String fromDate, String toDate, String source) {
         Specification<Lead> spec = Specification.where(null);
+
+        if (source != null && !source.isBlank()) {
+            // Registrsiz, vergul bilan bir nechta: "instagram,TELEGRAM".
+            List<String> sources = Arrays.stream(source.split(","))
+                    .map(String::trim)
+                    .filter(str -> !str.isEmpty())
+                    .map(str -> str.toUpperCase(Locale.ROOT))
+                    .toList();
+            if (!sources.isEmpty()) {
+                spec = spec.and((root, query, cb) -> cb.upper(root.get("source")).in(sources));
+            }
+        }
 
         if (status != null && !status.isBlank()) {
             if (status.contains(",")) {
@@ -1088,7 +1158,7 @@ public class LeadService {
 
     @Transactional(readOnly = true)
     public byte[] exportLeadsXlsx(String fromDate, String toDate, String status, Long operatorId) {
-        Specification<Lead> spec = buildLeadSpec(status, null, operatorId, null, fromDate, toDate);
+        Specification<Lead> spec = buildLeadSpec(status, null, operatorId, null, fromDate, toDate, null);
         List<Lead> leads = leadRepository.findAll(spec, Sort.by("createdAt").descending());
 
         List<Long> leadIds = leads.stream().map(Lead::getId).toList();

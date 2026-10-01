@@ -19,7 +19,7 @@ public class PaymentReminderService {
     private final ParentRepository parentRepository;
     private final TelegramService telegramService;
 
-    @Scheduled(cron = "0 0 10 * * *")
+    @Scheduled(cron = "0 0 10 * * *", zone = "Asia/Tashkent")
     public void sendPaymentReminders() {
         log.info("To'lov eslatmalari yuborilmoqda...");
 

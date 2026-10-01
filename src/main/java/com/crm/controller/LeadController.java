@@ -88,9 +88,10 @@ public class LeadController {
             @RequestParam(name = "assignedUserId", required = false) Long assignedUserId,
             @RequestParam(name = "unassigned", required = false) Boolean unassigned,
             @RequestParam(name = "fromDate", required = false) String fromDate,
-            @RequestParam(name = "toDate", required = false) String toDate) {
+            @RequestParam(name = "toDate", required = false) String toDate,
+            @RequestParam(name = "source", required = false) String source) {
         return ResponseEntity.ok(ApiResponse.success(
-                leadService.getAll(page, size, status, search, assignedUserId, unassigned, fromDate, toDate)));
+                leadService.getAll(page, size, status, search, assignedUserId, unassigned, fromDate, toDate, source)));
     }
 
     @GetMapping("/export")
@@ -120,10 +121,20 @@ public class LeadController {
     /**
      * Kanban sarlavhalari. {@code /stats} dan farqli, bu SALES_MANAGER ga
      * ham ochiq: javob uning o'z lidlari bilan cheklanadi.
+     *
+     * <p>Filtrlar ixtiyoriy va {@code GET /api/leads} bilan BIR XIL semantikada — ustun sonlari
+     * filtrli kanbanga mos keladi. Parametrsiz chaqiruv avvalgidek ishlaydi.
      */
     @GetMapping("/kanban-stats")
-    public ResponseEntity<ApiResponse<LeadKanbanStatsResponse>> getKanbanStats() {
-        return ResponseEntity.ok(ApiResponse.success(leadService.getKanbanStats()));
+    public ResponseEntity<ApiResponse<LeadKanbanStatsResponse>> getKanbanStats(
+            @RequestParam(name = "search", required = false) String search,
+            @RequestParam(name = "assignedUserId", required = false) Long assignedUserId,
+            @RequestParam(name = "unassigned", required = false) Boolean unassigned,
+            @RequestParam(name = "fromDate", required = false) String fromDate,
+            @RequestParam(name = "toDate", required = false) String toDate,
+            @RequestParam(name = "source", required = false) String source) {
+        return ResponseEntity.ok(ApiResponse.success(
+                leadService.getKanbanStats(search, assignedUserId, unassigned, fromDate, toDate, source)));
     }
 
     @GetMapping("/operators")

@@ -12,6 +12,7 @@ import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -35,6 +36,45 @@ public class AttendanceUnlockRequestService {
     private final UserRepository userRepository;
     private final BonusPenaltyService bonusPenaltyService;
     private final TeacherAccessService teacherAccessService;
+
+    /**
+     * APPROVED ruxsat {@code reviewedAt} dan shuncha soat amal qiladi. Undan keyin o'qituvchi
+     * o'sha kunni yoza olmaydi (403) va yangi so'rov yuborishi kerak.
+     */
+    @Value(value = "${app.attendance.unlock-valid-hours:48}")
+    private long unlockValidHours;
+
+    /** O'qituvchining (guruh, sana) uchun ochish ruxsati holati. */
+    public enum UnlockState {
+        /** APPROVED so'rov yo'q. */
+        NONE,
+        /** Kamida bitta APPROVED ruxsat hali amal qiladi. */
+        VALID,
+        /** APPROVED bor, lekin hammasining muddati o'tgan. */
+        EXPIRED
+    }
+
+    @Transactional(readOnly = true)
+    public UnlockState unlockState(Long teacherId, Long groupId, LocalDate date) {
+        List<AttendanceUnlockRequest> approved = attendanceUnlockRequestRepository.findAll(
+            buildSpec(UnlockRequestStatus.APPROVED, teacherId, groupId, date), NEWEST_FIRST);
+        if (approved.isEmpty()) {
+            return UnlockState.NONE;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        boolean valid = approved.stream()
+            .map(this::expiresAt)
+            .anyMatch(expiresAt -> expiresAt != null && expiresAt.isAfter(now));
+        return valid ? UnlockState.VALID : UnlockState.EXPIRED;
+    }
+
+    /** APPROVED ruxsatning tugash vaqti; boshqa holatlarda (yoki reviewedAt yo'q bo'lsa) null. */
+    private LocalDateTime expiresAt(AttendanceUnlockRequest req) {
+        if (req.getStatus() != UnlockRequestStatus.APPROVED || req.getReviewedAt() == null) {
+            return null;
+        }
+        return req.getReviewedAt().plusHours(unlockValidHours);
+    }
 
     @Transactional
     public AttendanceUnlockResponseDto createRequest(AttendanceUnlockCreateDto dto) {
@@ -201,6 +241,7 @@ public class AttendanceUnlockRequestService {
             .reviewedById(req.getReviewedBy() != null ? req.getReviewedBy().getId() : null)
             .reviewedByName(req.getReviewedBy() != null ? req.getReviewedBy().getFirstName() + " " + req.getReviewedBy().getLastName() : null)
             .reviewedAt(req.getReviewedAt())
+            .expiresAt(expiresAt(req))
             .createdAt(req.getCreatedAt())
             .build();
     }

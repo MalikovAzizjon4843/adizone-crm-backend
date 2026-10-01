@@ -86,7 +86,7 @@ public class StudentPaymentLifecycleService {
         log.debug("checkOverduePayments disabled — use PaymentScheduleService.updateOverdueStatusesDaily");
     }
 
-    @Scheduled(cron = "0 0 8 * * *")
+    @Scheduled(cron = "0 0 8 * * *", zone = "Asia/Tashkent")
     @Transactional
     public void archiveInactiveStudents() {
         LocalDate thirtyDaysAgo = LocalDate.now().minusDays(30);

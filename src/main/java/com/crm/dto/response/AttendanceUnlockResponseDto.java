@@ -24,5 +24,7 @@ public class AttendanceUnlockResponseDto {
     private Long reviewedById;
     private String reviewedByName;
     private LocalDateTime reviewedAt;
+    /** Faqat APPROVED: ruxsat shu vaqtgacha amal qiladi (reviewedAt + app.attendance.unlock-valid-hours). */
+    private LocalDateTime expiresAt;
     private LocalDateTime createdAt;
 }

@@ -18,7 +18,7 @@ public class TokenCleanupService {
 
     private final RefreshTokenRepository refreshTokenRepository;
 
-    @Scheduled(cron = "0 0 3 * * *")
+    @Scheduled(cron = "0 0 3 * * *", zone = "Asia/Tashkent")
     @Transactional
     public void cleanupExpiredTokens() {
         List<RefreshToken> expired =

@@ -1028,7 +1028,7 @@ public class PaymentScheduleService {
     }
 
     /** Har kuni 00:05 — sana asosida recalculate (yagona status manbasi). */
-    @Scheduled(cron = "0 5 0 * * *")
+    @Scheduled(cron = "0 5 0 * * *", zone = "Asia/Tashkent")
     @Transactional
     public void updateOverdueStatusesDaily() {
         LocalDate today = LocalDate.now();

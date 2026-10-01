@@ -313,6 +313,8 @@ public class StudentService {
                     .isActive(true)
                     .build();
             } else {
+                // telegramChatId bu yerda ATAYLAB o'zgartirilmaydi — StudentParentRequest'da yo'q,
+                // ota-onaning bot bilan bog'lanishi o'quvchi saqlanganda yo'qolmasin.
                 parent.setFullName(fullName);
                 if (pr.getAddress() != null && !pr.getAddress().isBlank()) {
                     parent.setAddress(pr.getAddress());

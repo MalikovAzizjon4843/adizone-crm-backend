@@ -19,7 +19,7 @@ public class AuditRetentionJob {
     private final AuditLogRepository auditLogRepository;
     private final AuditProperties properties;
 
-    @Scheduled(cron = "0 30 3 * * *")
+    @Scheduled(cron = "0 30 3 * * *", zone = "Asia/Tashkent")
     @Transactional
     public void purgeOldLogs() {
         int days = properties.getRetentionDays();

@@ -54,6 +54,7 @@ public class GroupService {
     private final StudentRepository studentRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final GroupScheduleDayRepository groupScheduleDayRepository;
+    private final GroupScheduleService groupScheduleService;
     private final ClassroomRepository classroomRepository;
     private final TimetableRepository timetableRepository;
     private final StudentStatusHistoryRepository studentStatusHistoryRepository;
@@ -75,9 +76,18 @@ public class GroupService {
                 ? groupRepository.findByStatus(status)
                 : groupRepository.findAll();
         }
+        if (groups.isEmpty()) {
+            return new ArrayList<>();
+        }
         Map<Long, Integer> activeCounts = loadActiveStudentCountsByGroup();
+        // Jadval kunlari — barcha guruhlar uchun bitta so'rov (N+1 emas), xona bilan.
+        Map<Long, List<GroupScheduleDay>> daysByGroup = groupScheduleDayRepository
+            .findWithRoomByGroupIds(groups.stream().map(Group::getId).collect(Collectors.toList()))
+            .stream()
+            .collect(Collectors.groupingBy(d -> d.getGroup().getId()));
         return groups.stream()
-            .map(g -> toResponse(g, false, activeCounts.getOrDefault(g.getId(), 0)))
+            .map(g -> toResponse(g, false, activeCounts.getOrDefault(g.getId(), 0),
+                daysByGroup.getOrDefault(g.getId(), List.of())))
             .collect(Collectors.toList());
     }
 
@@ -100,35 +110,15 @@ public class GroupService {
         Group group = findById(groupId);
         teacherAccessService.assertOwnsGroup(group);
 
-        List<GroupLessonDaysResponse.LessonDayItem> days = new ArrayList<>();
-        List<GroupScheduleDay> scheduleDays =
-            groupScheduleDayRepository.findByGroup_IdOrderByDayOfWeekAsc(groupId);
-
-        if (!scheduleDays.isEmpty()) {
-            for (GroupScheduleDay d : scheduleDays) {
-                days.add(GroupLessonDaysResponse.LessonDayItem.builder()
-                    .dayOfWeek(normalizeDay(d.getDayOfWeek()))
-                    .startTime(formatScheduleTime(d.getStartTime()))
-                    .endTime(formatScheduleTime(d.getEndTime()))
-                    .roomName(resolveRoomName(d.getRoom(), group))
-                    .build());
-            }
-        } else {
-            for (Timetable t : timetableRepository.findByGroupId(groupId)) {
-                days.add(GroupLessonDaysResponse.LessonDayItem.builder()
-                    .dayOfWeek(normalizeDay(t.getDayOfWeek()))
-                    .startTime(t.getStartTime() != null
-                        ? t.getStartTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
-                        : null)
-                    .endTime(t.getEndTime() != null
-                        ? t.getEndTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
-                        : null)
-                    .roomName(t.getClassroom() != null
-                        ? resolveRoomName(t.getClassroom(), group)
-                        : resolveRoomName(null, group))
-                    .build());
-            }
-        }
+        // Yagona manba: davomat (mark, missing) ham aynan shu kunlardan foydalanadi.
+        List<GroupLessonDaysResponse.LessonDayItem> days = groupScheduleService.lessonSlots(groupId).stream()
+            .map(slot -> GroupLessonDaysResponse.LessonDayItem.builder()
+                .dayOfWeek(slot.dayOfWeek())
+                .startTime(slot.startTime())
+                .endTime(slot.endTime())
+                .roomName(resolveRoomName(slot.room(), group))
+                .build())
+            .collect(Collectors.toList());
 
         return GroupLessonDaysResponse.builder()
             .groupId(group.getId())
@@ -141,28 +131,10 @@ public class GroupService {
         if (group == null || group.getId() == null) {
             return;
         }
-        boolean hasSchedule = !groupScheduleDayRepository
-            .findByGroup_IdOrderByDayOfWeekAsc(group.getId()).isEmpty();
-        boolean hasTimetable = !timetableRepository.findByGroupId(group.getId()).isEmpty();
-        if (!hasSchedule && !hasTimetable) {
+        if (groupScheduleService.lessonSlots(group.getId()).isEmpty()) {
             log.warn("Guruhda dars kunlari belgilanmagan — davomat kiritib bo'lmaydi (groupId={}, name={})",
                 group.getId(), group.getGroupName());
         }
-    }
-
-    private static String normalizeDay(String day) {
-        if (day == null || day.isBlank()) {
-            return day;
-        }
-        return day.trim().toUpperCase(java.util.Locale.ROOT);
-    }
-
-    private static String formatScheduleTime(String time) {
-        if (time == null || time.isBlank()) {
-            return null;
-        }
-        String t = time.trim();
-        return t.length() >= 5 ? t.substring(0, 5) : t;
     }
 
     private static String resolveRoomName(Classroom room, Group group) {
@@ -725,8 +697,13 @@ public class GroupService {
     }
 
     private GroupResponse toResponse(Group g, boolean includeMembers, Integer currentStudentsOverride) {
-        List<GroupScheduleDay> savedDays =
-            groupScheduleDayRepository.findByGroup_IdOrderByDayOfWeekAsc(g.getId());
+        return toResponse(g, includeMembers, currentStudentsOverride,
+            groupScheduleDayRepository.findByGroup_IdOrderByDayOfWeekAsc(g.getId()));
+    }
+
+    /** @param savedDays guruhning jadval kunlari (ro'yxatda hamma guruh uchun bitta so'rov bilan yuklanadi). */
+    private GroupResponse toResponse(Group g, boolean includeMembers, Integer currentStudentsOverride,
+                                     List<GroupScheduleDay> savedDays) {
         List<ScheduleResponse> schedules = mapToScheduleResponses(savedDays);
         List<GroupResponse.ScheduleDayResponse> scheduleDays = mapToScheduleDayResponses(savedDays);
 
