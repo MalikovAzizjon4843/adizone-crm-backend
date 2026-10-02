@@ -12,10 +12,13 @@ sirsiz yoki eski sir bilan jimgina ishga tushib qolmasin.
 | `META_SYSTEM_USER_TOKEN` | `meta.system-user-token` | Graph API (lid ma'lumotini olish, formalar) | Faqat `meta.enabled: false` bo'lsa |
 | `META_APP_SECRET` | `meta.app-secret` | Webhook imzosi (`X-Hub-Signature-256`) | **Yo'q** — bo'sh bo'lsa webhook imzosiz qabul qilinadi |
 | `META_VERIFY_TOKEN` | `meta.verify-token` | Webhook obunasini tasdiqlash (GET qo'l berish) | Faqat `meta.enabled: false` bo'lsa |
-| `TELEGRAM_BOT_TOKEN` | `telegram.bot-token` | Ota-onalarga davomat/to'lov xabarlari | Faqat `telegram.enabled: false` bo'lsa |
+| `TELEGRAM_BOT_TOKEN` | `telegram.bot-token` | Ota-onalarga davomat/to'lov xabarlari, direktor digest | **Ha, default bo'sh** — berilmasa (yoki e'lon qilinmasa) Telegram o'chiq ishlaydi: xabar yuborilmaydi, startda bitta WARN |
+| `TELEGRAM_ENABLED` | `telegram.enabled` | Telegramni butunlay o'chirish | Ha, default `true` (token bo'lmasa baribir o'chiq) |
 
 "Bo'sh" deganda o'zgaruvchi e'lon qilinadi, lekin qiymatsiz: `META_VERIFY_TOKEN=`.
-Umuman e'lon qilinmasa ilova ishga tushmaydi.
+Umuman e'lon qilinmasa ilova ishga tushmaydi (`TELEGRAM_*` dan tashqari — ularda default bor).
+
+> **2026-10-02:** `application.yml` da ochiq turgan Meta (`system-user-token`, `app-secret`, `verify-token`) va Telegram (`bot-token`) qiymatlari placeholder'ga o'tkazildi. Ular `8139927` va `d7603fb` commitlari bilan GitHub'ga chiqqan — **oshkor deb hisoblanadi, almashtirilishi shart** (quyidagi "Sirlarni almashtirish" jadvali). Prod `crm.env` da `META_*` va `TELEGRAM_BOT_TOKEN` bo'lmasa, deploydan oldin qo'shing: `META_*` siz ilova ishga tushmaydi.
 
 Sir **bo'lmagan** sozlamalar (DB URL va foydalanuvchi, `meta.page-id`,
 portlar, limitlar) `application.yml` da qoldi.
@@ -33,7 +36,7 @@ DB_PASSWORD=... mvn test -Dspring.profiles.active=pgtest
 `application-pgtest.yml`: baza `adizone_test` (`PGTEST_DB_URL` bilan o'zgartiriladi),
 foydalanuvchi `crm_user` (`PGTEST_DB_USER`), parol faqat `DB_PASSWORD`. Sxema
 `create-drop` — har ishga tushishda jadvallar qayta yaratiladi, so'ng
-`db/migration/V52…V58` (billing v2, dashboard, payroll v2, qarorlar, eski cheklovlar, qoida ustma-ustligi, phase5 xavfsizlik) aynan o'zi bajariladi.
+`db/migration/V52…V60` (billing v2, dashboard, payroll v2, qarorlar, eski cheklovlar, qoida ustma-ustligi, phase5 xavfsizlik, shartnoma raqami, e'lon auditoriyasi) aynan o'zi bajariladi.
 **Ishchi bazaga ulamang.**
 
 ## systemd bilan o'rnatish

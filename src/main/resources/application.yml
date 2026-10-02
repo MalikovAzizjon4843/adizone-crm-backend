@@ -51,8 +51,11 @@ app:
   audit:
     # false — AuditAspect umuman yuklanmaydi, hech narsa loglanmaydi
     enabled: true
-    # Shu kundan eski loglar har kecha 03:30 da o'chiriladi (0 — hech qachon)
-    retention-days: 90
+    # Har kecha 03:30 da o'chiriladi (0 — hech qachon). Q14: oddiy 180, moliyaviy 365 kun.
+    # Moliyaviy = amal PAYMENT/PAYMENT_CANCEL/REFUND yoki obyekt Payment/Payroll/Cash*/Balance/...
+    # (ro'yxat — AuditProperties.financialActions / financialEntityTypes).
+    retention-days: 180
+    financial-retention-days: 365
   upload:
     dir: /opt/crm/uploads
   # Oylik (docs/design/payroll-v2.md §11). cutover-date bo'sh — qo'llangan billing migratsiyasidan olinadi.
@@ -108,9 +111,9 @@ meta:
   enabled: true
   api-version: v21.0
   page-id: "972371302634487"
-  system-user-token: "EAAWklJ2TxoABShl3GjGWZCpun2UfuOL2SmI6bgq5m2UZAcZCxRR5A2qWocxu9LNWlk5ZAFd4eoaOfsKyOr9WbMT61EpTK04h1DiQOsWFH1sJ7juXoVrPesZAs9ZCOelgqQpLoou8vrULtZCk5tlrKsTWkm2npT4rS7LwgFgZCCpnePZCA43UydOuDquhNSnzgcwZDZD"
-  app-secret: "5ccbc8e4b1348a2792db15e38b178a81"
-  verify-token: "8582a888cebdbfac00241945c926e147db0e6de42b1a80d9"
+  system-user-token: "${META_SYSTEM_USER_TOKEN}"
+  app-secret: "${META_APP_SECRET}"
+  verify-token: "${META_VERIFY_TOKEN}"
   graph-base-url: https://graph.facebook.com
   # false - webhook imzosi TEKSHIRILMAYDI va endpoint har kimga ochiq
   # qoladi. Faqat app-secret hali yo'q paytda, sinov uchun. Har so'rovda
@@ -128,5 +131,7 @@ meta:
   request-timeout-seconds: 20
 
 telegram:
-  bot-token: 8467142050:ALSkYeZnMDbWPXMV6tJczfz7HjEpYM8N9M
-  enabled: true
+  # Sir — faqat env (docs/ops/env.md). Bo'sh qoldirish mumkin.
+  bot-token: "${TELEGRAM_BOT_TOKEN:}"
+  # Token bo'sh bo'lsa Telegram o'chiq ishlaydi (xabar yuborilmaydi, xato yo'q) — TelegramService.
+  enabled: ${TELEGRAM_ENABLED:true}

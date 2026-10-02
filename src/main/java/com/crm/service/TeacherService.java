@@ -29,9 +29,12 @@ import com.crm.repository.PayrollRepository;
 import com.crm.repository.StudentGroupRepository;
 import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
+import com.crm.util.SearchSpecs;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.*;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,10 +70,62 @@ public class TeacherService {
 
     @Transactional(readOnly = true)
     public List<TeacherResponse> getAllTeachers(boolean activeOnly) {
-        List<Teacher> teachers = activeOnly
-            ? teacherRepository.findByIsActiveTrue()
-            : teacherRepository.findAll();
-        return teachers.stream().map(this::toResponse).collect(Collectors.toList());
+        return listTeachers(new TeacherFilter(null, null, activeOnly));
+    }
+
+    /**
+     * Ro'yxat filtri (phase5-audit T-06): {@code q} — ism, familiya, telefon, kod, fan;
+     * {@code statuses} berilsa — shu statuslar ({@code activeOnly} e'tiborsiz); berilmasa
+     * {@code activeOnly=true} → ACTIVE + ON_LEAVE ({@code is_active}), {@code false} → hammasi.
+     */
+    public record TeacherFilter(String q, Collection<String> statuses, boolean activeOnly) {
+    }
+
+    /** Eski shakl ({@code page} yo'q) — to'liq ro'yxat, id bo'yicha (avvalgi tartib). */
+    @Transactional(readOnly = true)
+    public List<TeacherResponse> listTeachers(TeacherFilter filter) {
+        return teacherRepository.findAll(teacherSpec(filter), Sort.by("id")).stream()
+            .map(this::toResponse)
+            .collect(Collectors.toList());
+    }
+
+    /** Server sahifalash: familiya, ism bo'yicha; {@code size} 1..200. */
+    @Transactional(readOnly = true)
+    public PageResponse<TeacherResponse> pageTeachers(TeacherFilter filter, int page, int size) {
+        int pageSize = Math.min(Math.max(size, 1), 200);
+        Page<Teacher> p = teacherRepository.findAll(teacherSpec(filter), PageRequest.of(Math.max(page, 0),
+            pageSize, Sort.by("lastName", "firstName", "id")));
+        return PageResponse.<TeacherResponse>builder()
+            .content(p.getContent().stream().map(this::toResponse).collect(Collectors.toList()))
+            .pageNumber(p.getNumber()).pageSize(p.getSize())
+            .totalElements(p.getTotalElements()).totalPages(p.getTotalPages()).last(p.isLast())
+            .build();
+    }
+
+    private static Specification<Teacher> teacherSpec(TeacherFilter filter) {
+        // Statuslar so'rovdan OLDIN tekshiriladi: lambda ichidagi istisnoni Spring 500 ga o'rab yuborardi.
+        TeacherFilter f = new TeacherFilter(filter.q(),
+            filter.statuses() == null ? null : filter.statuses().stream().map(Teacher::normalizeStatus).toList(),
+            filter.activeOnly());
+        return (root, query, cb) -> {
+            List<Predicate> and = new ArrayList<>();
+            String q = SearchSpecs.normalize(f.q());
+            if (q != null) {
+                String pattern = SearchSpecs.containsPattern(q);
+                and.add(cb.or(
+                    SearchSpecs.containsIgnoreCase(cb, root.get("firstName"), pattern),
+                    SearchSpecs.containsIgnoreCase(cb, root.get("lastName"), pattern),
+                    SearchSpecs.containsIgnoreCase(cb, root.get("phone"), pattern),
+                    SearchSpecs.containsIgnoreCase(cb, root.get("teacherCode"), pattern),
+                    SearchSpecs.containsIgnoreCase(cb, root.get("subjectSpecialization"), pattern)));
+            }
+            if (f.statuses() != null && !f.statuses().isEmpty()) {
+                and.add(root.get("status").in(f.statuses()));
+            } else if (f.activeOnly()) {
+                and.add(cb.isTrue(root.get("isActive")));
+            }
+            return cb.and(and.toArray(Predicate[]::new));
+        };
     }
 
     @Transactional(readOnly = true)
@@ -103,7 +158,7 @@ public class TeacherService {
     @Transactional
     public TeacherResponse updateTeacher(Long id, TeacherRequest request) {
         Teacher teacher = findById(id);
-        buildFromRequest(teacher, request);
+        applyPatch(teacher, request);
 
         if (request.getUserId() != null) {
             User user = userRepository.findById(request.getUserId())
@@ -815,6 +870,82 @@ public class TeacherService {
                 group.setTeacher(teacher);
                 groupRepository.save(group);
             });
+        }
+    }
+
+    /**
+     * PUT /api/teachers/{id} — PATCH semantikasi (phase5-audit T-01): faqat YUBORILGAN maydon
+     * o'zgaradi. Avval {@link #buildFromRequest} hammasini yozardi va eski frontend yubormaydigan
+     * {@code monthlySalary}, {@code joiningDate} har tahrirda NULL bo'lib qolardi.
+     * <ul>
+     *   <li>{@code null} (maydon yo'q) — o'zgarmaydi;</li>
+     *   <li>matnli ixtiyoriy maydon {@code ""} — tozalanadi (NULL);</li>
+     *   <li>majburiy {@code firstName}, {@code lastName}, {@code phone} — yuborilsa bo'sh bo'lmasin (400).</li>
+     * </ul>
+     * {@code status}, {@code userId}, {@code groupIds} — avvalgidek alohida qayta ishlanadi.
+     */
+    private void applyPatch(Teacher t, TeacherRequest req) {
+        if (req.getFirstName() != null) {
+            t.setFirstName(requireNotBlank(req.getFirstName(), "Ism majburiy"));
+        }
+        if (req.getLastName() != null) {
+            t.setLastName(requireNotBlank(req.getLastName(), "Familiya majburiy"));
+        }
+        if (req.getPhone() != null) {
+            t.setPhone(requireNotBlank(req.getPhone(), "Telefon majburiy"));
+        }
+        patchText(req.getEmail(), t::setEmail);
+        patchText(req.getSubjectSpecialization(), t::setSubjectSpecialization);
+        patchText(req.getNotes(), t::setNotes);
+        patchText(req.getGender(), t::setGender);
+        patchText(req.getFatherName(), t::setFatherName);
+        patchText(req.getMotherName(), t::setMotherName);
+        patchText(req.getAddress(), t::setAddress);
+        patchText(req.getPermanentAddress(), t::setPermanentAddress);
+        patchText(req.getPassportInfo(), t::setPassportInfo);
+        patchText(req.getQualification(), t::setQualification);
+        patchText(req.getWorkExperience(), t::setWorkExperience);
+        patchText(req.getPhotoUrl(), t::setPhotoUrl);
+        if (req.getMonthlySalary() != null) {
+            t.setMonthlySalary(req.getMonthlySalary());
+        }
+        if (req.getBasicSalary() != null) {
+            t.setBasicSalary(req.getBasicSalary());
+        }
+        if (req.getHireDate() != null) {
+            t.setHireDate(req.getHireDate());
+        }
+        if (req.getJoiningDate() != null) {
+            t.setJoiningDate(req.getJoiningDate());
+        }
+        if (req.getDateOfBirth() != null) {
+            t.setDateOfBirth(req.getDateOfBirth());
+        }
+        if (req.getMedicalLeaves() != null) {
+            t.setMedicalLeaves(req.getMedicalLeaves());
+        }
+        if (req.getCasualLeaves() != null) {
+            t.setCasualLeaves(req.getCasualLeaves());
+        }
+        if (req.getMaternityLeaves() != null) {
+            t.setMaternityLeaves(req.getMaternityLeaves());
+        }
+        if (req.getSickLeaves() != null) {
+            t.setSickLeaves(req.getSickLeaves());
+        }
+    }
+
+    private static String requireNotBlank(String value, String message) {
+        if (value.isBlank()) {
+            throw new BadRequestException(message);
+        }
+        return value.trim();
+    }
+
+    /** {@code null} — tegilmaydi; {@code ""} — tozalanadi. */
+    private static void patchText(String value, java.util.function.Consumer<String> setter) {
+        if (value != null) {
+            setter.accept(value.isBlank() ? null : value);
         }
     }
 

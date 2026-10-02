@@ -10,6 +10,25 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-10-02, phase 5)
+
+> Bu hujjatning qolgan qismi oldingi holatda (qator raqamlari eskirgan bo'lishi mumkin). Quyidagi o'zgarishlar tegishli jadvallarga kiritilgan; to'liq ro'yxat va sabablar — [phase5-audit.md §14](phase5-audit.md).
+
+| Endpoint | O'zgarish |
+|---|---|
+| Barcha "authenticated" yo'llar, `/ws` | Faqat STAFF (SA, A, SM, T, ACC). ST/P login → 403 `auth.roleNotAllowed` |
+| Parol bilan bog'liq hamma joy | Parol 8–72 belgi; parol tiklansa/almashtirilsa eski access tokenlar 401 |
+| `POST /api/users`, `create-for-teacher` | Band login → 409 `user.username.taken` ("200 ALREADY_EXISTS" yo'q) |
+| `/api/users/**` (ADMIN aktor) | ADMIN/SA hisoblari va rollari — faqat SA (403) |
+| `GET /api/users`, `GET /api/teachers` | `page` berilsa `PageResponse` + `q`, `role`/`status`, `active`; `page` yo'q — eski massiv |
+| `PUT /api/teachers/{id}` | Qisman yangilash (yuborilmagan maydon o'zgarmaydi) |
+| `DELETE /api/teachers/{id}`, PUT `status: INACTIVE` | Faol guruhlar bo'lsa 409 `teacher.hasActiveGroups` (`data.groups`) |
+| `POST /api/teachers/{userId}/ensure-profile` | SKIPPED → 409 `teacher.profile.*` |
+| `/api/notices/**` | Auditoriya `targetRoles`; lenta, `unread-count`, detal joriy rol bo'yicha |
+| Imtihonlar | `eligible-students`, `register-student`, `calculate-payment` — TEACHER faqat o'z guruhlari; `changeReason` → `editNote` aliasi |
+| `POST /api/contracts/generate` | Raqam `CTR-YYYY-NNNNN`, har yil 00001 dan |
+| Har qanday endpoint | Baza cheklovi: 409 `error.conflict.*` / 400 `error.data.invalid`; yetishmagan parametr 400 `error.param.missing` |
+
 ## 0. Qanday o'qish kerak
 
 ### 0.1 Endpointlar soni
@@ -34,7 +53,7 @@
 | **P** | PARENT |
 
 - Manba: `entity/enums/UserRole.java`.
-- "Har qanday auth" yoki **AUTH** — 7 ta rolning hammasi, jumladan ST va P (ular ham login qila oladi).
+- "Har qanday auth" yoki **AUTH** — eski hujjat atamasi. **2026-10-02 dan** `authenticated` qoidalarining hammasi **STAFF** = SA, A, SM, T, ACC (`SecurityConfig.STAFF_ROLES`); ST/P login qila olmaydi (403 `auth.roleNotAllowed`). Batafsil — [phase5-audit.md §14](phase5-audit.md).
 - **"Effektiv rollar"** = `config/SecurityConfig.java` dagi URL qoidasi ∩ `@PreAuthorize`. SecurityConfig'da birinchi mos kelgan qoida ishlaydi (qoidalar jadvali: backend-audit.md §2.1).
 - RoleHierarchy yo'q: SA har joyda alohida sanaladi.
 - TEACHER uchun egalik (o'z guruhi yoki o'z o'quvchisi) servisda `service/TeacherAccessService.java` orqali tekshiriladi:
@@ -149,13 +168,13 @@ Majburiy query param yuborilmasa **500** qaytadi.
 
 | METHOD | path | Controller#metod | Effektiv rollar | Request | Response | Pagination | Izoh |
 |---|---|---|---|---|---|---|---|
-| POST | /api/users | UserController#createUser (`:44`) | SA, A | body `CreateUserRequest` (@Valid) | `ApiResponse<UserResponse>` **201** "User yaratildi"; YOKI **200** `message:"ALREADY_EXISTS"` + mavjud user | yo'q | `username` band bo'lsa xato emas, 200 + mavjud user (`:49-59`). `role=TEACHER` bo'lsa Teacher profili ham yaratiladi (`UserService.java:105`). |
+| POST | /api/users | UserController#createUser | SA, A | body `CreateUserRequest` (@Valid; `password` 8–72) | `ApiResponse<UserResponse>` **201** | yo'q | **2026-10-02:** band login (registrsiz) → **409** `user.username.taken` (avvalgi "200 ALREADY_EXISTS" olib tashlandi, U-06). Rol STUDENT/PARENT → 403 `user.role.notAllowed`; ADMIN/SA rolini faqat SA beradi → 403 `user.role.adminGrant`. |
 | GET | /api/users/username-preview | #previewUsername (`:66`) | SA, A | query `firstName: String` (ixt.), `lastName: String` (ixt.) | `ApiResponse<UsernamePreviewResponse>` | yo'q | "Nigina Yunusova" → `N.Yunusova`, band bo'lsa `N.Yunusova2` (`UserService.java:208-230`). |
 | POST | /api/users/{id}/reset-password | #resetPassword (`:76`) | SA, A | path `id: Long` | `ApiResponse<PasswordResetResponse>` "Parol tiklandi" | yo'q | Vaqtinchalik parol FAQAT shu javobda. O'zini tiklash → 400; A → SA ni tiklasa → 403 (`UserService.java:335-340`). Sessiyalar revoke. |
 | PATCH | /api/users/{id}/status | #setStatus (`:84`) | SA, A | path `id`; body `UserStatusRequest` (@Valid) | `ApiResponse<UserResponse>` | yo'q | O'zini/SA ni nofaol qilish taqiqlangan (`UserService.java:380-387`). Nofaol → refresh tokenlar revoke, Teacher profili sinxron. |
-| POST | /api/users/create-for-teacher/{teacherId} | #createForTeacher (`:96`) | SA, A | path `teacherId: Long`; body `CreateUserRequest` (**@Valid YO'Q**) | `ApiResponse<UserResponse>` 201 yoki 200 `ALREADY_EXISTS` | yo'q | Username band bo'lsa mavjud userni teacher'ga BOG'LAYDI (`UserService.java:120-125`). Bo'sh maydonlar teacher'dan olinadi. |
-| POST | /api/users/create-for-student/{studentId} | #createForStudent (`:118`) | SA, A | path `studentId: Long` (**ishlatilmaydi**); body `CreateUserRequest` (@Valid YO'Q) | `ApiResponse<UserResponse>` 201 / 200 `ALREADY_EXISTS` | yo'q | Rol=STUDENT user yaratadi, lekin Student yozuviga bog'lamaydi (Muammolar #U3). |
-| GET | /api/users | #getAllUsers (`:158`) | SA, A | — | `ApiResponse<List<UserResponse>>` | **yo'q** (butun jadval, nofaollar ham) | `userRepository.findAll()` (`:161`). Filtr/qidiruv yo'q. |
+| POST | /api/users/create-for-teacher/{teacherId} | #createForTeacher | SA, A | path `teacherId`; body `CreateUserRequest` (`password` majburiy, 8–72) | `ApiResponse<UserResponse>` **201** | yo'q | Band login → 409 `user.username.taken`; profilda login bor → 409 `teacher.user.alreadyLinked`; mavjud userga bog'lash YO'Q (U-01). |
+| POST | /api/users/create-for-student/{studentId} | #createForStudent | SA, A | — | doim **403** `user.role.notAllowed` | yo'q | Q1: STUDENT/PARENT logini yo'q. |
+| GET | /api/users | #getAllUsers | SA, A | query (hammasi ixtiyoriy): `page: int` (0 dan), `size: int`=20 (1..200), `q: string` (login/ism/familiya/telefon/email, registrsiz; `%`/`_` oddiy belgi), `role: UserRole` (takrorlanadi), `active: boolean` | `page` **yo'q** → `ApiResponse<UserResponse[]>` (eski shakl, id bo'yicha); `page` **bor** → `ApiResponse<PageResponse<UserResponse>>` (familiya, ism bo'yicha) | ixtiyoriy | U-10 (2026-10-02). Noto'g'ri `role` → 400. |
 | GET | /api/users/{id} | #getUserById (`:168`) | SA, A | path `id: Long` | `ApiResponse<UserResponse>` | yo'q | 404 `ErrorResponse`. |
 | PUT | /api/users/{id} | #updateUser (`:176`) | SA, A | path `id`; body `UpdateUserRequest` (@Valid) | `ApiResponse<UserResponse>` "User updated" | yo'q | `@Audited` (`:178-180`). Email/telefon unikalligi tekshiriladi (`UserService.java:164`). Rol o'zgarsa Teacher profili sinxron. |
 | PUT | /api/users/{id}/password | #changePassword (`:189`) | SA, A | path `id`; body `ChangePasswordRequest` (@Valid) | `ApiResponse<Void>` "Password changed" | yo'q | SA himoyasi va sessiya revoke YO'Q (Muammolar #U1). |
@@ -168,7 +187,7 @@ Majburiy query param yuborilmasa **500** qaytadi.
   - `firstName: String` @NotBlank @Size(max=100)
   - `lastName: String` @NotBlank @Size(max=100)
   - `username: String` @Size(max=100) — bo'sh bo'lsa avtomatik
-  - `password: String` @NotBlank @Size(min=6)
+  - `password: String` @NotBlank @Size(min=8, max=72) — `PasswordPolicy` (Q20)
   - `phone: String` @Pattern(`^$|^\+998\d{9}$|^\d{9}$`) + `PhoneDeserializer`
   - `email: String` @Email @Size(max=255)
   - `role: UserRole` @NotNull
@@ -199,7 +218,7 @@ Majburiy query param yuborilmasa **500** qaytadi.
 
 | METHOD | path | Controller#metod | Effektiv rollar | Request | Response | Pagination | Izoh |
 |---|---|---|---|---|---|---|---|
-| GET | /api/teachers | #getAllTeachers (`:38`) | **Har qanday auth** | query `activeOnly: boolean` = true | `ApiResponse<List<TeacherResponse>>` | yo'q | Maosh, pasport, tug'ilgan sana bilan (Muammolar #T2). |
+| GET | /api/teachers | #getAllTeachers | SA, A, ACC | query: `activeOnly: boolean`=true, `page: int` (ixt.), `size: int`=20 (1..200), `q: string` (ism/familiya/telefon/kod/fan), `status: ACTIVE\|INACTIVE\|ON_LEAVE` (takrorlanadi; berilsa `activeOnly` e'tiborsiz) | `page` yo'q → `ApiResponse<TeacherResponse[]>` (eski shakl); `page` bor → `ApiResponse<PageResponse<TeacherResponse>>` (familiya, ism) | ixtiyoriy | T-06 (2026-10-02). Noto'g'ri `status` → 400. `groups` batch bilan yuklanadi. |
 | GET | /api/teachers/me/kpi | #myKpi (`:44`) | T | query `period: String`="monthly" (`monthly`/`daily`, boshqasi → monthly), `from: LocalDate` ISO (ixt.), `to: LocalDate` ISO (ixt.) | **`TeacherKpiDto` (ApiResponse O'RALMAGAN)** | yo'q | Default: `to`=bugun, `from`=oyning 1-kuni (`service/TeacherKpiService.java:237-250`). |
 | GET | /api/teachers/kpi/ranking | #getKpiRanking (`:59`) | SA, A | `period`="monthly", `from`, `to` (ISO, ixt.) | `ApiResponse<TeacherKpiRankingResponse>` | yo'q | Faqat faol o'qituvchilar. |
 | GET | /api/teachers/{id} | #getTeacherById (`:73`) | **Har qanday auth** | path `id: Long` (\d+) | `ApiResponse<TeacherResponse>` | yo'q | |
@@ -209,14 +228,14 @@ Majburiy query param yuborilmasa **500** qaytadi.
 | GET | /api/teachers/{id}/kpi/daily | #getKpiDaily (`:122`) | **Har qanday auth** | path `id`; `year: Integer`, `month: Integer` (1..12), `from`, `to` (ISO) | `ApiResponse<List<TeacherKpiTrendPointDto>>` | yo'q | `from`+`to` yoki `year`+`month` juft bo'lishi shart, aks holda 400; hech biri bo'lmasa joriy oy (`TeacherService.java:524-551`). |
 | GET | /api/teachers/me/kpi/daily | #myKpiDaily (`:136`) | T | yuqoridagidek | `ApiResponse<List<TeacherKpiTrendPointDto>>` | yo'q | |
 | POST | /api/teachers | #createTeacher (`:151`) | SA, A | body `TeacherRequest` (@Valid) | `ApiResponse<TeacherResponse>` **201** "Teacher created" | yo'q | |
-| PUT | /api/teachers/{id} | #updateTeacher (`:158`) | SA, A | path `id`; body `TeacherRequest` (@Valid) | `ApiResponse<TeacherResponse>` "Teacher updated" | yo'q | `StaffStatusService.updateTeacher` — `status` o'zgarsa bog'langan User ham bloklanadi/ochiladi (`service/StaffStatusService.java:41-48`). To'liq PUT: barcha @NotBlank maydonlar kerak. |
-| DELETE | /api/teachers/{id} | #deleteTeacher (`:165`) | SA, A (SecurityConfig:196 ∩ `:166`) | path `id` | `ApiResponse<Void>` "Teacher deactivated" | yo'q | Soft: status=INACTIVE + user bloklanadi (`StaffStatusService.java:51-54`). |
+| PUT | /api/teachers/{id} | #updateTeacher | SA, A | path `id`; body `TeacherRequest` — **qisman** (@Valid yo'q) | `ApiResponse<TeacherResponse>` | yo'q | **T-01:** yuborilmagan (`null`) maydon o'zgarmaydi; matnli ixtiyoriy maydon `""` → tozalanadi; `firstName/lastName/phone` yuborilsa bo'sh bo'lmasin (400). `status: INACTIVE` + faol guruhlar → **409** `teacher.hasActiveGroups` (T-03, butun PUT bekor). |
+| DELETE | /api/teachers/{id} | #deleteTeacher | SA, A | path `id` | `ApiResponse<Void>` | yo'q | Soft: INACTIVE + user bloklanadi. ACTIVE/FORMING guruhlari bo'lsa **409** `teacher.hasActiveGroups`, `data = {teacherId, groups:[{id, groupName, status}]}` (T-03) — avval guruhlar boshqa o'qituvchiga o'tkaziladi. `PATCH /api/users/{id}/status` (login bloklash) bu tekshiruvsiz. |
 | GET | /api/teachers/search | #searchTeachers (`:172`) | **Har qanday auth** | query `q: String` (**required**), `page: int`=0, `size: int`=20 | `ApiResponse<PageResponse<TeacherResponse>>` | PageResponse, createdAt DESC (`TeacherService.java:148-157`) | `q` yo'q bo'lsa → 500 (Muammolar #G2). |
 | GET | /api/teachers/stats | #getStats (`:180`) | SA, A | — | `ApiResponse<{total:long, active:long, byStatus:{[status:string]:long}}>` | yo'q | `TeacherService.java:159-169`. |
 | POST | /api/teachers/{id}/photo | #uploadPhoto (`:186`) | SA, A | path `id` (\d+); multipart `file` | `ApiResponse<TeacherResponse>` "Rasm saqlandi" | yo'q | |
 | POST | /api/teachers/import | #importTeachersFromFile (`:204`) | SA, A | multipart `file` (required=false, bo'sh → 400) | `ApiResponse<ImportResult>` "Import tugadi" | yo'q | `/api/import/teachers` bilan dublikat (`controller/ImportController.java:46`). |
 | POST | /api/teachers/sync-from-users | #syncFromUsers (`:220`) | **SA** | — | `ApiResponse<{total:int, created:int, linked:int, updated:int, errors:string[]}>` | yo'q | Idempotent (`service/TeacherProfileSyncService.java:33`, `:60-64`). |
-| POST | /api/teachers/{userId}/ensure-profile | #ensureProfile | **SA** | path `userId` — **User** id | `ApiResponse<{linkedCount, createdCount, skippedCount, items[{type:"USER", teacherId, userId, username, action: CREATED|LINKED|EXISTS|SKIPPED, reason}]}>` | yo'q | **02.10.2026:** bitta user uchun repair 2-qadami (UI tugmasi). Rol TEACHER emas yoki shu telefon/email li profil boshqa userga bog'langan bo'lsa — SKIPPED + sabab; user yo'q → 404 |
+| POST | /api/teachers/{userId}/ensure-profile | #ensureProfile | **SA** | path `userId` — **User** id | `ApiResponse<{linkedCount, createdCount, skippedCount, items[{type, teacherId, userId, username, action: CREATED\|LINKED\|EXISTS, reason}]}>` | yo'q | **T-07:** SKIPPED → **409**, `code`: `teacher.profile.roleNotTeacher` \| `contactTaken` \| `notCreated` \| `failed`; `data` = item (`teacherId, userId, reason, code`). |
 | GET | /api/teachers/export | #exportTeachers (`:228`) | SA, A | — | `ResponseEntity<byte[]>` `text/csv`, `Content-Disposition: attachment; filename="teachers.csv"` | yo'q | Ustunlar: ID,UUID,First Name,Last Name,Phone,Email,Subject,Status,Hire Date,Created At (`TeacherService.java:175`). Blob sifatida yuklash. |
 
 #### DTO tafsilotlari (Teachers)
@@ -927,15 +946,15 @@ Yo'l tartibi: `/grid` va `/by-room` literal segmentlar bo'lgani uchun `/{id}` da
 
 | METHOD | path | Controller#metod | Effektiv rollar | Request | Response | Pagination | Izoh |
 |---|---|---|---|---|---|---|---|
-| GET | `/api/notices` | `getAllNotices` (`:25-31`) | AUTH | query `page=0`, `size=20` | `ApiResponse<PageResponse<NoticeResponse>>` | PageResponse, `createdAt DESC` | **Hamma** e'lonlar qaytadi: nofaol, chop etilmagan va muddati o'tganlar ham. `publishedTo`/`targetRole` bo'yicha filtr yo'q (`service/NoticeService.java:38-49`). |
-| GET | `/api/notices/active` | `getActive` (`:34-39`) | AUTH | query `limit: int` (default 50; 1..50 oralig'iga siqiladi) | `ApiResponse<List<NoticeResponse>>` | yo'q | Qo'ng'iroqcha (bell) lentasi: faqat chop etilgan va muddati o'tmagan e'lonlar, `isRead` bilan (`NoticeService.java:57-66`). |
-| GET | `/api/notices/latest` | `getLatest` (`:41-46`) | AUTH | query `limit` (default 5) | `ApiResponse<List<NoticeResponse>>` | yo'q | `/active` bilan bir xil servis metodini chaqiradi, faqat default `limit` farq qiladi. |
-| GET | `/api/notices/unread-count` | `getUnreadCount` (`:48-53`) | AUTH | — | `ApiResponse<Map<String,Long>>`, ya'ni `data: {"count": N}` | yo'q | |
-| POST | `/api/notices/read-all` | `markAllRead` (`:55-60`) | AUTH | — | `ApiResponse<Void>` | yo'q | Faqat faol e'lonlarni o'qilgan deb belgilaydi. |
-| POST | `/api/notices/{id}/read` | `markRead` (`:62-67`) | AUTH | path `id: \d+` | `ApiResponse<Void>` | yo'q | Idempotent. |
-| GET | `/api/notices/{id}` | `getNoticeById` (`:69-73`) | AUTH | path `id: \d+` | `ApiResponse<NoticeResponse>` | yo'q | Chop etilmagan e'lon ham qaytadi. |
-| POST | `/api/notices` | `createNotice` (`:75-80`) | SA, A | body `NoticeRequest` (@Valid) | **201** `ApiResponse<NoticeResponse>` | yo'q | Defaultlar: `isActive=true`, `isPublished=true && active`, `publishedTo="ALL"`, `noticeType="GENERAL"`, `publishedAt=now` (`NoticeService.java:69-102`). |
-| PUT | `/api/notices/{id}` | `updateNotice` (`:82-87`) | SA, A | path `id`; body `NoticeRequest` (@Valid) | `ApiResponse<NoticeResponse>` | yo'q | `targetRole` va `expiresAt` har doim qayta yoziladi: yuborilmasa null bo'ladi (`:117,128`). |
+| GET | `/api/notices` | `getAllNotices` | STAFF | query `page=0`, `size=20` (1..100) | `ApiResponse<PageResponse<NoticeResponse>>` | PageResponse | SA/A — hamma e'lonlar (`createdAt DESC`); boshqa xodim — faqat o'z roliga ko'rinadigan faol e'lonlar (N-01, N-02). |
+| GET | `/api/notices/active` | `getActive` | STAFF | query `limit` (1..50, default 50) | `ApiResponse<List<NoticeResponse>>` | yo'q | Bell lentasi — faol va **joriy rolga** ko'rinadigan (N-01; SA/A ham o'z roli bo'yicha). |
+| GET | `/api/notices/latest` | `getLatest` | STAFF | query `limit` (default 5) | `ApiResponse<List<NoticeResponse>>` | yo'q | `/active` bilan bir xil. |
+| GET | `/api/notices/unread-count` | `getUnreadCount` | STAFF | — | `ApiResponse<{count}>` | yo'q | Joriy rolga ko'rinadigan o'qilmaganlar (N-01). |
+| POST | `/api/notices/read-all` | `markAllRead` | STAFF | — | `ApiResponse<Void>` | yo'q | Faqat o'ziga ko'rinadigan faol e'lonlar. |
+| POST | `/api/notices/{id}/read` | `markRead` | STAFF | path `id` | `ApiResponse<Void>` | yo'q | Ko'rinmaydigan e'lon → 404. |
+| GET | `/api/notices/{id}` | `getNoticeById` | STAFF | path `id` | `ApiResponse<NoticeResponse>` | yo'q | SA/A — istalgan; boshqalar — faqat ko'rinadigan faol e'lon, aks holda 404. |
+| POST | `/api/notices` | `createNotice` | SA, A | body `NoticeRequest` (@Valid) | **201** `ApiResponse<NoticeResponse>` | yo'q | Auditoriya: `targetRoles` (`[]` — hamma) yoki eski `targetRole` / `publishedTo` (ALL, TEACHERS, STUDENTS, PARENTS); noma'lum → 400 `notice.audience.invalid`. |
+| PUT | `/api/notices/{id}` | `updateNotice` | SA, A | path `id`; body `NoticeRequest` (@Valid) | `ApiResponse<NoticeResponse>` | yo'q | Auditoriya maydonlari (`targetRoles`/`targetRole`/`publishedTo`) yuborilmasa — **o'zgarmaydi** (avval `targetRole` NULL bo'lardi). `expiresAt` hali ham har doim qayta yoziladi. |
 | DELETE | `/api/notices/{id}` | `deleteNotice` (`:89-95`) | SA, A | path `id` | `ApiResponse<Void>`, message i18n `notice.deleted` | yo'q | **Hard delete**, `notice_reads` ham o'chiriladi (`NoticeService.java:140-146`). |
 
 **DTO**
@@ -944,9 +963,10 @@ Yo'l tartibi: `/grid` va `/by-room` literal segmentlar bo'lgani uchun `/{id}` da
 - `title: String` — `@NotBlank`
 - `content: String` — `@NotBlank`
 - `noticeDate: LocalDate`
-- `publishedTo: String` — ALL | TEACHERS | STUDENTS | PARENTS
+- `targetRoles: UserRole[]` — auditoriya (N-01, 2026-10-02); `[]` — hamma; berilmasa eski maydonlar o'qiladi
+- `publishedTo: String` — **deprecated**: ALL | TEACHERS | STUDENTS | PARENTS
 - `noticeType: String`
-- `targetRole: String`
+- `targetRole: String` — **deprecated** (bitta rol)
 - `isActive: Boolean`
 - `isPublished: Boolean`
 - `publishedAt: LocalDateTime`
@@ -955,6 +975,7 @@ Yo'l tartibi: `/grid` va `/by-room` literal segmentlar bo'lgani uchun `/{id}` da
 - `createdById: Long`
 
 `NoticeResponse` (`dto/response/NoticeResponse.java:13-32`):
+- **2026-10-02:** + `targetRoles: string[]` (effektiv auditoriya; eski yozuvlarda `publishedTo`/`targetRole` dan hisoblanadi), `audienceAll: boolean`. Yangi yozuvlarda `publishedTo` = `ALL` yoki `ROLES`, `targetRole` = null.
 - `{id: Long, uuid: UUID, title: String, content: String, noticeDate: LocalDate, publishedTo: String, noticeType: String, targetRole: String, isActive: Boolean, isPublished: Boolean, publishedAt: LocalDateTime, expiresAt: LocalDateTime, expiryDate: LocalDate, isExpired: Boolean, isRead: Boolean, createdByName: String, createdAt: LocalDateTime}`
 - `createdByName` aslida username qaytaradi, to'liq ism emas (`NoticeService.java:229`).
 
@@ -1457,6 +1478,7 @@ Shablon yuklab olish endpointi lid importi uchun YO'Q (amoCRM eksport fayli kuti
 | GET | `/api/audit-logs/filters` | `getFilters` (`:56`) | faqat SUPER_ADMIN (`:57`) | — | `ApiResponse<Map<String,Object>>` = `{actions: List<String>, entityTypes: List<String>}` (bazadagi distinct qiymatlar, `service/AuditLogService.java:71-76`) | yo'q | Dropdownlar uchun |
 
 - `AuditLogResponse` (`dto/response/AuditLogResponse.java:11-25`): `id: Long`, `createdAt: LocalDateTime`, `userId: Long`, `username: String`, `userRole: String`, `action: String`, `entityType: String`, `entityId: Long`, `entityLabel: String`, `summary: String`, `details: Object` (parse qilingan JSON, odatda `{"changes":[...]}`, null bo'lishi mumkin — tiplanmagan), `ipAddress: String`
+- **Saqlash muddati (Q14, 2026-10-02):** oddiy yozuvlar **180** kun (`app.audit.retention-days`), moliyaviy — **365** kun (`app.audit.financial-retention-days`). Moliyaviy: amal `PAYMENT`, `PAYMENT_CANCEL`, `REFUND` yoki obyekt `Payment`, `Payroll`, `CashRegister`, `CashTransaction`, `Balance`, `BonusPenalty`, `SalaryRule`, `Expense`, `Income`, `ExamRegistration`. Har kecha 03:30 (Asia/Tashkent).
 
 ---
 

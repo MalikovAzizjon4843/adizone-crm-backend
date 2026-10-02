@@ -40,11 +40,24 @@ public class TeacherController {
      * faqat ma'muriyat va buxgalter (oylik, bonus/jarima sahifalari). O'qituvchi
      * o'zi haqidagi ma'lumotni /me/** va /api/teacher/dashboard dan oladi.
      */
+    /**
+     * T-06: {@code page} berilmasa — eski shakl ({@code data} = List, selektorlar); berilsa —
+     * {@code PageResponse} ({@code size} 1..200). Filtrlar ikkala shaklda: {@code q}, {@code status}
+     * (takrorlanadi; berilsa {@code activeOnly} e'tiborsiz), {@code activeOnly} (default true).
+     */
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
-    public ResponseEntity<ApiResponse<List<TeacherResponse>>> getAllTeachers(
-            @RequestParam(defaultValue = "true") boolean activeOnly) {
-        return ResponseEntity.ok(ApiResponse.success(teacherService.getAllTeachers(activeOnly)));
+    public ResponseEntity<ApiResponse<Object>> getAllTeachers(
+            @RequestParam(defaultValue = "true") boolean activeOnly,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) List<String> status) {
+        TeacherService.TeacherFilter filter = new TeacherService.TeacherFilter(q, status, activeOnly);
+        Object data = page == null
+            ? teacherService.listTeachers(filter)
+            : teacherService.pageTeachers(filter, page, size);
+        return ResponseEntity.ok(ApiResponse.success(data));
     }
 
     @GetMapping("/me/kpi")
@@ -166,10 +179,15 @@ public class TeacherController {
             .body(ApiResponse.success("Teacher created", teacherService.createTeacher(req)));
     }
 
+    /**
+     * Qisman yangilash (T-01): yuborilmagan maydon o'zgarmaydi, shuning uchun {@code @Valid} yo'q —
+     * majburiy maydonlar faqat yuborilganda tekshiriladi ({@code TeacherService.applyPatch}).
+     * Nofaol qilishda faol guruhlar bo'lsa — 409 {@code teacher.hasActiveGroups} (T-03).
+     */
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<TeacherResponse>> updateTeacher(
-            @PathVariable Long id, @Valid @RequestBody TeacherRequest req) {
+            @PathVariable Long id, @RequestBody TeacherRequest req) {
         return ResponseEntity.ok(ApiResponse.success("Teacher updated", staffStatusService.updateTeacher(id, req)));
     }
 

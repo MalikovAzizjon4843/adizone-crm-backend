@@ -1,5 +1,6 @@
 package com.crm.service;
 
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -24,8 +25,20 @@ public class TelegramService {
 
     private final RestTemplate restTemplate = new RestTemplate();
 
+    /**
+     * Token faqat env'dan ({@code TELEGRAM_BOT_TOKEN}). Berilmasa Telegram o'chiq ishlaydi:
+     * {@link #sendMessage} {@code false} qaytaradi, ilova xatosiz ishga tushadi.
+     * Startda bir marta aytiladi — aks holda "xabar nega ketmayapti" degan savol qoladi.
+     */
+    @PostConstruct
+    void logState() {
+        if (enabled && (botToken == null || botToken.isBlank())) {
+            log.warn("Telegram o'chiq: TELEGRAM_BOT_TOKEN berilmagan (telegram.enabled=true)");
+        }
+    }
+
     public boolean sendMessage(String chatId, String message) {
-        if (!enabled || botToken.isBlank()
+        if (!enabled || botToken == null || botToken.isBlank()
             || chatId == null || chatId.isBlank()) {
             log.debug("Telegram disabled or no chatId");
             return false;

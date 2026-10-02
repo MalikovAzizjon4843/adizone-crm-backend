@@ -6,6 +6,7 @@ import com.crm.audit.Audited;
 import com.crm.config.Messages;
 import com.crm.dto.request.CreateUserRequest;
 import com.crm.dto.request.UpdateUserRequest;
+import com.crm.dto.response.PageResponse;
 import com.crm.dto.response.PasswordResetResponse;
 import com.crm.dto.response.UserResponse;
 import com.crm.dto.response.UsernamePreviewResponse;
@@ -21,8 +22,14 @@ import com.crm.repository.RefreshTokenRepository;
 import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
 import com.crm.security.PasswordPolicy;
+import com.crm.util.SearchSpecs;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -30,7 +37,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -225,9 +235,71 @@ public class UserService {
         return toResponse(saved);
     }
 
+    // ------------------------------------------------------------------
+    // Ro'yxat (U-10)
+    // ------------------------------------------------------------------
+
+    /**
+     * Filtr: {@code q} — login, ism, familiya, telefon, email bo'yicha (registrsiz qism);
+     * {@code roles} — bittasi bo'lsa ham mos; {@code active} — faollik. Hammasi ixtiyoriy.
+     */
+    public record UserFilter(String q, Collection<UserRole> roles, Boolean active) {
+    }
+
+    /** Eski shakl ({@code page} yo'q): to'liq ro'yxat, id bo'yicha — avvalgi tartib. */
+    @Transactional(readOnly = true)
+    public List<UserResponse> listUsers(UserFilter filter) {
+        return userRepository.findAll(spec(filter), Sort.by("id")).stream()
+            .map(this::toResponse)
+            .toList();
+    }
+
+    /** Server sahifalash: familiya, ism bo'yicha; {@code size} 1..200. */
+    @Transactional(readOnly = true)
+    public PageResponse<UserResponse> pageUsers(UserFilter filter, int page, int size) {
+        int pageSize = Math.min(Math.max(size, 1), 200);
+        Page<User> p = userRepository.findAll(spec(filter), PageRequest.of(Math.max(page, 0), pageSize,
+            Sort.by("lastName", "firstName", "id")));
+        return PageResponse.<UserResponse>builder()
+            .content(p.getContent().stream().map(this::toResponse).toList())
+            .pageNumber(p.getNumber()).pageSize(p.getSize())
+            .totalElements(p.getTotalElements()).totalPages(p.getTotalPages()).last(p.isLast())
+            .build();
+    }
+
+    private static Specification<User> spec(UserFilter f) {
+        return (root, query, cb) -> {
+            List<Predicate> and = new ArrayList<>();
+            String q = SearchSpecs.normalize(f.q());
+            if (q != null) {
+                String pattern = SearchSpecs.containsPattern(q);
+                and.add(cb.or(
+                    SearchSpecs.containsIgnoreCase(cb, root.get("username"), pattern),
+                    SearchSpecs.containsIgnoreCase(cb, root.get("firstName"), pattern),
+                    SearchSpecs.containsIgnoreCase(cb, root.get("lastName"), pattern),
+                    SearchSpecs.containsIgnoreCase(cb, root.get("phone"), pattern),
+                    SearchSpecs.containsIgnoreCase(cb, root.get("email"), pattern)));
+            }
+            if (f.roles() != null && !f.roles().isEmpty()) {
+                and.add(root.get("role").in(f.roles()));
+            }
+            if (f.active() != null) {
+                // is_active NULL — eski yozuvlar, faol hisoblanadi (CustomUserDetailsService kabi)
+                and.add(f.active()
+                    ? cb.or(cb.isTrue(root.get("isActive")), cb.isNull(root.get("isActive")))
+                    : cb.isFalse(root.get("isActive")));
+            }
+            return cb.and(and.toArray(Predicate[]::new));
+        };
+    }
+
     private String resolveUsername(CreateUserRequest request) {
         if (request.getUsername() != null && !request.getUsername().isBlank()) {
-            return request.getUsername().trim();
+            String username = request.getUsername().trim();
+            if (userRepository.existsByUsernameIgnoreCase(username)) {
+                throw new ConflictException("user.username.taken", username);
+            }
+            return username;
         }
         return generateUsername(request.getFirstName(), request.getLastName());
     }

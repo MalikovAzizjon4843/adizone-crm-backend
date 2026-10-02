@@ -36,9 +36,9 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/crm_db
     username: crm_user
-    password: crm_password
+    password: ${DB_PASSWORD}
 jwt:
-  secret: YOUR_256_BIT_HEX_SECRET
+  secret: ${JWT_SECRET}
 ```
 
 ### 3. Build & Run
@@ -316,7 +316,7 @@ Override in production via env vars or external config:
 ```bash
 SPRING_DATASOURCE_URL=jdbc:postgresql://prod-db:5432/crm_db
 SPRING_DATASOURCE_USERNAME=crm_user
-SPRING_DATASOURCE_PASSWORD=secure_password
+SPRING_DATASOURCE_PASSWORD=<db-password>
 JWT_SECRET=your_256bit_hex_secret_here
 SERVER_PORT=8080
 ```

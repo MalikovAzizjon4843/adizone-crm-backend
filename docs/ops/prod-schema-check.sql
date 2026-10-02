@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V58 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V60 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V58 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V60 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
 --   4. CHECK cheklovlari (enum CHECK lar EnumCheckConstraintCleaner tomonidan o'chiriladi)
@@ -21,7 +21,7 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V58 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V60 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- Nomi bo'yicha tekshiriladi; boshqa nom bilan yaratilgan ekvivalent (masalan Hibernate uk_*)
@@ -246,7 +246,10 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V58', 'index', 'exam_registrations', 'idx_exam_registrations_exam'),
     ('V58', 'index', 'exam_registrations', 'idx_exam_registrations_student'),
     ('V58', 'index', 'exam_registrations', 'ux_exam_registrations_exam_student'),
-    ('V58', 'sequence', NULL, 'contract_number_seq')
+    ('V58', 'sequence', NULL, 'contract_number_seq'),
+    ('V59', 'table', 'contract_number_counters', NULL),
+    ('V60', 'table', 'notice_target_roles', NULL),
+    ('V60', 'index', 'notice_target_roles', 'idx_notice_target_roles_role')
 ), checked AS (
     SELECT w.*,
            CASE w.kind

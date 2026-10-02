@@ -3,6 +3,7 @@ package com.crm.service;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
 import com.crm.entity.enums.UserRole;
+import com.crm.exception.ConflictException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
@@ -136,7 +137,8 @@ public class TeacherProfileSyncService {
     /**
      * {@code POST /api/teachers/{userId}/ensure-profile} — bitta user uchun repair 2-qadami (UI tugmasi).
      * Javob repair bilan bir xil shaklda: {@code linkedCount, createdCount, skippedCount, items[1]};
-     * {@code action}: CREATED | LINKED | EXISTS (profil allaqachon bor) | SKIPPED (sabab bilan).
+     * {@code action}: CREATED | LINKED | EXISTS (profil allaqachon bor). SKIPPED bo'lsa — 409, {@code code}:
+     * {@code teacher.profile.roleNotTeacher | contactTaken | notCreated | failed}, {@code data} = item.
      */
     public Map<String, Object> ensureProfile(Long userId) {
         User user = userRepository.findById(userId)
@@ -145,6 +147,11 @@ public class TeacherProfileSyncService {
             .map(t -> item("USER", t.getId(), user.getId(), user.getUsername(), "EXISTS", null))
             .orElseGet(() -> ensureOne(user));
         String action = (String) it.get("action");
+        // T-07: SKIPPED endi 409 — avval 200 qaytib, frontend "profil yaratildi" deb ko'rsatardi.
+        // code — sabab turi, data — avvalgi items[0] (teacherId, userId, reason).
+        if ("SKIPPED".equals(action)) {
+            throw new ConflictException((String) it.get("code"), it.get("reason")).withData(it);
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("linkedCount", "LINKED".equals(action) ? 1 : 0);
         result.put("createdCount", "CREATED".equals(action) ? 1 : 0);
@@ -160,8 +167,7 @@ public class TeacherProfileSyncService {
      */
     private Map<String, Object> ensureOne(User user) {
         if (user.getRole() != UserRole.TEACHER) {
-            return item("USER", null, user.getId(), user.getUsername(), "SKIPPED",
-                "Roli TEACHER emas: " + user.getRole());
+            return skipped(null, user, CODE_ROLE_NOT_TEACHER, "Roli TEACHER emas: " + user.getRole());
         }
         List<Teacher> candidates = new ArrayList<>();
         String phone = trimToNull(user.getPhone());
@@ -178,7 +184,7 @@ public class TeacherProfileSyncService {
             .filter(t -> t.getUser() != null && !t.getUser().getId().equals(user.getId()))
             .findFirst().orElse(null);
         if (!orphanByPhone && taken != null) {
-            return item("USER", taken.getId(), user.getId(), user.getUsername(), "SKIPPED",
+            return skipped(taken.getId(), user, CODE_CONTACT_TAKEN,
                 "Shu telefon/email li profil #" + taken.getId() + " boshqa userga (#" + taken.getUser().getId()
                     + ") bog'langan — qo'lda tekshiring");
         }
@@ -189,17 +195,28 @@ public class TeacherProfileSyncService {
                 case CREATED -> item("USER", teacherId, user.getId(), user.getUsername(), "CREATED", null);
                 case LINKED -> item("USER", teacherId, user.getId(), user.getUsername(), "LINKED",
                     "Telefon bo'yicha egasiz profil topildi");
-                default -> item("USER", teacherId, user.getId(), user.getUsername(), "SKIPPED",
-                    "Profil yaratilmadi: " + outcome);
+                default -> skipped(teacherId, user, CODE_NOT_CREATED, "Profil yaratilmadi: " + outcome);
             };
         } catch (RuntimeException e) {
             log.error("Teacher profilini tiklash muvaffaqiyatsiz: userId={}", user.getId(), e);
-            return item("USER", null, user.getId(), user.getUsername(), "SKIPPED", rootMessage(e));
+            return skipped(null, user, CODE_FAILED, rootMessage(e));
         }
     }
 
     private static String trimToNull(String s) {
         return s == null || s.isBlank() ? null : s.trim();
+    }
+
+    /** SKIPPED sababi — mashina o'qiydigan kod ({@code items[].code}, 409 javobdagi {@code code}). */
+    static final String CODE_ROLE_NOT_TEACHER = "teacher.profile.roleNotTeacher";
+    static final String CODE_CONTACT_TAKEN = "teacher.profile.contactTaken";
+    static final String CODE_NOT_CREATED = "teacher.profile.notCreated";
+    static final String CODE_FAILED = "teacher.profile.failed";
+
+    private static Map<String, Object> skipped(Long teacherId, User user, String code, String reason) {
+        Map<String, Object> m = item("USER", teacherId, user.getId(), user.getUsername(), "SKIPPED", reason);
+        m.put("code", code);
+        return m;
     }
 
     private static Map<String, Object> item(String type, Long teacherId, Long userId, String username,

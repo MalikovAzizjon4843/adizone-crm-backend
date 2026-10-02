@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Adizone — oʻquvchi Telegram Mini App maketi</title>
+<meta name="author" content="Azizjon Malikov — azizjoon.uz">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700;800&family=Unbounded:wght@600;700&display=swap" rel="stylesheet">
+<style>
+/* ============ PAGE (maket muhiti) ============ */
+:root{
+  --p-bg:#EFE8E7; --p-surface:#FFFFFF; --p-text:#221519; --p-muted:#6E5F64; --p-line:#E2D6D4; --p-red:#BE1E2D;
+  --font:'Onest',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --font-num:'Unbounded','Onest',system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){--p-bg:#141012;--p-surface:#1F191C;--p-text:#F4EEEF;--p-muted:#AFA2A7;--p-line:#33292E;color-scheme:dark}
+}
+:root[data-theme="dark"]{--p-bg:#141012;--p-surface:#1F191C;--p-text:#F4EEEF;--p-muted:#AFA2A7;--p-line:#33292E;color-scheme:dark}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--p-bg);color:var(--p-text);font-family:var(--font);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100%}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:inherit}
+svg{display:block}
+:focus-visible{outline:3px solid #E0343F;outline-offset:2px;border-radius:10px}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+.page{max-width:1320px;margin:0 auto;padding:40px 28px 60px;display:grid;grid-template-columns:340px 1fr;gap:48px;align-items:start}
+.panel{position:sticky;top:calc(env(safe-area-inset-top,0px) + 24px)}
+.panel h1{font-size:30px;font-weight:800;letter-spacing:-.03em;line-height:1.1}
+.panel > p{color:var(--p-muted);margin-top:12px}
+.ctl{margin-top:26px}
+.ctl h2{font-size:14px;font-weight:600;color:var(--p-muted);margin-bottom:10px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:10px 14px;border-radius:12px;background:var(--p-surface);border:1px solid var(--p-line);font-weight:600;font-size:14px}
+.chip[aria-pressed="true"]{background:var(--p-red);border-color:var(--p-red);color:#fff}
+.notes{margin-top:28px;padding:18px;border-radius:16px;background:var(--p-surface);border:1px solid var(--p-line);font-size:14px;color:var(--p-muted)}
+.notes b{color:var(--p-text)}
+.notes ul{padding-left:18px;margin-top:8px;display:grid;gap:6px}
+.stage{display:flex;justify-content:center}
+.stage.grid{display:grid;grid-template-columns:repeat(var(--cols,4),1fr);gap:18px;justify-items:center}
+.cap{text-align:center;font-weight:700;font-size:14px;margin-bottom:10px}
+.slot{display:flex;flex-direction:column;align-items:center}
+.phone-wrap{position:relative}
+.phone{width:414px;height:868px;border-radius:62px;padding:12px;background:#0C0A0B;box-shadow:0 0 0 2px #2B2528,0 40px 80px -30px rgba(0,0,0,.5);transform-origin:top left;position:absolute;left:0;top:0}
+.phone::before{content:"";position:absolute;left:50%;top:22px;transform:translateX(-50%);width:120px;height:34px;border-radius:20px;background:#000;z-index:30}
+
+/* ============ APP TOKENS ============ */
+.app{
+  --bg:#F4EEED; --surface:#FFFFFF; --surface-2:#F3EAE9; --text:#221519; --muted:#6E5F64; --line:#EADFDD;
+  --accent:#BE1E2D; --accent-2:#861420; --accent-text:#BE1E2D; --on-accent:#fff;
+  --head-bg:#F4EEED; --head-text:#221519; --hero-a:#E0343F; --hero-b:#8E1521; --hero-text:#fff;
+  --tabs-bg:rgba(255,255,255,.92); --sheet-bg:#FFFFFF;
+  --ok:#1E9E5A; --bad:#D0283A; --late:#E0962F; --exc:#8A7F84;
+  --card-shadow:0 1px 2px rgba(60,20,30,.06);
+  position:relative;width:390px;height:844px;border-radius:50px;overflow:hidden;background:var(--bg);color:var(--text);font-size:15px;isolation:isolate
+}
+.app[data-v="dark"]{
+  --bg:#1B1418; --surface:#261D22; --surface-2:#30252B; --text:#F7F0F1; --muted:#B5A6AC; --line:rgba(255,255,255,.08);
+  --accent:#D62B3A; --accent-2:#861420; --accent-text:#FF6F78; --head-bg:#1B1418; --head-text:#F7F0F1;
+  --tabs-bg:rgba(30,23,27,.94); --sheet-bg:#261D22; --card-shadow:none;
+}
+.app[data-v="red"]{
+  --head-bg:#BE1E2D; --head-text:#fff; --hero-a:#FFFFFF; --hero-b:#FFF1EF; --hero-text:#861420;
+}
+.app[data-v="glass"]{
+  --bg:#120B0E; --surface:rgba(255,255,255,.08); --surface-2:rgba(255,255,255,.07); --text:#FBF4F5; --muted:#C9B6BD; --line:rgba(255,255,255,.12);
+  --accent:#E0343F; --accent-text:#FF7A82; --head-bg:transparent; --head-text:#FBF4F5;
+  --hero-a:rgba(255,90,100,.55); --hero-b:rgba(140,20,35,.45);
+  --tabs-bg:rgba(255,255,255,.08); --sheet-bg:rgba(40,24,30,.9); --card-shadow:none;
+}
+
+
+
+.app[data-v="glasslight"]{
+  --bg:#F6F2F3; --surface:rgba(255,255,255,.58); --surface-2:rgba(255,255,255,.55); --text:#221519; --muted:#6E5F64; --line:rgba(34,21,25,.08);
+  --accent:#BE1E2D; --accent-text:#BE1E2D; --head-bg:transparent; --head-text:#221519;
+  --hero-a:rgba(255,255,255,.78); --hero-b:rgba(255,238,238,.6); --hero-text:#221519;
+  --tabs-bg:rgba(255,255,255,.6); --sheet-bg:rgba(255,255,255,.94); --card-shadow:none;
+}
+
+/* glass internals */
+.blobs{position:absolute;inset:0;z-index:-1;display:none;overflow:hidden}
+.app[data-v="glass"] .blobs,.app[data-v="glasslight"] .blobs{display:block}
+.blobs i{position:absolute;border-radius:50%;filter:blur(50px);opacity:.75}
+.blobs i:nth-child(1){width:320px;height:320px;left:-120px;top:-60px;background:#E0343F;animation:bd1 18s ease-in-out infinite alternate}
+.blobs i:nth-child(2){width:280px;height:280px;right:-120px;top:280px;background:#7A1020;animation:bd2 22s ease-in-out infinite alternate}
+.blobs i:nth-child(3){width:240px;height:240px;left:40px;bottom:-60px;background:#FF7A59;animation:bd1 26s ease-in-out infinite alternate-reverse}
+@keyframes bd1{to{transform:translate(60px,70px) scale(1.1)}}
+@keyframes bd2{to{transform:translate(-70px,-50px) scale(.9)}}
+.app[data-v="glass"] .card,.app[data-v="glasslight"] .card,.app[data-v="glass"] .tabs,.app[data-v="glasslight"] .tabs,.app[data-v="glass"] .sheet-body,.app[data-v="glasslight"] .sheet-body,.app[data-v="glass"] .hero-card,.app[data-v="glasslight"] .hero-card{
+  -webkit-backdrop-filter:blur(22px) saturate(180%);backdrop-filter:blur(22px) saturate(180%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.2),inset 0 0 0 1px rgba(255,255,255,.1),0 16px 40px -18px rgba(0,0,0,.6);
+}
+
+/* ============ APP CHROME ============ */
+.status{height:54px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 30px 8px 36px;font-weight:600;font-size:15px;background:var(--head-bg);color:var(--head-text)}
+.status .sig{display:flex;gap:6px;align-items:center}
+.status .sig svg{width:18px;height:12px}
+.tg-head{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;background:var(--head-bg);color:var(--head-text)}
+.tg-head .t{text-align:center;line-height:1.2}
+.tg-head .t b{display:block;font-size:16px}
+.tg-head .t span{font-size:12px;opacity:.7}
+.tg-btn{font-size:15px;font-weight:500;padding:8px 6px;color:var(--head-text);opacity:.9;min-width:64px;text-align:left}
+.tg-btn.r{text-align:right}
+.scroll{position:absolute;top:102px;left:0;right:0;bottom:0;overflow-y:auto;padding:4px 16px 110px;scrollbar-width:none}
+.scroll::-webkit-scrollbar{display:none}
+.screen{display:none;animation:fadein .3s ease}
+.screen.on{display:block}
+@keyframes fadein{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.tabs{position:absolute;left:12px;right:12px;bottom:22px;height:66px;border-radius:24px;background:var(--tabs-bg);display:flex;padding:6px;box-shadow:0 10px 30px -12px rgba(0,0,0,.35),inset 0 0 0 1px var(--line);z-index:5}
+.app[data-v="light"] .tabs,.app[data-v="red"] .tabs{-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-radius:18px;font-size:11px;font-weight:600;color:var(--muted);transition:background .25s,color .25s}
+.tab svg{width:22px;height:22px}
+.tab.on{color:var(--accent-text);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.app.linking .tabs{display:none}
+
+/* ============ SHARED BLOCKS ============ */
+.card{background:var(--surface);border-radius:22px;padding:16px;box-shadow:var(--card-shadow)}
+.app[data-v="dark"] .card{box-shadow:inset 0 0 0 1px var(--line)}
+.stack{display:grid;gap:12px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.lbl{font-size:13px;color:var(--muted);font-weight:500}
+.big{font-family:var(--font-num);font-weight:700;font-size:24px;letter-spacing:-.02em;line-height:1.15;margin-top:6px}
+.sub{font-size:13px;color:var(--muted);margin-top:4px}
+.h{font-size:22px;font-weight:800;letter-spacing:-.02em;margin:8px 2px 14px}
+.sec-t{font-size:15px;font-weight:700;margin:18px 4px 10px;display:flex;justify-content:space-between}
+.sec-t a{font-size:13px;color:var(--accent-text);text-decoration:none;font-weight:600}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:700}
+.pill.ok{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.pill.bad{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
+.pill.late{background:color-mix(in srgb,var(--late) 18%,transparent);color:var(--late)}
+.pill.exc{background:color-mix(in srgb,var(--exc) 18%,transparent);color:var(--exc)}
+.pill.acc{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent-text)}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px;border-radius:14px;font-weight:700;font-size:15px;background:var(--accent);color:var(--on-accent);transition:transform .15s}
+.btn:active{transform:scale(.98)}
+.btn.soft{background:var(--surface-2);color:var(--text)}
+.ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent-text);flex-shrink:0}
+.ic svg{width:20px;height:20px}
+.item{display:flex;gap:12px;align-items:center}
+.item .grow{flex:1;min-width:0}
+.item b{display:block;font-size:15px}
+.item span{display:block;font-size:13px;color:var(--muted)}
+.list .item{padding:12px 0;border-bottom:1px solid var(--line)}
+.list .item:last-child{border-bottom:0;padding-bottom:2px}
+.list .item:first-child{padding-top:2px}
+
+/* ============ LINK SCREEN ============ */
+.link{text-align:center;padding-top:60px}
+.link .logo{width:92px;height:92px;margin:0 auto;border-radius:30px;background:linear-gradient(160deg,#E6404D,#8E1521);display:grid;place-items:center;color:#fff;font-family:var(--font-num);font-size:40px;font-weight:700;box-shadow:0 20px 40px -18px rgba(190,30,45,.8)}
+.link h3{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:28px}
+.link p{color:var(--muted);margin:10px auto 0;max-width:30ch}
+.link .steps{text-align:left;margin-top:30px}
+.link .btn{margin-top:22px}
+.link small{display:block;color:var(--muted);font-size:12px;margin-top:14px}
+
+/* ============ HOME ============ */
+.hello{display:flex;align-items:center;gap:12px;margin:6px 2px 14px}
+.av{width:46px;height:46px;border-radius:50%;background:linear-gradient(160deg,#FF7A80,#8E1521);color:#fff;display:grid;place-items:center;font-weight:700}
+.hello b{display:block;font-size:19px;letter-spacing:-.01em}
+.hello span{font-size:13px;color:var(--muted)}
+.hello .bell{margin-left:auto;width:42px;height:42px;border-radius:50%;background:var(--surface);display:grid;place-items:center;position:relative}
+.hello .bell svg{width:20px;height:20px}
+.hello .bell i{position:absolute;right:10px;top:10px;width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.app[data-v="red"] .home-band{background:#BE1E2D;margin:-4px -16px 0;padding:4px 16px 16px;color:#fff;border-radius:0 0 28px 28px}
+.app[data-v="red"] .home-band .hello span{color:rgba(255,255,255,.8)}
+.app[data-v="red"] .home-band .bell{background:rgba(255,255,255,.16);color:#fff}
+.app[data-v="red"] .home-band .bell i{background:#fff}
+.hero-card{border-radius:26px;padding:20px;color:var(--hero-text);background:linear-gradient(150deg,var(--hero-a),var(--hero-b));position:relative;overflow:hidden}
+.hero-card::after{content:"";position:absolute;right:-50px;top:-50px;width:170px;height:170px;border-radius:50%;background:rgba(255,255,255,.12)}
+.app[data-v="red"] .hero-card::after{background:rgba(190,30,45,.08)}
+.hero-card .when{font-size:13px;font-weight:600;opacity:.85}
+.hero-card .time{font-family:var(--font-num);font-size:38px;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin-top:8px}
+.hero-card .meta{margin-top:10px;font-size:14px;opacity:.9;display:grid;gap:2px}
+.hero-card .cd{position:absolute;right:16px;bottom:16px;padding:7px 12px;border-radius:999px;background:rgba(255,255,255,.2);font-size:12px;font-weight:700}
+.app[data-v="red"] .hero-card .cd{background:#BE1E2D;color:#fff}
+.ring{--p:80;width:54px;height:54px;border-radius:50%;background:conic-gradient(var(--ok) calc(var(--p)*1%),var(--surface-2) 0);display:grid;place-items:center;float:right;margin-top:-4px}
+.ring::before{content:"";width:40px;height:40px;border-radius:50%;background:var(--surface)}
+.app[data-v="glass"] .ring::before,.app[data-v="glasslight"] .ring::before{background:#2a1b21}
+.tap{cursor:pointer;text-align:left;width:100%}
+
+/* ============ SCHEDULE ============ */
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.day{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 0;border-radius:16px;background:var(--surface);font-size:12px;color:var(--muted);position:relative}
+.day b{font-size:17px;color:var(--text)}
+.day.has::after{content:"";position:absolute;bottom:6px;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.day.sel{background:var(--accent);color:rgba(255,255,255,.85)}
+.day.sel b{color:#fff}
+.day.sel.has::after{background:#fff}
+.lesson{display:grid;grid-template-columns:62px 1fr;gap:14px}
+.lesson .tm{font-family:var(--font-num);font-weight:700;font-size:15px;line-height:1.2}
+.lesson .tm span{display:block;font-family:var(--font);font-weight:500;font-size:13px;color:var(--muted)}
+.lesson .bar{border-left:3px solid var(--accent);padding-left:12px}
+.lesson b{display:block;font-size:16px}
+.lesson .m{font-size:13px;color:var(--muted);margin-top:2px}
+.lesson .pill{margin-top:10px}
+.empty{text-align:center;padding:36px 10px;color:var(--muted)}
+.empty svg{width:40px;height:40px;margin:0 auto 10px;opacity:.6}
+
+/* ============ ATTENDANCE ============ */
+.cal-h{display:flex;justify-content:space-between;align-items:center}
+.cal-h b{font-size:17px}
+.cal-nav{display:flex;gap:6px}
+.cal-nav button{width:34px;height:34px;border-radius:10px;background:var(--surface-2);display:grid;place-items:center}
+.cal-nav svg{width:16px;height:16px}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:14px;text-align:center}
+.cal .wd{font-size:11px;color:var(--muted);font-weight:600;padding-bottom:4px}
+.cal .d{aspect-ratio:1;display:grid;place-items:center;border-radius:12px;font-size:14px;font-weight:600}
+.cal .d.p{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.cal .d.a{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}
+.cal .d.l{background:color-mix(in srgb,var(--late) 20%,transparent);color:var(--late)}
+.cal .d.e{background:color-mix(in srgb,var(--exc) 20%,transparent);color:var(--exc)}
+.cal .d.t{box-shadow:inset 0 0 0 2px var(--accent);color:var(--accent-text)}
+.cal .d.f{box-shadow:inset 0 0 0 1.5px var(--line)}
+.cal .d.o{color:var(--muted);opacity:.55;font-weight:500}
+.legend{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-top:14px;font-size:13px;color:var(--muted)}
+.legend span{display:flex;align-items:center;gap:8px}
+.legend i{width:12px;height:12px;border-radius:4px}
+.stats4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.stats4 .card{padding:12px 8px;text-align:center}
+.stats4 b{display:block;font-family:var(--font-num);font-size:20px}
+.stats4 span{font-size:11px;color:var(--muted)}
+
+/* ============ PAYMENTS ============ */
+.bal{border-radius:26px;padding:20px;color:#fff;background:linear-gradient(150deg,#E0343F,#6E1019);position:relative;overflow:hidden}
+.app[data-v="red"] .bal{background:#BE1E2D}
+.app[data-v="glass"] .bal,.app[data-v="glasslight"] .bal{background:linear-gradient(150deg,rgba(255,90,100,.5),rgba(120,15,30,.45));-webkit-backdrop-filter:blur(22px) saturate(180%);backdrop-filter:blur(22px) saturate(180%);box-shadow:inset 0 1px 0 rgba(255,255,255,.25),inset 0 0 0 1px rgba(255,255,255,.12)}
+.bal::after{content:"";position:absolute;right:-40px;bottom:-60px;width:180px;height:180px;border-radius:50%;background:rgba(255,255,255,.1)}
+.bal .lbl{color:rgba(255,255,255,.8)}
+.bal .amt{font-family:var(--font-num);font-size:34px;font-weight:700;margin-top:6px;letter-spacing:-.02em}
+.bal .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px;position:relative;z-index:1}
+.bal .grid div{background:rgba(255,255,255,.14);border-radius:14px;padding:10px 12px}
+.bal .grid span{display:block;font-size:12px;color:rgba(255,255,255,.8)}
+.bal .grid b{font-size:15px}
+.bal .btn{background:#fff;color:#8E1521;margin-top:14px;position:relative;z-index:1}
+.money{font-weight:700;font-size:15px;text-align:right;white-space:nowrap}
+.money small{display:block;font-weight:500;font-size:12px;color:var(--ok)}
+
+/* sheet */
+.sheet{position:absolute;inset:0;z-index:20;display:none}
+.sheet.open{display:block}
+.sheet-dim{position:absolute;inset:0;background:rgba(10,4,6,.45);animation:fadein .25s}
+.sheet-body{position:absolute;left:0;right:0;bottom:0;background:var(--sheet-bg);border-radius:28px 28px 0 0;padding:10px 18px 0;animation:up .35s cubic-bezier(.2,.9,.3,1)}
+@keyframes up{from{transform:translateY(100%)}to{transform:none}}
+.grab{width:40px;height:5px;border-radius:5px;background:var(--line);margin:0 auto 14px}
+.sheet h4{font-size:19px;font-weight:800}
+.methods{display:grid;gap:8px;margin-top:14px}
+.method{display:flex;align-items:center;gap:12px;padding:14px;border-radius:16px;background:var(--surface-2);text-align:left;box-shadow:inset 0 0 0 1.5px transparent}
+.method.on{box-shadow:inset 0 0 0 2px var(--accent)}
+.method .lg{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:13px}
+.method b{flex:1}
+.method .dot{width:20px;height:20px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--line)}
+.method.on .dot{box-shadow:inset 0 0 0 6px var(--accent)}
+.sum{display:flex;justify-content:space-between;margin-top:16px;font-size:14px;color:var(--muted)}
+.sum b{color:var(--text)}
+.main-btn{margin:16px -18px 0;padding:18px 18px 40px;background:var(--accent);color:#fff;font-weight:700;font-size:16px;text-align:center;width:calc(100% + 36px)}
+.main-btn small{display:block;font-weight:500;font-size:11px;opacity:.8;margin-top:2px}
+
+/* ============ PROFILE ============ */
+.prof{text-align:center;padding:10px 0 4px}
+.prof .av{width:76px;height:76px;margin:0 auto;font-size:24px}
+.prof b{display:block;font-size:20px;margin-top:12px}
+.prof span{font-size:13px;color:var(--muted)}
+.set{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.set:last-child{border-bottom:0}
+.set .grow{flex:1}
+.set b{display:block;font-size:15px;font-weight:600}
+.set span{font-size:12px;color:var(--muted)}
+.sw{position:relative;width:50px;height:30px;flex-shrink:0}
+.sw input{position:absolute;opacity:0;inset:0;cursor:pointer;margin:0}
+.sw i{position:absolute;inset:0;border-radius:30px;background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--line);transition:background .25s;pointer-events:none}
+.sw i::after{content:"";position:absolute;left:3px;top:3px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.2);transition:transform .3s cubic-bezier(.3,1.5,.5,1)}
+.sw input:checked + i{background:var(--ok)}
+.sw input:checked + i::after{transform:translateX(20px)}
+.copy{text-align:center;font-size:12px;color:var(--muted);margin-top:18px}
+.copy a{color:var(--accent-text);font-weight:600;text-decoration:none}
+
+/* toast / native popup */
+.toast{position:absolute;left:50%;top:112px;transform:translate(-50%,-20px);opacity:0;z-index:30;background:rgba(20,12,15,.92);color:#fff;padding:10px 16px;border-radius:14px;font-size:13px;font-weight:600;transition:all .3s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.popup{position:absolute;inset:0;z-index:25;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.4)}
+.popup.open{display:flex}
+.popup .box{width:280px;border-radius:18px;background:#F2F2F4;color:#111;text-align:center;overflow:hidden;animation:fadein .2s}
+.popup .box p{padding:18px 16px 14px;font-size:14px}
+.popup .box p b{display:block;font-size:16px;margin-bottom:4px}
+.popup .box div{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #D5D5DA}
+.popup .box button{padding:12px;color:#2A7DE1;font-size:16px}
+.popup .box button + button{border-left:1px solid #D5D5DA;font-weight:600}
+
+/* ============ RESPONSIVE PAGE ============ */
+@media (max-width:1100px){
+  .page{grid-template-columns:1fr;gap:28px}
+  .panel{position:static}
+  .stage.grid{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:520px){
+  .page{padding:20px 12px 40px}
+  .stage.grid{grid-template-columns:1fr 1fr;gap:10px}
+}
+/* ochiq glass: override (oxirida turishi shart) */.app[data-v="glasslight"] .blobs i:nth-child(1){background:#FFD2CF;opacity:.9}
+.app[data-v="glasslight"] .blobs i:nth-child(2){background:#E6E1EF;opacity:.95}
+.app[data-v="glasslight"] .blobs i:nth-child(3){background:#FFE3CF;opacity:.9}
+.app[data-v="glasslight"] .card,.app[data-v="glasslight"] .tabs,.app[data-v="glasslight"] .sheet-body,.app[data-v="glasslight"] .hero-card,.app[data-v="glasslight"] .bal{
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),inset 0 0 0 1px rgba(255,255,255,.65),0 12px 30px -16px rgba(120,20,35,.18);
+}
+.app[data-v="glasslight"] .hero-card .time{color:#BE1E2D}
+.app[data-v="glasslight"] .hero-card::after{background:rgba(190,30,45,.06)}
+.app[data-v="glasslight"] .hero-card .cd{background:#BE1E2D;color:#fff}
+.app[data-v="glasslight"] .ring::before{background:#FBF8F8}
+.app[data-v="glasslight"] .bal{background:rgba(255,255,255,.62);color:var(--text);-webkit-backdrop-filter:blur(22px) saturate(180%);backdrop-filter:blur(22px) saturate(180%)}
+.app[data-v="glasslight"] .bal .lbl,.app[data-v="glasslight"] .bal .grid span{color:var(--muted)}
+.app[data-v="glasslight"] .bal .amt{color:#BE1E2D}
+.app[data-v="glasslight"] .bal::after{background:rgba(190,30,45,.05)}
+.app[data-v="glasslight"] .bal .grid div{background:rgba(255,255,255,.7)}
+.app[data-v="glasslight"] .bal .btn{background:#BE1E2D;color:#fff}
+.app[data-v="glasslight"] .day.sel{background:#BE1E2D}
+
+</style>
+</head>
+<body>
+<div class="page">
+  <aside class="panel">
+    <h1>Oʻquvchi ilovasi — Telegram Mini App</h1>
+    <p>Oʻquvchi Telegram ichida dars jadvali, davomat, toʻlov va uy vazifasini koʻradi. Maʼlumotlar Adizone CRM dan keladi.</p>
+
+    <div class="ctl">
+      <h2>Variant</h2>
+      <div class="chips" id="vChips">
+        <button class="chip" data-v="dark" aria-pressed="true">1. Tungi</button>
+        <button class="chip" data-v="light" aria-pressed="false">2. Yorugʻ</button>
+        <button class="chip" data-v="red" aria-pressed="false">3. Qizil</button>
+        <button class="chip" data-v="glass" aria-pressed="false">4. Liquid Glass</button>
+        <button class="chip" data-v="glasslight" aria-pressed="false">5. Ochiq glass</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <h2>Koʻrinish</h2>
+      <div class="chips" id="mChips">
+        <button class="chip" data-m="one" aria-pressed="true">Bitta telefon</button>
+        <button class="chip" data-m="all" aria-pressed="false">Hammasi yonma-yon</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <h2>Ekran</h2>
+      <div class="chips" id="sChips">
+        <button class="chip" data-s="link" aria-pressed="false">Hisobni ulash</button>
+        <button class="chip" data-s="home" aria-pressed="true">Bosh sahifa</button>
+        <button class="chip" data-s="jadval" aria-pressed="false">Jadval</button>
+        <button class="chip" data-s="davomat" aria-pressed="false">Davomat</button>
+        <button class="chip" data-s="tolov" aria-pressed="false">Toʻlov</button>
+        <button class="chip" data-s="profil" aria-pressed="false">Profil</button>
+      </div>
+    </div>
+    <div class="notes">
+      <b>Maket haqida</b>
+      <ul>
+        <li>Telefon ichidagi tugmalar va pastki menyu ishlaydi.</li>
+        <li>Ism, guruh, ustoz va toʻlovlar namuna maʼlumot.</li>
+        <li>Yuqoridagi "Yopish" va pastdagi toʻlov tugmasi Telegram'ning oʻz elementlari (BackButton, MainButton).</li>
+      </ul>
+    </div>
+  </aside>
+  <main class="stage" id="stage"></main>
+</div>
+
+<template id="appTpl">
+<div class="app linking-off">
+  <div class="blobs" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="status" aria-hidden="true"><span>9:41</span><span class="sig">
+    <svg viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2" width="3" height="10" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+    <svg viewBox="0 0 26 12" fill="none" stroke="currentColor"><rect x=".5" y=".5" width="22" height="11" rx="3"/><rect x="2.5" y="2.5" width="16" height="7" rx="1.5" fill="currentColor" stroke="none"/><path d="M24.5 4v4" stroke-width="1.5"/></svg></span></div>
+  <div class="tg-head">
+    <button class="tg-btn" data-act="back">Yopish</button>
+    <div class="t"><b>Adizone</b><span>mini ilova</span></div>
+    <button class="tg-btn r" data-act="more" aria-label="Menyu">•••</button>
+  </div>
+
+  <div class="scroll">
+    <!-- LINK -->
+    <section class="screen" data-screen="link">
+      <div class="link">
+        <div class="logo">A</div>
+        <h3>Adizone'ga xush kelibsiz</h3>
+        <p>Hisobingizni ulash uchun markazda roʻyxatdan oʻtgan telefon raqamingizni ulashing.</p>
+        <div class="card list steps">
+          <div class="item"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2z"/></svg></div><div class="grow"><b>Raqamni ulashing</b><span>Telegram raqamingizni bir bosishda yuboradi</span></div></div>
+          <div class="item"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div><div class="grow"><b>Hisob topiladi</b><span>Raqam CRM dagi oʻquvchi kartasi bilan solishtiriladi</span></div></div>
+        </div>
+        <button class="btn" data-act="share">Raqamni ulashish</button>
+        <small>Raqamingiz faqat hisobni topish uchun ishlatiladi.</small>
+      </div>
+    </section>
+
+    <!-- HOME -->
+    <section class="screen" data-screen="home">
+      <div class="home-band">
+        <div class="hello">
+          <div class="av">DK</div>
+          <div><b>Salom, Dilnoza</b><span>Turk tili B1, toq kunlar</span></div>
+          <button class="bell" aria-label="Eʼlonlar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><i></i></button>
+        </div>
+        <div class="hero-card">
+          <div class="when">Keyingi dars, bugun</div>
+          <div class="time">18:30</div>
+          <div class="meta"><span>18:30–20:00, 5-xona</span><span>Ustoz: Madina Rahimova</span></div>
+          <span class="cd">3 soatdan keyin</span>
+        </div>
+      </div>
+      <div class="row2" style="margin-top:12px">
+        <button class="card tap" data-tab="tolov"><div class="lbl">Balans</div><div class="big">0 UZS</div><div class="sub">Keyingi toʻlov 01.10.2026</div></button>
+        <button class="card tap" data-tab="davomat"><span class="ring" style="--p:80"></span><div class="lbl">Davomat</div><div class="big">80%</div><div class="sub">Sentabr, 8 / 10</div></button>
+      </div>
+      <div class="sec-t">Uy vazifasi</div>
+      <div class="card list">
+        <div class="item"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v17H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M4 21.5v-17"/></svg></div><div class="grow"><b>12-dars: oʻtgan zamon</b><span>Muddat: 28.09.2026</span></div><span class="pill acc">Yangi</span></div>
+        <div class="item"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v17H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M4 21.5v-17"/></svg></div><div class="grow"><b>11-dars: lugʻat, 40 ta soʻz</b><span>Topshirildi 23.09.2026</span></div><span class="pill ok">Bajarildi</span></div>
+      </div>
+      <div class="sec-t">Eʼlonlar</div>
+      <div class="card">
+        <div class="item"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4h3l6 4V6L7 10z"/><path d="M17 9a4 4 0 0 1 0 6"/></svg></div><div class="grow"><b>Shanba kuni turk kino kechasi</b><span>26.09.2026, 16:00, 3-xona</span></div></div>
+      </div>
+    </section>
+
+    <!-- SCHEDULE -->
+    <section class="screen" data-screen="jadval">
+      <div class="h">Dars jadvali</div>
+      <div class="week" data-week></div>
+      <div class="sec-t" data-daytitle>Juma, 25.09.2026</div>
+      <div data-daylist></div>
+      <div class="sec-t">Guruh</div>
+      <div class="card list">
+        <div class="item"><div class="grow"><b>Turk tili B1</b><span>Dushanba, chorshanba, juma, 18:30–20:00</span></div></div>
+        <div class="item"><div class="grow"><b>5-xona</b><span>Bunyodkor shoh koʻchasi, 11</span></div></div>
+      </div>
+    </section>
+
+    <!-- ATTENDANCE -->
+    <section class="screen" data-screen="davomat">
+      <div class="h">Davomat</div>
+      <div class="stats4">
+        <div class="card"><b style="color:var(--ok)">7</b><span>Keldi</span></div>
+        <div class="card"><b style="color:var(--late)">1</b><span>Kechikdi</span></div>
+        <div class="card"><b style="color:var(--bad)">1</b><span>Kelmadi</span></div>
+        <div class="card"><b style="color:var(--exc)">1</b><span>Sababli</span></div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="cal-h"><b>Sentabr 2026</b><div class="cal-nav"><button aria-label="Oldingi oy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m15 6-6 6 6 6"/></svg></button><button aria-label="Keyingi oy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 6 6 6-6 6"/></svg></button></div></div>
+        <div class="cal" data-cal></div>
+        <div class="legend">
+          <span><i style="background:var(--ok)"></i>Keldi</span><span><i style="background:var(--late)"></i>Kechikdi</span>
+          <span><i style="background:var(--bad)"></i>Kelmadi</span><span><i style="background:var(--exc)"></i>Sababli</span>
+        </div>
+      </div>
+      <div class="sec-t">Oxirgi qoldirilgan dars</div>
+      <div class="card"><div class="item"><div class="grow"><b>09.09.2026, chorshanba</b><span>Mavzuni ustoz yordamchisi bilan tiklash mumkin</span></div><span class="pill bad">Kelmadi</span></div></div>
+    </section>
+
+    <!-- PAYMENTS -->
+    <section class="screen" data-screen="tolov">
+      <div class="h">Toʻlovlar</div>
+      <div class="bal">
+        <div class="lbl">Balans</div>
+        <div class="amt">0 UZS</div>
+        <div class="grid">
+          <div><span>Oylik toʻlov</span><b>700 000 UZS</b></div>
+          <div><span>Keyingi toʻlov</span><b>01.10.2026</b></div>
+        </div>
+        <button class="btn" data-act="pay">Toʻlash</button>
+      </div>
+      <div class="sec-t">Tarix</div>
+      <div class="card list">
+        <div class="item"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/></svg></div><div class="grow"><b>Sentabr uchun</b><span>01.09.2026, Click</span></div><div class="money">700 000 UZS<small>Qabul qilindi</small></div></div>
+        <div class="item"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/></svg></div><div class="grow"><b>Avgust uchun</b><span>01.08.2026, naqd</span></div><div class="money">700 000 UZS<small>Qabul qilindi</small></div></div>
+        <div class="item"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/></svg></div><div class="grow"><b>Iyul uchun</b><span>03.07.2026, Payme</span></div><div class="money">700 000 UZS<small>Qabul qilindi</small></div></div>
+      </div>
+    </section>
+
+    <!-- PROFILE -->
+    <section class="screen" data-screen="profil">
+      <div class="prof"><div class="av">DK</div><b>Dilnoza Karimova</b><span>+998 90 123 45 67</span></div>
+      <div class="sec-t">Oʻqish</div>
+      <div class="card list">
+        <div class="item"><div class="grow"><b>Turk tili B1</b><span>Offline, 5-xona</span></div><span class="pill ok">Faol</span></div>
+        <div class="item"><div class="grow"><b>Ustoz</b><span>Madina Rahimova</span></div></div>
+      </div>
+      <div class="sec-t">Bildirishnomalar</div>
+      <div class="card">
+        <label class="set"><div class="grow"><b>Dars eslatmasi</b><span>Dars boshlanishidan 1 soat oldin</span></div><span class="sw"><input type="checkbox" checked><i></i></span></label>
+        <label class="set"><div class="grow"><b>Toʻlov eslatmasi</b><span>Toʻlov kunidan 3 kun oldin</span></div><span class="sw"><input type="checkbox" checked><i></i></span></label>
+        <label class="set"><div class="grow"><b>Yangi uy vazifasi</b><span>Ustoz vazifa berganda</span></div><span class="sw"><input type="checkbox"><i></i></span></label>
+      </div>
+      <div class="sec-t">Yordam</div>
+      <div class="card list">
+        <a class="item" href="https://t.me/adizone_manager" target="_blank" rel="noopener" style="text-decoration:none"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M21 4 3 11l6 2 2 6 3-4 5 4z"/><path d="m9 13 8-6"/></svg></div><div class="grow"><b>Menejerga yozish</b><span>@adizone_manager</span></div></a>
+        <a class="item" href="tel:+998773373233" style="text-decoration:none"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2z"/></svg></div><div class="grow"><b>Qoʻngʻiroq qilish</b><span>+998 77 337 32 33</span></div></a>
+      </div>
+      <p class="copy">© 2026 ADIZONE LC<br>Ishlab chiqdi: <a href="https://azizjoon.uz" target="_blank" rel="noopener">azizjoon.uz</a></p>
+    </section>
+  </div>
+
+  <nav class="tabs" aria-label="Ilova menyusi">
+    <button class="tab" data-tab="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M3 11 12 4l9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Asosiy</button>
+    <button class="tab" data-tab="jadval"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Jadval</button>
+    <button class="tab" data-tab="davomat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 3 3 5-6"/></svg>Davomat</button>
+    <button class="tab" data-tab="tolov"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18M16 15h2"/></svg>Toʻlov</button>
+    <button class="tab" data-tab="profil"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>Profil</button>
+  </nav>
+
+  <div class="sheet" data-sheet>
+    <div class="sheet-dim" data-act="close-sheet"></div>
+    <div class="sheet-body">
+      <div class="grab"></div>
+      <h4>Oktabr uchun toʻlov</h4>
+      <div class="methods">
+        <button class="method on" data-m="Click"><span class="lg" style="background:#0A84FF">C</span><b>Click</b><span class="dot"></span></button>
+        <button class="method" data-m="Payme"><span class="lg" style="background:#00B2A9">P</span><b>Payme</b><span class="dot"></span></button>
+        <button class="method" data-m="Uzum"><span class="lg" style="background:#7B2FF7">U</span><b>Uzum</b><span class="dot"></span></button>
+      </div>
+      <div class="sum"><span>Summa</span><b>700 000 UZS</b></div>
+      <div class="sum"><span>Davr</span><b>01.10.2026 – 31.10.2026</b></div>
+      <button class="main-btn" data-act="confirm-pay">700 000 UZS toʻlash<small>Telegram MainButton</small></button>
+    </div>
+  </div>
+
+  <div class="popup" data-popup>
+    <div class="box"><p><b>Raqamni ulashish</b>Adizone mini ilovasi telefon raqamingizni soʻramoqda.</p><div><button data-act="pop-no">Bekor qilish</button><button data-act="pop-yes">Ulashish</button></div></div>
+  </div>
+  <div class="toast" data-toast></div>
+</div>
+</template>
+
+<script>
+(function(){
+  var tpl = document.getElementById('appTpl');
+  var stage = document.getElementById('stage');
+  var state = {variant:'dark', mode:'one', screen:'home'};
+  var instances = [];
+
+  var WEEK = [
+    {wd:'Du', d:21, lesson:'p'}, {wd:'Se', d:22}, {wd:'Ch', d:23, lesson:'p'}, {wd:'Pa', d:24},
+    {wd:'Ju', d:25, lesson:'t'}, {wd:'Sh', d:26, event:true}, {wd:'Ya', d:27}
+  ];
+  var WDFULL = {Du:'Dushanba',Se:'Seshanba',Ch:'Chorshanba',Pa:'Payshanba',Ju:'Juma',Sh:'Shanba',Ya:'Yakshanba'};
+  var ATT = {2:'p',4:'p',7:'p',9:'a',11:'p',14:'p',16:'l',18:'e',21:'p',23:'p',25:'t',28:'f',30:'f'};
+
+  function pad(n){ return (n < 10 ? '0' : '') + n; }
+
+  function App(variant){
+    var el = tpl.content.firstElementChild.cloneNode(true);
+    el.setAttribute('data-v', variant);
+    var st = {screen:'home', day:25, method:'Click'};
+    function q(s){ return el.querySelector(s); }
+    function qa(s){ return el.querySelectorAll(s); }
+
+    /* calendar */
+    var cal = q('[data-cal]');
+    var html = ['Du','Se','Ch','Pa','Ju','Sh','Ya'].map(function(w){ return '<div class="wd">' + w + '</div>'; }).join('');
+    html += '<div class="d o">31</div>'; // 01.09.2026 — seshanba
+    for (var d = 1; d <= 30; d++){
+      var c = ATT[d] || '';
+      html += '<div class="d ' + c + '">' + d + '</div>';
+    }
+    for (var n = 1; n <= 4; n++) html += '<div class="d o">' + n + '</div>';
+    cal.innerHTML = html;
+
+    /* week */
+    function renderWeek(){
+      q('[data-week]').innerHTML = WEEK.map(function(w){
+        return '<button class="day' + (w.lesson ? ' has' : '') + (w.d === st.day ? ' sel' : '') + '" data-day="' + w.d + '">' + w.wd + '<b>' + w.d + '</b></button>';
+      }).join('');
+      var w = WEEK.filter(function(x){ return x.d === st.day; })[0];
+      q('[data-daytitle]').textContent = WDFULL[w.wd] + ', ' + pad(w.d) + '.09.2026';
+      var box = q('[data-daylist]');
+      if (w.lesson){
+        var pill = w.lesson === 't' ? '<span class="pill acc">Bugun</span>' : '<span class="pill ok">Keldi</span>';
+        box.innerHTML = '<div class="card lesson"><div class="tm">18:30<span>20:00</span></div><div class="bar"><b>Turk tili B1</b><div class="m">5-xona, Madina Rahimova</div>' + pill + '</div></div>';
+      } else if (w.event){
+        box.innerHTML = '<div class="card lesson"><div class="tm">16:00<span>18:00</span></div><div class="bar"><b>Turk kino kechasi</b><div class="m">3-xona, barcha oʻquvchilar uchun</div><span class="pill exc">Tadbir</span></div></div>';
+      } else {
+        box.innerHTML = '<div class="card empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Bu kuni dars yoʻq</div>';
+      }
+    }
+    renderWeek();
+
+    function toast(t){
+      var x = q('[data-toast]'); x.textContent = t; x.classList.add('show');
+      clearTimeout(x._t); x._t = setTimeout(function(){ x.classList.remove('show'); }, 1800);
+    }
+    function go(s){
+      st.screen = s;
+      el.classList.toggle('linking', s === 'link');
+      qa('.screen').forEach(function(x){ x.classList.toggle('on', x.dataset.screen === s); });
+      qa('.tab').forEach(function(x){ x.classList.toggle('on', x.dataset.tab === s); });
+      q('.scroll').scrollTop = 0;
+      q('.tg-btn[data-act="back"]').textContent = (s === 'home' || s === 'link') ? 'Yopish' : 'Orqaga';
+    }
+
+    el.addEventListener('click', function(e){
+      var t = e.target.closest('[data-tab],[data-day],[data-act],.method');
+      if (!t || !el.contains(t)) return;
+      if (t.dataset.tab){ go(t.dataset.tab); return; }
+      if (t.dataset.day){ st.day = +t.dataset.day; renderWeek(); return; }
+      if (t.classList.contains('method')){
+        qa('.method').forEach(function(m){ m.classList.toggle('on', m === t); });
+        st.method = t.dataset.m; return;
+      }
+      var a = t.dataset.act;
+      if (a === 'back'){ if (st.screen !== 'home' && st.screen !== 'link') go('home'); else toast('Mini ilova yopiladi'); }
+      else if (a === 'more') toast('Telegram menyusi: sozlamalar, ulashish');
+      else if (a === 'share') q('[data-popup]').classList.add('open');
+      else if (a === 'pop-no') q('[data-popup]').classList.remove('open');
+      else if (a === 'pop-yes'){ q('[data-popup]').classList.remove('open'); go('home'); toast('Hisob ulandi: Dilnoza Karimova'); }
+      else if (a === 'pay') q('[data-sheet]').classList.add('open');
+      else if (a === 'close-sheet') q('[data-sheet]').classList.remove('open');
+      else if (a === 'confirm-pay'){ q('[data-sheet]').classList.remove('open'); toast(st.method + ' toʻlov sahifasi ochiladi'); }
+    });
+
+    go(state.screen);
+    return {el:el, go:go, setVariant:function(v){ el.setAttribute('data-v', v); }};
+  }
+
+  var LABELS = {dark:'1. Tungi', light:'2. Yorugʻ', red:'3. Qizil', glass:'4. Liquid Glass', glasslight:'5. Ochiq glass'};
+
+  function frame(app, scale, caption){
+    var slot = document.createElement('div'); slot.className = 'slot';
+    if (caption){ var c = document.createElement('div'); c.className = 'cap'; c.textContent = caption; slot.appendChild(c); }
+    var wrap = document.createElement('div'); wrap.className = 'phone-wrap';
+    wrap.style.width = (414 * scale) + 'px'; wrap.style.height = (868 * scale) + 'px';
+    var ph = document.createElement('div'); ph.className = 'phone';
+    ph.style.transform = 'scale(' + scale + ')';
+    ph.appendChild(app.el); wrap.appendChild(ph); slot.appendChild(wrap);
+    return slot;
+  }
+
+  function build(){
+    stage.innerHTML = ''; instances = [];
+    var avail = stage.clientWidth || window.innerWidth - 40;
+    if (state.mode === 'one'){
+      stage.classList.remove('grid');
+      var s = Math.min(1, (avail) / 414, (window.innerHeight - 40) / 868);
+      if (window.innerWidth < 1100) s = Math.min(1, avail / 414);
+      s = Math.max(.55, s);
+      var app = App(state.variant); instances.push(app);
+      stage.appendChild(frame(app, s));
+    } else {
+      stage.classList.add('grid'); 
+      var cols = window.innerWidth <= 1100 ? 2 : (window.innerWidth >= 1500 ? 5 : 3);
+      var gap = window.innerWidth <= 520 ? 10 : 18;
+      stage.style.setProperty('--cols', cols);
+      var s2 = Math.min(1, (avail - gap * (cols - 1)) / cols / 414);
+      ['dark','light','red','glass','glasslight'].forEach(function(v){
+        var a = App(v); instances.push(a);
+        stage.appendChild(frame(a, s2, LABELS[v]));
+      });
+    }
+  }
+
+  function press(group, attr, val){
+    document.querySelectorAll('#' + group + ' .chip').forEach(function(c){ c.setAttribute('aria-pressed', String(c.dataset[attr] === val)); });
+  }
+  document.getElementById('vChips').addEventListener('click', function(e){
+    var c = e.target.closest('.chip'); if (!c) return;
+    state.variant = c.dataset.v; press('vChips','v',state.variant);
+    if (state.mode === 'all'){ state.mode = 'one'; press('mChips','m','one'); build(); }
+    else instances.forEach(function(i){ i.setVariant(state.variant); });
+  });
+  document.getElementById('mChips').addEventListener('click', function(e){
+    var c = e.target.closest('.chip'); if (!c) return;
+    state.mode = c.dataset.m; press('mChips','m',state.mode); build();
+  });
+  document.getElementById('sChips').addEventListener('click', function(e){
+    var c = e.target.closest('.chip'); if (!c) return;
+    state.screen = c.dataset.s; press('sChips','s',state.screen);
+    instances.forEach(function(i){ i.go(state.screen); });
+  });
+  var rt; window.addEventListener('resize', function(){ clearTimeout(rt); rt = setTimeout(build, 150); });
+  build();
+})();
+</script>
+</body>
+</html>

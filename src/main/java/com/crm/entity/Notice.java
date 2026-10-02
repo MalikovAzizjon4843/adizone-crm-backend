@@ -1,11 +1,15 @@
 package com.crm.entity;
 
+import com.crm.entity.enums.UserRole;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -43,8 +47,21 @@ public class Notice extends BaseEntity {
     @Builder.Default
     private String noticeType = "GENERAL";
 
+    /** Eski bitta rol (legacy). Yangi yozuvlarda NULL — {@link #targetRoles} ishlatiladi. */
     @Column(name = "target_role", length = 30)
     private String targetRole;
+
+    /**
+     * Auditoriya — rollar to'plami (phase5-audit N-01, Q12). Bo'sh — hamma (legacy maydonlar ham
+     * cheklamasa). Saqlashda {@code publishedTo} = {@code ALL} / {@code ROLES}, {@code targetRole} = NULL.
+     */
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "notice_target_roles", joinColumns = @JoinColumn(name = "notice_id"))
+    @Column(name = "role", length = 30, nullable = false)
+    @Enumerated(EnumType.STRING)
+    @BatchSize(size = 50)
+    @Builder.Default
+    private Set<UserRole> targetRoles = new HashSet<>();
 
     @Column(name = "is_active")
     @Builder.Default

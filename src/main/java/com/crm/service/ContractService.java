@@ -15,11 +15,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -35,8 +35,6 @@ public class ContractService {
 
     private static final String CENTER_NAME = "Adizone";
 
-    /** Shartnoma raqami sequence'i — prodda V58, testlarda billing-test-schema.sql yaratadi. */
-    public static final String NUMBER_SEQUENCE = "contract_number_seq";
     private static final DateTimeFormatter DATE_FORMAT =
         DateTimeFormatter.ofPattern("dd.MM.yyyy");
 
@@ -45,7 +43,9 @@ public class ContractService {
     private final StudentRepository studentRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final ParentRepository parentRepository;
-    private final JdbcTemplate jdbcTemplate;
+    private final ContractNumberService contractNumberService;
+    /** Shartnoma sanasi — Asia/Tashkent bo'yicha (testda boshqariladigan soat). */
+    private final Clock billingClock;
 
     @Transactional(readOnly = true)
     public List<ContractTemplateDto> getAllTemplates() {
@@ -122,7 +122,7 @@ public class ContractService {
             .orElseThrow(() -> new ResourceNotFoundException("Student", dto.getStudentId()));
 
         ContractTemplate template = resolveTemplate(dto.getTemplateId());
-        LocalDate contractDate = LocalDate.now();
+        LocalDate contractDate = LocalDate.now(billingClock);
         String contractNumber = generateNumber(contractDate);
         String rendered = renderContent(template.getContent(), student, contractNumber);
 
@@ -171,30 +171,16 @@ public class ContractService {
     }
 
     /**
-     * Shartnoma raqami — {@code CTR-YYYY-NNNNN} (phase5-audit C-01, Q8).
+     * Shartnoma raqami — {@code CTR-YYYY-NNNNN}, har yil 00001 dan (phase5-audit C-01, Q8).
      *
-     * <p>Avval {@code count() + 1} edi: bitta shartnoma o'chirilgach keyingi
-     * raqam mavjudiga to'g'ri kelib, har {@code generate} UNIQUE buzilishi bilan
-     * 500 qaytarardi; parallel ikki so'rov ham bir xil raqam olardi. Endi
-     * {@value #NUMBER_SEQUENCE} (V58) — tranzaksiyadan tashqari, takrorlanmaydi;
-     * rollback bo'lgan generatsiya raqamni "yeydi", bo'shliq — me'yor.
-     *
-     * <p>{@code YYYY} — shartnoma sanasining yili. Hisoblagich yagona va yil
-     * almashganda NOLGA QAYTMAYDI (2027 yil birinchi shartnomasi masalan
-     * {@code CTR-2027-00412}). Eski {@code CTR-0001} raqamlari o'zgarmaydi —
-     * ular boshqa ko'rinishda, yangi raqamlar bilan to'qnashmaydi.
+     * <p>Avval {@code count() + 1} edi: bitta shartnoma o'chirilgach keyingi raqam
+     * mavjudiga to'g'ri kelib, har {@code generate} UNIQUE buzilishi bilan 500
+     * qaytarardi. Endi yil bo'yicha hisoblagich ({@link ContractNumberService}, V59) —
+     * qulf ostida, takrorlanmaydi. {@code YYYY} — shartnoma sanasining yili.
+     * Eski {@code CTR-0001} raqamlari o'zgarmaydi — boshqa ko'rinishda, to'qnashmaydi.
      */
     private String generateNumber(LocalDate contractDate) {
-        Long value = jdbcTemplate.queryForObject(
-            "SELECT nextval('" + NUMBER_SEQUENCE + "')", Long.class);
-        if (value == null) {
-            throw new IllegalStateException("Sequence qiymat qaytarmadi: " + NUMBER_SEQUENCE);
-        }
-        return formatNumber(contractDate.getYear(), value);
-    }
-
-    static String formatNumber(int year, long value) {
-        return "CTR-" + year + "-" + String.format("%05d", value);
+        return contractNumberService.next(contractDate.getYear());
     }
 
     private String renderContent(String templateContent, Student student, String contractNumber) {

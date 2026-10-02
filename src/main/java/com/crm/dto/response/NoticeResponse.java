@@ -4,6 +4,7 @@ import lombok.*;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -19,6 +20,9 @@ public class NoticeResponse {
     private String publishedTo;
     private String noticeType;
     private String targetRole;
+    /** Auditoriya rollari; bo'sh — hamma ({@code audienceAll = true}). */
+    private List<String> targetRoles;
+    private Boolean audienceAll;
     private Boolean isActive;
     private Boolean isPublished;
     private LocalDateTime publishedAt;

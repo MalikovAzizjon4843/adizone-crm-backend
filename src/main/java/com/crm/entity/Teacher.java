@@ -2,6 +2,7 @@ package com.crm.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.math.BigDecimal;
@@ -191,7 +192,9 @@ public class Teacher extends BaseEntity {
         };
     }
 
+    /** {@code @BatchSize}: ro'yxat sahifasida har o'qituvchiga alohida so'rov bo'lmasin (T-06). */
     @OneToMany(mappedBy = "teacher", fetch = FetchType.LAZY)
+    @BatchSize(size = 50)
     @Builder.Default
     private List<Group> groups = new ArrayList<>();
 }

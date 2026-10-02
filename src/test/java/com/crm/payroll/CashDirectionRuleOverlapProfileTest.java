@@ -297,16 +297,18 @@ class CashDirectionRuleOverlapProfileTest extends PayrollItBase {
         jdbc.update("UPDATE teachers SET phone = '+998935555555' WHERE id = ?", other.teacherId());
         fixtures.loginAs(UserRole.SUPER_ADMIN);
 
+        // T-07 (phase5-audit): SKIPPED endi 409 + sabab kodi; data — avvalgi items[0]
         mvc.perform(post("/api/teachers/" + admin + "/ensure-profile").with(user("test-super_admin").roles("SUPER_ADMIN")))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.items[0].action").value("SKIPPED"))
-            .andExpect(jsonPath("$.data.items[0].reason").value("Roli TEACHER emas: ADMIN"));
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("teacher.profile.roleNotTeacher"))
+            .andExpect(jsonPath("$.data.action").value("SKIPPED"))
+            .andExpect(jsonPath("$.data.reason").value("Roli TEACHER emas: ADMIN"));
         mvc.perform(post("/api/teachers/" + teacherUser + "/ensure-profile")
                 .with(user("test-super_admin").roles("SUPER_ADMIN")))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.skippedCount").value(1))
-            .andExpect(jsonPath("$.data.items[0].action").value("SKIPPED"))
-            .andExpect(jsonPath("$.data.items[0].teacherId").value(other.teacherId().intValue()));
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("teacher.profile.contactTaken"))
+            .andExpect(jsonPath("$.data.action").value("SKIPPED"))
+            .andExpect(jsonPath("$.data.teacherId").value(other.teacherId().intValue()));
         assertThat(inTx(() -> teacherRepo.findByUser_Id(teacherUser))).isEmpty();
     }
 

@@ -1839,7 +1839,7 @@ Hammasi kichik va lokal o'zgarishlar, test bilan:
 | Q5 | Darslar o'qituvchi ta'tili sababli bekor qilinsa, o'quvchilardan to'lov olinadimi? | Billing-v2 qoidasiga ko'ra hal qilinadi (PER_LESSON — olinmaydi; oylik — biznes qarori). Hozir hech qayerda hujjatlanmagan | L-04, 3.4 | Buyurtmachidan kutilmoqda |
 | Q6 | Ta'til faqat o'qituvchilar uchunmi yoki barcha xodimlar uchunmi? Kvota (yillik kunlar) yuritiladimi? | **Barcha xodimlar** (`user_id` asosida). Yillik kvota serverda hisoblanadi; `teachers.*_leaves` legacy ustunlari kvota sifatida qayta ishlatiladi yoki olib tashlanadi | L-12, 3.6 #3 | Buyurtmachidan kutilmoqda |
 | Q7 | Imtihon alohida pullikmi? "Imtihonga kirish" shartlari (≥8 marta qatnashgan + to'lagan) saqlanadimi? | Imtihon to'lovi preview **olib tashlansin**. Kirish sharti: billing-v2 snapshot bo'yicha qarz yo'q + sozlanadigan minimal davomat (faqat imtihon guruhi va davri bo'yicha) | E-01, E-08, E-14 | Buyurtmachidan kutilmoqda |
-| Q8 | Shartnoma raqami formati va imzolangan shartnomani o'chirish mumkinmi? | `CTR-YYYY-NNNNN` (PG sequence). Imzolangan/qabul qilingan shartnoma o'chirilmaydi — faqat `CANCELLED` | C-01, C-06 | **Qaror:** `CTR-YYYY-NNNNN`, sequence. Bajarildi (C-01, V58). Hisoblagich yil almashganda nolga qaytmaydi. |
+| Q8 | Shartnoma raqami formati va imzolangan shartnomani o'chirish mumkinmi? | `CTR-YYYY-NNNNN` (PG sequence). Imzolangan/qabul qilingan shartnoma o'chirilmaydi — faqat `CANCELLED` | C-01, C-06 | **Qaror:** `CTR-YYYY-NNNNN`, sequence. Bajarildi (C-01, V58). **Yangilangan qaror:** har yil 00001 dan (`CTR-2027-00001`) — yil bo'yicha hisoblagich, V59. |
 | Q9 | Shartnomadagi narx qaysi bo'lsin: kurs narxi yoki chegirmali effektiv narx? PDF serverda kerakmi? Oferta qanday qabul qilinadi? | **Effektiv narx** (billing-v2 `EnrollmentPricing`) yozilmaga bog'lab snapshot qilinadi. Server PDF — P1 (OpenHTMLtoPDF). Oferta qabuli: SMS/Telegram kod — P2 | C-04, C-05, 7.6 | Buyurtmachidan kutilmoqda |
 | Q10 | Shartnoma va cheklarda markaz rekvizitlari (nom, manzil, STIR, bank) qayerdan olinsin? | Sozlamalar → "Markaz ma'lumotlari" (S-03). Hozirgi "Adizone" literali olib tashlanadi | C-12, S-03 | Buyurtmachidan kutilmoqda |
 | Q11 | Uy vazifasini o'quvchi o'zi topshiradimi yoki o'qituvchi belgilaydimi? Qaysi fayl turlari va qancha hajm? | Portalsiz bosqichda **o'qituvchi belgilaydi** (topshirdi/baho). Vazifaga PDF/DOCX/rasm biriktirish ≤10 MB, fayl auth bilan beriladi | H-03, H-04, H-12 | **Qaror:** topshiriqni o'qituvchi belgilaydi (portal yo'q). |
@@ -1857,7 +1857,7 @@ Hammasi kichik va lokal o'zgarishlar, test bilan:
 
 ## §14. Bajarildi: xavfsizlik bloki (2026-10-02)
 
-§12.1 dagi blok bajarildi, commit qilinmagan. Testlar: H2 da `mvn test` → 246 ta, 0 xato (5 skip — faqat PostgreSQL'da ishlaydigan testlar); `mvn test -Dspring.profiles.active=pgtest` → 246 ta, 0 xato, 0 skip. Yangi testlar: `src/test/java/com/crm/security/*`.
+§12.1 dagi blok bajarildi, commit qilinmagan. Testlar: H2 da `mvn test` → 250 ta, 0 xato (6 skip — faqat PostgreSQL'da ishlaydigan testlar); `mvn test -Dspring.profiles.active=pgtest` → 250 ta, 0 xato, 0 skip. Yangi testlar: `src/test/java/com/crm/security/*`.
 
 ### 14.1 P0 lar qanday yopildi
 
@@ -1870,7 +1870,7 @@ Hammasi kichik va lokal o'zgarishlar, test bilan:
 | E-01 | Imtihonga kirish sharti:<br>- ≥ 8 PRESENT (o'zgarmagan);<br>- hisob yuritiladigan faol yozilma bor (trial yoki muzlatilgan emas), guruhli imtihonda aynan shu guruhda;<br>- shu yozilmalarning hech biri billing-v2 bo'yicha OVERDUE emas — `BillingStatusService.isOverdue` (enum, bugungi sana bilan).<br>Imtihon to'lovi mantig'iga tegilmadi (Q7). | `service/ExamService.java` | `ExamAccessTest` |
 | E-02 | `register-student`, `calculate-payment`, `eligible-students`, `POST /results`: imtihon egaligi (`assertExamAccess`) + o'quvchi egaligi (`assertOwnsStudent`).<br>`eligible-students` nomzodlari: imtihon guruhi; guruhsiz bo'lsa — TEACHER uchun o'z guruhlari.<br>TEACHER javobida faqat `id, uuid, firstName, lastName, status, photoUrl`.<br>`calculate-payment` `@PreAuthorize` → SA, A, T. | `service/ExamService.java`, `controller/ExamController.java` | `ExamAccessTest` |
 | E-03 | `ExamResultRequest.editNote` — `@JsonAlias("changeReason")` (deprecated alias). | `dto/request/ExamResultRequest.java` | `ExamAccessTest` |
-| C-01 | Shartnoma raqami `CTR-YYYY-NNNNN`:<br>- `contract_number_seq` (V58) dan olinadi;<br>- YYYY — shartnoma sanasining yili;<br>- hisoblagich yil almashganda nolga qaytmaydi;<br>- eski `CTR-0001` raqamlari o'zgarmaydi. | `service/ContractService.java`, V58 | `ContractNumberAndV58Test` |
+| C-01 | Shartnoma raqami `CTR-YYYY-NNNNN`:<br>- yil bo'yicha hisoblagich `contract_number_counters` (V59) dan, qator qulfi ostida, har yil 00001 dan;<br>- YYYY — shartnoma sanasining yili (Asia/Tashkent);<br>- V58 dagi `contract_number_seq` endi ishlatilmaydi;<br>- eski `CTR-0001` raqamlari o'zgarmaydi. | `service/ContractService.java`, `service/ContractNumberService.java`, V59 | `ContractNumberAndV58Test` |
 
 **P1 lar (shu blokda):**
 - **U-03.** ADMIN/SUPER_ADMIN hisoblarini (tahrir, parol, faollik, rasm) va ADMIN/SA rollarini berishni faqat SA bajaradi — 403 `user.manage.adminProtected` / `user.role.adminGrant`.
@@ -1886,11 +1886,11 @@ Hammasi kichik va lokal o'zgarishlar, test bilan:
 
 **Bajarilmadi (P1, keyingi bosqich):**
 - login uchun rate-limit/lockout (U-05 ning bir qismi);
-- U-06 — `POST /api/users` dagi "200 ALREADY_EXISTS";
+- ~~U-06~~ — yopildi (§14.5);
 - U-07 — telefon dublikati;
 - T-02 — `TeacherRequest.userId` tekshiruvsiz bog'lanadi;
 - CH-03…CH-11;
-- Q14 retention (180 kun / moliya 1 yil) kodda hali sozlanmagan — `app.audit.retention-days` hozir 90.
+- ~~Q14 retention~~ — yopildi (§14.5).
 
 ### 14.2 Rol cheklovi: avval "authenticated" bo'lgan qoidalar
 
@@ -1921,10 +1921,12 @@ Hammasi kichik va lokal o'zgarishlar, test bilan:
 ### 14.3 V58 (`db/migration/V58__phase5_security.sql`, idempotent, qo'lda)
 
 1. `users.token_version INTEGER NOT NULL DEFAULT 0`. Ustun yo'q bo'lsa qo'shiladi, NULL lar 0 ga o'tadi.
-2. `contract_number_seq` + `setval(max(CTR-YYYY-NNNNN) + 1)`.
+2. `contract_number_seq` + `setval(max(CTR-YYYY-NNNNN) + 1)`. **V59 dan keyin ishlatilmaydi** (o'chirilmagan).
 3. `idx_exam_registrations_exam`, `idx_exam_registrations_student` va `ux_exam_registrations_exam_student` UNIQUE(exam_id, student_id).
    - UNIQUE allaqachon bo'lsa (V27) — o'tkazib yuboriladi.
    - Dublikatlar bo'lsa — NOTICE, indeks yaratilmaydi.
+
+**V59** — (`V59__contract_number_per_year.sql`): `contract_number_counters(contract_year PK, last_value)`, mavjud `CTR-YYYY-NNNNN` raqamlaridan boshlang'ich qiymat (`ON CONFLICT … GREATEST` — qayta bajarilsa kamaymaydi).
 
 **Qachon bajarish:** deploydan oldin tavsiya etiladi. Keyin bajarilsa ham to'g'ri: ddl-auto ustunni nullable qo'shadi, V58 uni NOT NULL qiladi. Test: pgtest profilida startda + `ContractNumberAndV58Test` ikki marta qayta bajaradi.
 
@@ -1957,3 +1959,54 @@ Lokal bazadagi natija (2026-10-02):
 | `PUT /api/exams/{examId}/results/{id}` | `editNote` yoki `changeReason` |
 | `POST /api/contracts/generate` | `contractNumber` = `CTR-2026-00001` ko'rinishida |
 | Har qanday endpoint | Cheklov buzilishi: 500 o'rniga 409/400 + `code` |
+
+### 14.5 Ikkinchi blok (2026-10-02): sirlar, frontend teshiklari, Q14
+
+Testlar: H2 da `mvn test` → 260 ta, 0 xato (6 skip — faqat PostgreSQL); `pgtest` → 260 ta, 0 xato, 0 skip. Yangi testlar: `UserListAndCreateTest`, `TeacherListPatchStatusTest`, `NoticeAudienceTest`, `AuditRetentionAndSecretsTest`; `CashDirectionRuleOverlapProfileTest` T-07 shartnomasiga moslandi.
+
+**Sirlar** (qiymatlari hech qayerga ko'chirilmadi):
+
+| Fayl:qator (HEAD → hozir) | Kalit | Holat | Commit / remote | Amal |
+|---|---|---|---|---|
+| `application.yml:111` → `:114` | `meta.system-user-token` | ochiq qiymat (200 belgi) | `8139927` (2026-09-19) → `origin/main`, `origin/billing-v2` | `${META_SYSTEM_USER_TOKEN}`; **Meta'da almashtirish shart** |
+| `application.yml:112` → `:115` | `meta.app-secret` | ochiq qiymat (32) | `8139927` → remote | `${META_APP_SECRET}`; **almashtirish shart** (App Settings → Reset) |
+| `application.yml:113` → `:116` | `meta.verify-token` | ochiq qiymat (48) | `8139927` → remote | `${META_VERIFY_TOKEN}`; yangisini o'ylab topib, Meta webhook sozlamasiga ham yozish |
+| `application.yml:131` → `:135` | `telegram.bot-token` | ochiq qiymat | `d7603fb` (2026-04-06) → remote | `${TELEGRAM_BOT_TOKEN:}` (default bo'sh → Telegram o'chiq, startda WARN); **BotFather `/revoke`** |
+| `README.md:39`, `:41`, `:319` | DB paroli, JWT kaliti (namuna) | namuna qiymatlar | — | `${DB_PASSWORD}`, `${JWT_SECRET}`, `<db-password>` |
+| `src/test/resources/application.yml:34` | `jwt.secret` | **faqat test kaliti** (izohi bor, prod bilan aloqasi yo'q) | — | o'zgartirilmadi |
+| `config/application-local.yml` | — | `.gitignore` da, repoda yo'q; ko'rilmadi | — | — |
+
+Qolgan mosliklar (`docs/audit/*`, `api-inventory.md` dagi `password: String` va h.k.) — sxema tavsifi, sir emas. Java manbalarida (`*.java`) xom token naqshlari topilmadi.
+
+`docs/ops/env.md` yangilandi:
+- `TELEGRAM_BOT_TOKEN` endi ixtiyoriy, qo'shimcha `TELEGRAM_ENABLED`;
+- `META_*` — avvalgidek default qiymatsiz (bo'sh `META_APP_SECRET` webhook imzosini o'chirib qo'yardi).
+
+**Prod deploydan oldin:** `crm.env` da `META_SYSTEM_USER_TOKEN`, `META_APP_SECRET`, `META_VERIFY_TOKEN` (yangi qiymatlar) bo'lishi shart, aks holda ilova ishga tushmaydi.
+
+**Frontend teshiklari:**
+
+| ID | Yechim | Fayllar | Test |
+|---|---|---|---|
+| U-06 | `POST /api/users`: band login (registrsiz) → 409 `user.username.taken`; "200 ALREADY_EXISTS" olib tashlandi | `UserController`, `UserService.resolveUsername` | `UserListAndCreateTest` |
+| U-10 | `GET /api/users`: `page` berilsa `PageResponse` (familiya, ism; `size` 1..200), berilmasa eski massiv. Filtrlar `q`, `role` (ko'p), `active` — Specification. `q` da `%`/`_` qochiriladi, null-parametr JPQL yo'q | `UserService.listUsers/pageUsers`, `util/SearchSpecs` | `UserListAndCreateTest` |
+| T-06 | `GET /api/teachers`: xuddi shunday. Filtrlar `q` (ism/familiya/telefon/kod/fan), `status` (ko'p; berilsa `activeOnly` e'tiborsiz). `Teacher.groups` `@BatchSize(50)` — N+1 o'rniga batch | `TeacherService.listTeachers/pageTeachers` | `TeacherListPatchStatusTest` |
+| T-01 | `PUT /api/teachers/{id}` — PATCH semantikasi:<br>- `null` o'zgarmaydi;<br>- matnli ixtiyoriy maydon `""` → tozalanadi;<br>- `firstName/lastName/phone` yuborilsa bo'sh bo'lmasin (400);<br>- `@Valid` olib tashlandi | `TeacherService.applyPatch` | `TeacherListPatchStatusTest` |
+| T-03 | INACTIVE ga o'tkazishda (DELETE yoki PUT `status`) ACTIVE/FORMING guruhlar bo'lsa → 409 `teacher.hasActiveGroups`, `data = {teacherId, groups[{id, groupName, status}]}`. Butun PUT rollback. `ON_LEAVE` ruxsat. Login bloklash (`PATCH /api/users/{id}/status`) bu tekshiruvsiz — xavfsizlik uchun darhol bloklash mumkin bo'lsin | `StaffStatusService.assertNoActiveGroups` | `TeacherListPatchStatusTest` |
+| T-07 | `ensure-profile` SKIPPED → 409, `code ∈ {teacher.profile.roleNotTeacher, contactTaken, notCreated, failed}`, `data` = item. Repair javobidagi `items[]` ga ham `code` qo'shildi | `TeacherProfileSyncService` | `CashDirectionRuleOverlapProfileTest` (yangilandi) |
+| N-01 | Auditoriya — `notice_target_roles(notice_id, role)` jadvali (`@ElementCollection`). Ko'rinish qoidasi: rol to'plamda YOKI to'plam bo'sh va eski `targetRole`/`publishedTo` cheklamaydi — **V60 bajarilmagan bazada ham to'g'ri**. Filtr quyidagilarda ishlaydi: `/active`, `/latest`, `/unread-count`, `read-all`, `/{id}/read`, `/{id}` (ko'rinmasa 404) va non-admin `GET /api/notices` (qoralamalar ham yashirin — N-02). SA/A boshqaruv ro'yxatida hammasini ko'radi. So'rov: `targetRoles` yoki eski `targetRole`/`publishedTo`; PUT da yuborilmasa o'zgarmaydi (N-06). Javob: + `targetRoles`, `audienceAll` | `Notice`, `NoticeRepository.VISIBLE`, `NoticeService`, V60 | `NoticeAudienceTest` |
+
+**Q14 — audit saqlash muddati:**
+- oddiy yozuvlar **180** kun, moliyaviy **365** kun (`app.audit.retention-days`, `financial-retention-days`);
+- moliyaviy = amal `PAYMENT/PAYMENT_CANCEL/REFUND` yoki obyekt `Payment, Payroll, CashRegister, CashTransaction, Balance, BonusPenalty, SalaryRule, Expense, Income, ExamRegistration` (`AuditProperties`);
+- `entity_type` NULL bo'lgan yozuv — oddiy;
+- test: `AuditRetentionAndSecretsTest`.
+
+A-03 (lid tayinlash tarixi va `lastSeenAt` audit'ga tayanadi) — muddat 180 ga uzaydi, lekin muammo yo'qolmaydi.
+
+**V60** (`V60__notice_target_roles.sql`, idempotent, qo'lda):
+- `notice_target_roles` jadvali va indeksi;
+- eski `target_role` va `published_to` (`TEACHERS`/`STUDENTS`/`PARENTS`) qiymatlari jadvalga ko'chiriladi, ko'chirilganlar `published_to = 'ROLES'`;
+- noma'lum qiymatlar — NOTICE.
+
+Dizayn hujjatlaridagi band raqamlar bittaga suriladi: leaves-exams-contracts **V61–V63**, telegram-platform **V64–V67**.

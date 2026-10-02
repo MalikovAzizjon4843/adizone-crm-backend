@@ -27,9 +27,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/users")
@@ -40,23 +38,15 @@ public class UserController {
     private final FileStorageService fileStorageService;
     private final UserService userService;
 
+    /**
+     * Yangi foydalanuvchi. Login band bo'lsa (registrsiz) — 409 {@code user.username.taken}
+     * (phase5-audit U-06). Avvalgi "200 + message=ALREADY_EXISTS + mavjud user" javobi olib
+     * tashlandi: frontend uni muvaffaqiyat deb, kiritilgan parolni ko'rsatardi.
+     */
     @PostMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<UserResponse>> createUser(
             @Valid @RequestBody CreateUserRequest request) {
-        // Login qo'lda yuborilgan va band bo'lsa — eski xulq saqlanadi.
-        if (request.getUsername() != null && !request.getUsername().isBlank()) {
-            Optional<User> existing = userRepository.findByUsername(request.getUsername());
-            if (existing.isPresent()) {
-                return ResponseEntity.ok(
-                    ApiResponse.<UserResponse>builder()
-                        .success(true)
-                        .message("ALREADY_EXISTS")
-                        .data(toResponse(existing.get()))
-                        .build()
-                );
-            }
-        }
         return ResponseEntity.status(HttpStatus.CREATED)
             .body(ApiResponse.success("User yaratildi", userService.createUser(request)));
     }
@@ -118,14 +108,28 @@ public class UserController {
         throw CodedException.forbidden("user.role.notAllowed", UserRole.STUDENT.name());
     }
 
+    /**
+     * Foydalanuvchilar (phase5-audit U-10).
+     * <ul>
+     *   <li>{@code page} berilmasa — eski shakl: {@code data} = to'liq {@code List} (selektorlar, eski frontend);</li>
+     *   <li>{@code page} berilsa — {@code data} = {@code PageResponse}, {@code size} 1..200 (default 20).</li>
+     * </ul>
+     * Filtrlar ikkala shaklda: {@code q} (login/ism/familiya/telefon/email), {@code role} (takrorlanadi:
+     * {@code ?role=TEACHER&role=ADMIN}), {@code active}.
+     */
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<ApiResponse<List<UserResponse>>> getAllUsers() {
-        List<UserResponse> users = userRepository.findAll()
-            .stream()
-            .map(this::toResponse)
-            .collect(Collectors.toList());
-        return ResponseEntity.ok(ApiResponse.success(users));
+    public ResponseEntity<ApiResponse<Object>> getAllUsers(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) List<UserRole> role,
+            @RequestParam(required = false) Boolean active) {
+        UserService.UserFilter filter = new UserService.UserFilter(q, role, active);
+        Object data = page == null
+            ? userService.listUsers(filter)
+            : userService.pageUsers(filter, page, size);
+        return ResponseEntity.ok(ApiResponse.success(data));
     }
 
     @GetMapping("/{id}")

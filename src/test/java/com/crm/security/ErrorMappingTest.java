@@ -63,12 +63,13 @@ class ErrorMappingTest extends Phase5ItBase {
         Long student = fixtures.student();
         Long templateId = jdbc.queryForObject("SELECT id FROM contract_templates WHERE is_default = TRUE",
             Long.class);
-        // Sequence orqada qolgan (masalan V58 bajarilmagan bazadan ko'chirilgan) — keyingi raqam band
-        String taken = "CTR-" + LocalDate.now().getYear() + "-00001";
+        // Hisoblagich qo'lda orqaga surilgan (masalan noto'g'ri tiklangan zaxira) — keyingi raqam band.
+        // Shartnoma sanasi — test soati (15.09.2026).
+        String taken = "CTR-2026-00001";
         jdbc.update("INSERT INTO contracts (uuid, contract_number, student_id, template_id, type, status,"
                 + " contract_date) VALUES (?, ?, ?, ?, 'OFFLINE', 'DRAFT', ?)",
-            UUID.randomUUID().toString(), taken, student, templateId, LocalDate.now());
-        jdbc.execute("ALTER SEQUENCE contract_number_seq RESTART WITH 1");
+            UUID.randomUUID().toString(), taken, student, templateId, LocalDate.of(2026, 9, 15));
+        jdbc.update("INSERT INTO contract_number_counters (contract_year, last_value) VALUES (2026, 0)");
 
         mvc.perform(post("/api/contracts/generate").with(as(admin))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"studentId\":" + student + "}"))

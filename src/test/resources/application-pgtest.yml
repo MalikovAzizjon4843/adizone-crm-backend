@@ -18,7 +18,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
-    # Skriptlar Hibernate jadvallarni yaratgandan KEYIN bajariladi (V52–V58 ALTER TABLE qiladi).
+    # Skriptlar Hibernate jadvallarni yaratgandan KEYIN bajariladi (V52–V60 ALTER TABLE qiladi).
     defer-datasource-initialization: true
     properties:
       hibernate:
@@ -39,6 +39,8 @@ spring:
         - classpath:db/migration/V56__legacy_constraints.sql
         - classpath:db/migration/V57__salary_rule_overlaps.sql
         - classpath:db/migration/V58__phase5_security.sql
+        - classpath:db/migration/V59__contract_number_per_year.sql
+        - classpath:db/migration/V60__notice_target_roles.sql
         - classpath:pgtest-schema.sql
 
 app:

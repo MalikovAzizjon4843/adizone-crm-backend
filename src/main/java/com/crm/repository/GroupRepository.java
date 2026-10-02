@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 
 @Repository
@@ -29,6 +30,8 @@ public interface GroupRepository extends JpaRepository<Group, Long> {
     List<Group> findByTeacherId(Long teacherId);
 
     List<Group> findByTeacher_IdAndStatus(Long teacherId, GroupStatus status);
+
+    List<Group> findByTeacher_IdAndStatusInOrderByIdAsc(Long teacherId, Collection<GroupStatus> statuses);
 
     /** Batch: teacherId, groupCount */
     @Query("""
