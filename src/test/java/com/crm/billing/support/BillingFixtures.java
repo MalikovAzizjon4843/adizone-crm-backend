@@ -20,6 +20,7 @@ import com.crm.repository.StudentRepository;
 import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -29,6 +30,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -48,7 +50,9 @@ public class BillingFixtures {
         "student_groups", "students", "group_schedule_days", "groups", "courses", "teachers",
         "billing_job_runs", "billing_migration_runs", "audit_logs",
         "lead_assignments", "lead_status_history", "lead_comments", "lead_notes", "tasks", "leads",
-        "holidays", "lesson_exceptions", "director_daily_stats", "director_digest_log");
+        "holidays", "lesson_exceptions", "director_daily_stats", "director_digest_log",
+        "payroll", "salary_rules",
+        "exam_results", "exam_registrations", "exams", "contracts", "contract_templates");
 
     private final CourseRepository courseRepository;
     private final GroupRepository groupRepository;
@@ -60,7 +64,16 @@ public class BillingFixtures {
     private final TransactionTemplate tx;
     private final JdbcTemplate jdbc;
 
+    private Boolean postgres;
+
     public void wipe() {
+        if (isPostgres()) {
+            // pgtest: FK tekshiruvini o'chirib bo'lmaydi (superuser kerak) — bitta TRUNCATE.
+            // CASCADE ro'yxatdagilarga FK bilan bog'langan test jadvallarini ham tozalaydi
+            // (contracts, homework_submissions ...); users ga tegmaydi — unda FK yo'q.
+            jdbc.execute("TRUNCATE TABLE " + String.join(", ", TABLES) + " CASCADE");
+            return;
+        }
         jdbc.execute("SET REFERENTIAL_INTEGRITY FALSE");
         try {
             for (String table : TABLES) {
@@ -69,6 +82,14 @@ public class BillingFixtures {
         } finally {
             jdbc.execute("SET REFERENTIAL_INTEGRITY TRUE");
         }
+    }
+
+    private boolean isPostgres() {
+        if (postgres == null) {
+            postgres = jdbc.execute((ConnectionCallback<Boolean>) c ->
+                c.getMetaData().getDatabaseProductName().toLowerCase(Locale.ROOT).contains("postgres"));
+        }
+        return postgres;
     }
 
     public Long course(long monthlyPrice) {

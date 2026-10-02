@@ -1,40 +1,51 @@
 package com.crm.repository;
 
 import com.crm.entity.Payroll;
-import jakarta.persistence.LockModeType;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import com.crm.entity.enums.PayrollStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface PayrollRepository extends JpaRepository<Payroll, Long> {
-    Page<Payroll> findAll(Pageable pageable);
-    Page<Payroll> findByStatus(String status, Pageable pageable);
-    List<Payroll> findByTeacherId(Long teacherId);
-    Optional<Payroll> findByTeacherIdAndMonthAndYear(Long teacherId, Integer month, Integer year);
-    Optional<Payroll> findByUser_IdAndMonthAndYear(Long userId, Integer month, Integer year);
+public interface PayrollRepository extends JpaRepository<Payroll, Long>, JpaSpecificationExecutor<Payroll> {
 
-    @Query("SELECT COUNT(p) FROM Payroll p WHERE p.status = 'PENDING'")
-    long countPending();
+    List<Payroll> findByTeacherIdOrderByYearDescMonthDesc(Long teacherId);
 
-    @Query("SELECT p FROM Payroll p WHERE p.year = :year AND p.month = :month")
-    List<Payroll> findByPeriod(@Param("year") Integer year, @Param("month") Integer month);
+    /** Bitta xodim + oy uchun FAOL (CANCELLED emas) payroll — ko'pi bilan bitta (payroll-v2 §1). */
+    @Query("""
+        SELECT p FROM Payroll p
+        WHERE p.user.id = :userId AND p.month = :month AND p.year = :year
+          AND p.status <> com.crm.entity.enums.PayrollStatus.CANCELLED
+        """)
+    Optional<Payroll> findActive(
+        @Param("userId") Long userId, @Param("month") Integer month, @Param("year") Integer year);
 
-    boolean existsByUser_IdAndMonthAndYear(Long userId, Integer month, Integer year);
+    @Query("""
+        SELECT p FROM Payroll p
+        WHERE p.teacher.id = :teacherId AND p.month = :month AND p.year = :year
+          AND p.status <> com.crm.entity.enums.PayrollStatus.CANCELLED
+        """)
+    Optional<Payroll> findActiveByTeacher(
+        @Param("teacherId") Long teacherId, @Param("month") Integer month, @Param("year") Integer year);
 
-    /**
-     * Oylikni to'lash uchun: qator {@code SELECT ... FOR UPDATE} bilan
-     * qulflanadi — parallel ikkinchi "to'lash" birinchisi commit bo'lguncha
-     * kutadi va keyin PAID holatni ko'radi.
-     */
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT p FROM Payroll p WHERE p.id = :id")
-    Optional<Payroll> findByIdForUpdate(@Param("id") Long id);
+    /** To'lanmagan (DRAFT + APPROVED) — analitika kartochkasi. */
+    long countByStatusIn(Collection<PayrollStatus> statuses);
+
+    /** Qoida tasdiqlangan/to'langan oylikda ishlatilganmi (§11 #3 — tahrir 409). */
+    boolean existsBySalaryRuleIdAndStatusIn(Long salaryRuleId, Collection<PayrollStatus> statuses);
+
+    /** Moliya hisoboti (§11 #8): rol bo'yicha Σ netSalary, PAID, paidAt ∈ [a, b). */
+    @Query("""
+        SELECT u.role, COALESCE(SUM(p.netSalary), 0) FROM Payroll p LEFT JOIN p.user u
+        WHERE p.status = com.crm.entity.enums.PayrollStatus.PAID AND p.paidAt >= :a AND p.paidAt < :b
+        GROUP BY u.role
+        """)
+    List<Object[]> sumPaidByRole(@Param("a") LocalDateTime a, @Param("b") LocalDateTime b);
 }

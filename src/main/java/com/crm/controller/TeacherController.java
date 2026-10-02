@@ -226,6 +226,19 @@ public class TeacherController {
     }
 
     /**
+     * Bitta TEACHER user uchun profil yaratish/bog'lash (UI "Profil yaratish" tugmasi). Path dagi id —
+     * <b>User</b> id. Javob {@code /api/admin/repair/link-teacher-users} bilan bir xil shaklda
+     * ({@code items[].action}: CREATED | LINKED | EXISTS | SKIPPED).
+     */
+    @PostMapping("/{userId}/ensure-profile")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> ensureProfile(@PathVariable Long userId) {
+        return ResponseEntity.ok(ApiResponse.success(
+            "O'qituvchi profili tekshirildi",
+            teacherProfileSyncService.ensureProfile(userId)));
+    }
+
+    /**
      * TEACHER rolidagi userlar uchun yetishmayotgan Teacher profillarini tiklaydi.
      * Idempotent — qayta chaqirilsa dublikat yaratmaydi.
      */

@@ -25,6 +25,9 @@ public class BonusPenaltyDto {
     private String studentName;
     private Long teacherId;
     private String teacherName;
+    /** STAFF: xodim (ADMIN/SALES_MANAGER). */
+    private Long userId;
+    private String userName;
     private BigDecimal amount;
     private String reason;
     private BonusPenaltyStatus status;
@@ -38,5 +41,7 @@ public class BonusPenaltyDto {
     private Long groupId;
     private Long ledgerTxId;
     private Long appliedToPaymentId;
+    /** TEACHER: qaysi oylikka qo'llangan (APPROVE paytida, payroll-v2 §4). */
+    private Long appliedToPayrollId;
     private String cancelReason;
 }

@@ -1269,6 +1269,8 @@ Har savol uchun **taklif** (default) berilgan edi. **01.10.2026 da qarorlar olin
    **Qaror:** Taklif qabul qilindi — OVERDUE bo'lgan kun va keyin har 3 kunda.
 27. **Payroll** (o'qituvchi uchun "shu oyda to'lagan o'quvchilar", `PaymentRepository.java:285-303`): accrual modelida "shu oy davri to'langan SG" ga o'tkaziladimi? Billing-v2 qamrovida emas. Taklif: alohida vazifa; hozircha CANCELLED to'lovlar sanalmasligi uchun filtr qo'shiladi.
    **Qaror:** **Payroll v2 qamrovida emas.** Faqat filtr: `CANCELLED` to'lovlar payroll hisobida sanalmaydi.
+   **Yangilanish (02.10.2026):** alohida vazifada hal qilindi — [`payroll-v2.md`](payroll-v2.md): "to'lagan" = shu oyda
+   yopilgan davr (`paid_on`), o'qituvchi — `billing_periods.teacher_id` (accrual paytidagi).
 28. **PER_LESSON holati.** Grace (3 kun) dars sanasidan hisoblanadi, `nextPaymentDate` jadval bo'yicha. Jadvali yo'q guruhda `next = null` — qabulmi?
    **Qaror:** Taklif qabul qilindi — grace dars sanasidan; jadvalsiz guruhda `next = null`.
 

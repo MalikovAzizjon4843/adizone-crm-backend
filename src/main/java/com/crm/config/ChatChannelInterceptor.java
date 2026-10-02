@@ -2,6 +2,7 @@ package com.crm.config;
 
 import com.crm.entity.User;
 import com.crm.service.ChatAccessService;
+import com.crm.service.ChatPresenceService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,9 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.security.Principal;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Kiruvchi STOMP kadrlarini tekshiradi.
@@ -48,6 +52,16 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
 
     /** {@code /topic/conversation.{id}} — id shu prefiksdan keyin keladi. */
     public static final String CONVERSATION_TOPIC_PREFIX = "/topic/conversation.";
+
+    /** Suhbat topigi: prefiks + faqat raqamlar, boshqa hech narsa. */
+    private static final Pattern CONVERSATION_TOPIC = Pattern.compile("^/topic/conversation\\.(\\d{1,18})$");
+
+    /** A'zolik tekshiruvisiz obuna bo'linadigan manzillar (presence, shaxsiy xatolar). */
+    private static final Set<String> STATIC_SUBSCRIPTIONS = Set.of(
+        ChatPresenceService.PRESENCE_TOPIC, "/user/queue/errors");
+
+    /** SimpleBroker obunada Ant-naqsh sifatida talqin qiladigan belgilar. */
+    private static final String WILDCARDS = "*?{}";
 
     /** Mijoz SEND qila oladigan yagona prefiks — {@code @MessageMapping} lar. */
     private static final String APP_PREFIX = "/app/";
@@ -87,21 +101,40 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
         return message;
     }
 
+    /**
+     * SUBSCRIBE — faqat oq ro'yxatdagi manzillar (phase5-audit CH-01).
+     *
+     * <p>Avval faqat {@code /topic/conversation.} prefiksi tekshirilardi, qolgani
+     * o'tkazib yuborilardi. {@code SimpleBroker} esa obunada Ant-naqshni qabul
+     * qiladi: {@code SUBSCRIBE /topic/**} yuborgan har qanday foydalanuvchi BARCHA
+     * suhbatlarning xabarlarini olardi. Endi:
+     * <ul>
+     *   <li>naqsh belgilari ({@code * ? { }}) bo'lgan manzil — rad;</li>
+     *   <li>{@code /topic/presence}, {@code /user/queue/errors} — ruxsat;</li>
+     *   <li>{@code /topic/conversation.{raqam}} — faqat suhbatning faol a'zosiga;</li>
+     *   <li>qolgan hammasi (jumladan {@code /queue/errors-user…} kabi boshqa
+     *       sessiyaning ichki navbati) — rad.</li>
+     * </ul>
+     * Rad etish — istisno: Spring ERROR kadrini yuboradi va ulanishni yopadi.
+     * Bunday so'rovni oddiy mijoz yubormaydi.
+     */
     private void checkSubscription(StompHeaderAccessor accessor) {
+        Principal principal = requirePrincipal(accessor.getUser());
         String destination = accessor.getDestination();
-        if (destination == null || !destination.startsWith(CONVERSATION_TOPIC_PREFIX)) {
-            // /user/queue/… va boshqa shaxsiy manzillarni Spring o'zi
-            // sessiyaga bog'laydi — qo'shimcha tekshiruv kerak emas.
+        if (destination == null || destination.chars().anyMatch(c -> WILDCARDS.indexOf(c) >= 0)) {
+            throw rejectSubscription(principal, destination);
+        }
+        if (STATIC_SUBSCRIPTIONS.contains(destination)) {
             return;
         }
 
-        Long conversationId = parseConversationId(
-            destination.substring(CONVERSATION_TOPIC_PREFIX.length()));
+        Matcher matcher = CONVERSATION_TOPIC.matcher(destination);
+        Long conversationId = matcher.matches() ? parseConversationId(matcher.group(1)) : null;
         if (conversationId == null) {
-            throw new MessagingException("Noto'g'ri topik: " + destination);
+            throw rejectSubscription(principal, destination);
         }
 
-        User user = chatAccessService.userOf(requirePrincipal(accessor.getUser()));
+        User user = chatAccessService.userOf(principal);
         if (!chatAccessService.isParticipant(conversationId, user.getId())) {
             log.warn("Chat: {} suhbatiga begona obuna urinishi, foydalanuvchi {}",
                 conversationId, user.getId());
@@ -138,6 +171,12 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
             }
         }
         return message;
+    }
+
+    private MessagingException rejectSubscription(Principal principal, String destination) {
+        log.warn("Chat: {} ruxsat etilmagan manzilga obuna urinishi: {}",
+            principal.getName(), destination);
+        return new MessagingException("Bu manzilga obuna bo'lib bo'lmaydi: " + destination);
     }
 
     private Message<?> reject(Principal principal, String reason) {

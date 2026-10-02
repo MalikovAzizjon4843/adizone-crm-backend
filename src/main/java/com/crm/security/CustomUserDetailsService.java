@@ -24,14 +24,14 @@ public class CustomUserDetailsService implements UserDetailsService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
 
-        if (!user.getIsActive()) {
+        if (Boolean.FALSE.equals(user.getIsActive())) {
             throw new UsernameNotFoundException("User is deactivated: " + username);
         }
 
-        return org.springframework.security.core.userdetails.User.builder()
-                .username(user.getUsername())
-                .password(user.getPassword())
-                .authorities(List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name())))
-                .build();
+        return new CrmUserDetails(
+                user.getUsername(),
+                user.getPassword(),
+                List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name())),
+                user.getTokenVersion() != null ? user.getTokenVersion() : 0);
     }
 }

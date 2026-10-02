@@ -1,6 +1,7 @@
 package com.crm.service;
 
 import com.crm.audit.AuditAction;
+import com.crm.billing.BillingStatusService;
 import com.crm.audit.Audited;
 import com.crm.dto.request.ExamRequest;
 import com.crm.dto.request.ExamResultRequest;
@@ -44,6 +45,7 @@ public class ExamService {
     private final ExamPaymentCalculatorService examPaymentCalculatorService;
     private final TeacherAccessService teacherAccessService;
     private final UserRepository userRepository;
+    private final BillingStatusService billingStatusService;
 
     @Transactional(readOnly = true)
     public PageResponse<ExamResponse> getAllExams(int page, int size) {
@@ -150,6 +152,8 @@ public class ExamService {
         if (request.getStudentId() == null) {
             throw new BadRequestException("Student ID is required");
         }
+        // TEACHER — faqat o'z guruhlaridagi o'quvchiga natija yozadi (E-02).
+        teacherAccessService.assertOwnsStudent(request.getStudentId());
 
         if (examResultRepository.findByExamIdAndStudentId(examId, request.getStudentId()).isPresent()) {
             throw new DuplicateResourceException("Result for this student already exists in exam");
@@ -217,11 +221,19 @@ public class ExamService {
         return updateResult(result.getExam().getId(), resultId, request);
     }
 
+    /**
+     * Imtihon to'lovi preview'i. Hisob mantig'iga tegilmagan (phase5-audit Q7
+     * buyurtmachidan kutilmoqda) — faqat ruxsat: avval istalgan TEACHER istalgan
+     * o'quvchining to'lov ma'lumotini olardi (E-02). Endi o'qituvchi faqat o'z
+     * imtihoni va o'z guruhlaridagi o'quvchi uchun.
+     */
     @Transactional(readOnly = true)
     public Map<String, Object> calculateExamPaymentPreview(Long examId, Long studentId) {
         Exam exam = findExamById(examId);
+        assertExamAccess(exam);
         studentRepository.findById(studentId)
             .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
+        teacherAccessService.assertOwnsStudent(studentId);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("examDate", exam.getExamDate());
@@ -268,38 +280,92 @@ public class ExamService {
         return result;
     }
 
+    /**
+     * Imtihonga kira oladigan o'quvchilar (E-02):
+     * <ul>
+     *   <li>nomzodlar — imtihon guruhining faol o'quvchilari; guruhsiz imtihonda
+     *       TEACHER uchun o'z guruhlari o'quvchilari, ma'muriyat uchun hammasi
+     *       (avval {@code findAll()} — har qanday TEACHER ga barcha o'quvchilar);</li>
+     *   <li>shaxsiy ma'lumot rol bo'yicha: TEACHER telefon, ota-ona telefoni,
+     *       manzil, tug'ilgan sana va izohlarni olmaydi.</li>
+     * </ul>
+     */
     @Transactional(readOnly = true)
     public List<StudentResponse> getEligibleStudents(Long examId) {
-        findExamById(examId);
-        return studentRepository.findAll().stream()
-            .filter(s -> isEligibleForExam(s.getId()))
-            .map(this::toStudentResponse)
+        Exam exam = findExamById(examId);
+        assertExamAccess(exam);
+        Optional<Teacher> teacherScope = teacherAccessService.resolveTeacherScope();
+
+        Collection<Student> candidates;
+        if (exam.getGroup() != null) {
+            Map<Long, Student> byId = new LinkedHashMap<>();
+            for (StudentGroup sg : studentGroupRepository.findActiveByGroupId(exam.getGroup().getId())) {
+                byId.putIfAbsent(sg.getStudent().getId(), sg.getStudent());
+            }
+            candidates = byId.values();
+        } else if (teacherScope.isPresent()) {
+            candidates = studentRepository
+                .findDistinctActiveByTeacherId(teacherScope.get().getId(), Pageable.unpaged())
+                .getContent();
+        } else {
+            candidates = studentRepository.findAll();
+        }
+
+        boolean fullProfile = teacherScope.isEmpty();
+        return candidates.stream()
+            .filter(s -> isEligibleForExam(exam, s.getId()))
+            .map(s -> fullProfile ? toStudentResponse(s) : toLimitedStudentResponse(s))
             .collect(Collectors.toList());
     }
 
-    private boolean isEligibleForExam(Long studentId) {
+    /**
+     * Imtihonga kirish sharti (E-01):
+     * <ol>
+     *   <li>kamida {@value #MIN_PRESENT_DAYS_FOR_EXAM} marta PRESENT (o'zgarmagan);</li>
+     *   <li>hisob yuritiladigan faol yozilma bor (trial/muzlatilgan emas) — guruhli
+     *       imtihonda aynan shu guruhdagi;</li>
+     *   <li>bu yozilmalarning hech biri billing-v2 bo'yicha OVERDUE emas.</li>
+     * </ol>
+     * Avval {@code "PAID".equals(sg.getPaymentStatus())} edi — billing-v2 dan beri
+     * maydon enum, String bilan taqqoslash doim {@code false} bo'lib, hech kim
+     * ro'yxatdan o'tolmasdi. Endi holat enum bilan va bugungi sana bo'yicha
+     * ({@link BillingStatusService#isOverdue}) — saqlangan snapshot eskirgan
+     * bo'lsa ham to'g'ri. To'lov summasi (Q7) bu shartga kirmaydi.
+     */
+    private boolean isEligibleForExam(Exam exam, Long studentId) {
         long presentDays = attendanceRepository.countPresentDaysForStudent(studentId);
         if (presentDays < MIN_PRESENT_DAYS_FOR_EXAM) {
             return false;
         }
-        List<StudentGroup> active = studentGroupRepository.findActiveByStudentId(studentId);
-        if (active.isEmpty()) {
+        Long examGroupId = exam.getGroup() != null ? exam.getGroup().getId() : null;
+        List<StudentGroup> billed = studentGroupRepository.findActiveByStudentId(studentId).stream()
+            .filter(BillingStatusService::isBillingOpen)
+            .filter(sg -> examGroupId == null || examGroupId.equals(sg.getGroup().getId()))
+            .toList();
+        if (billed.isEmpty()) {
             return false;
         }
-        return active.stream().anyMatch(sg -> "PAID".equals(sg.getPaymentStatus()));
+        LocalDate today = billingStatusService.today();
+        return billed.stream().noneMatch(sg -> billingStatusService.isOverdue(sg, today));
     }
 
+    /**
+     * O'quvchini imtihonga yozish (E-01, E-02). TEACHER faqat o'z imtihoniga va
+     * o'z guruhlaridagi o'quvchini yozadi; avval egalik umuman tekshirilmasdi.
+     */
     @Transactional
     public ExamRegistrationResponse registerStudentForExam(Long examId, Long studentId) {
         Exam exam = findExamById(examId);
+        assertExamAccess(exam);
         Student student = studentRepository.findById(studentId)
             .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
+        teacherAccessService.assertOwnsStudent(studentId);
 
         if (examRegistrationRepository.existsByExamIdAndStudentId(examId, studentId)) {
             throw new DuplicateResourceException("Student already registered for this exam");
         }
 
-        if (!isEligibleForExam(studentId)) {
+        if (!isEligibleForExam(exam, studentId)) {
             throw new BadRequestException(
                 "O'quvchi imtihon uchun mos emas (to'lov holati yoki davomat yetarli emas)");
         }
@@ -342,6 +408,18 @@ public class ExamService {
             .admissionDate(s.getAdmissionDate())
             .referralStudentId(s.getReferralStudent() != null ? s.getReferralStudent().getId() : null)
             .createdAt(s.getCreatedAt())
+            .build();
+    }
+
+    /** O'qituvchi uchun: kimligi va holati, aloqa/shaxsiy ma'lumotsiz (E-02). */
+    private StudentResponse toLimitedStudentResponse(Student s) {
+        return StudentResponse.builder()
+            .id(s.getId())
+            .uuid(s.getUuid())
+            .firstName(s.getFirstName())
+            .lastName(s.getLastName())
+            .status(s.getStatus())
+            .photoUrl(s.getPhotoUrl())
             .build();
     }
 

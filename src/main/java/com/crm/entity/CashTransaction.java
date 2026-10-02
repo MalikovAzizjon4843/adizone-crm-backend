@@ -89,6 +89,10 @@ public class CashTransaction {
     @Column(name = "related_tx_id")
     private Long relatedTxId;
 
+    /** Payroll v2: oylik to'lovi chiqimi va uning REVERSAL i. */
+    @Column(name = "payroll_id")
+    private Long payrollId;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

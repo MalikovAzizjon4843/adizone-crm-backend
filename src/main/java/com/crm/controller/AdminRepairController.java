@@ -5,7 +5,7 @@ import com.crm.exception.CodedException;
 import org.springframework.http.HttpStatus;
 import com.crm.service.GroupService;
 import com.crm.service.LeadService;
-import com.crm.service.TeacherService;
+import com.crm.service.TeacherProfileSyncService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -23,15 +23,15 @@ import java.util.Map;
 @PreAuthorize("hasRole('SUPER_ADMIN')")
 public class AdminRepairController {
 
-    private final TeacherService teacherService;
+    private final TeacherProfileSyncService teacherProfileSyncService;
     private final GroupService groupService;
     private final LeadService leadService;
 
     @PostMapping("/link-teacher-users")
     public ResponseEntity<ApiResponse<Map<String, Object>>> linkTeacherUsers() {
         return ResponseEntity.ok(ApiResponse.success(
-            "O'qituvchi-user bog'lanishi yangilandi",
-            teacherService.linkTeacherUsers()));
+            "O'qituvchi-user bog'lanishi tiklandi",
+            teacherProfileSyncService.repairTeacherLinks()));
     }
 
     @PostMapping("/link-timetable-rooms")

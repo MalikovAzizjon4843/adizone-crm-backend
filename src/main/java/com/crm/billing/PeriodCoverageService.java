@@ -11,9 +11,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * {@code billing_periods.due_date / grace_until / paid_on / paid_at / paid_tx_id} ni ledgerdan
@@ -88,6 +91,29 @@ public class PeriodCoverageService {
             periodRepository.save(p);
         }
         return changed;
+    }
+
+    /**
+     * Payroll v2 §11 #7: yopilishida kamida bitta real {@code PAYMENT} krediti qatnashgan
+     * majburiyatlar ({@code charge_tx_id} lar). Faqat DISCOUNT/BONUS/MANUAL_ADJUST bilan to'liq
+     * yopilgani bu to'plamga kirmaydi. Ledgerga tegmaydi.
+     */
+    public Set<Long> paymentCoveredCharges(Long studentGroupId) {
+        List<BalanceTransaction> ledgerRows = transactionRepository.findLedgerForFifo(studentGroupId);
+        Map<Long, BalanceTransactionType> types = new HashMap<>();
+        List<PeriodCoverage.Line> lines = new ArrayList<>();
+        for (BalanceTransaction t : ledgerRows) {
+            types.put(t.getId(), t.getType());
+            lines.add(new PeriodCoverage.Line(t.getId(), t.getAmount(), t.getEffectiveDate(),
+                t.getRelatedTxId(), t.getCreatedAt(), isNeutral(t)));
+        }
+        Set<Long> out = new HashSet<>();
+        PeriodCoverage.contributors(lines).forEach((obligationId, credits) -> {
+            if (credits.stream().anyMatch(id -> types.get(id) == BalanceTransactionType.PAYMENT)) {
+                out.add(obligationId);
+            }
+        });
+        return out;
     }
 
     /** Muddatli majburiyat: yozilgan, qaytarilmagan, summasi bor (§1.2). */

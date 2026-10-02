@@ -45,7 +45,7 @@ public class ExamController {
     }
 
     @PostMapping("/{id}/calculate-payment")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> calculatePayment(
             @PathVariable Long id,
             @RequestParam Long studentId) {

@@ -26,6 +26,11 @@ public class SalaryRuleController {
         return ResponseEntity.ok(ApiResponse.success(salaryRuleService.getAll()));
     }
 
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<SalaryRuleResponse>> getById(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(salaryRuleService.getById(id)));
+    }
+
     @PostMapping
     public ResponseEntity<ApiResponse<SalaryRuleResponse>> create(@Valid @RequestBody SalaryRuleRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED)

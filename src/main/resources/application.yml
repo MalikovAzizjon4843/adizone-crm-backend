@@ -55,6 +55,10 @@ app:
     retention-days: 90
   upload:
     dir: /opt/crm/uploads
+  # Oylik (docs/design/payroll-v2.md §11). cutover-date bo'sh — qo'llangan billing migratsiyasidan olinadi.
+  payroll:
+    # cutover-date: 2026-10-01   (yoki env APP_PAYROLL_CUTOVER_DATE)
+    count-discount-covered: false
   base-url: https://api.adizone.uz
   schema:
     # Hibernate yaratgan enum CHECK constraint'larni startup'da o'chiradi.

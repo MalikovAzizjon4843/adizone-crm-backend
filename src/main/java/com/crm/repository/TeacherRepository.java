@@ -25,6 +25,11 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long> {
     /** Telefon bo'yicha hali hech kimga biriktirilmagan profil — sinxronda unga ulanamiz. */
     Optional<Teacher> findFirstByPhoneAndUserIsNull(String phone);
 
+    /** Oylik diagnostikasi (payroll-v2 §12): shu telefonli barcha profillar (egasi bilan). */
+    List<Teacher> findAllByPhone(String phone);
+
+    List<Teacher> findAllByEmailIgnoreCase(String email);
+
     boolean existsByTeacherCode(String teacherCode);
 
     long countByIsActiveTrue();

@@ -43,6 +43,11 @@ public class BonusPenalty {
     @JoinColumn(name = "teacher_id")
     private Teacher teacher;
 
+    /** {@code STAFF}: ADMIN/SALES_MANAGER xodim — oyligiga qo'llanadi (payroll-v2 §11 #5). */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;
+
     @Column(nullable = false, precision = 15, scale = 2)
     private BigDecimal amount;
 

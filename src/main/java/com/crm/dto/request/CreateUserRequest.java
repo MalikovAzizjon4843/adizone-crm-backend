@@ -2,6 +2,7 @@ package com.crm.dto.request;
 
 import com.crm.config.PhoneDeserializer;
 import com.crm.entity.enums.UserRole;
+import com.crm.security.PasswordPolicy;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -26,7 +27,7 @@ public class CreateUserRequest {
     private String username;
 
     @NotBlank(message = "{user.password.required}")
-    @Size(min = 6, message = "{user.password.size}")
+    @Size(min = PasswordPolicy.MIN_LENGTH, max = PasswordPolicy.MAX_LENGTH, message = "{user.password.size}")
     private String password;
 
     @Pattern(

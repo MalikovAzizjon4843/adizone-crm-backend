@@ -2,36 +2,34 @@ package com.crm.repository;
 
 import com.crm.entity.BalanceTransaction;
 import com.crm.entity.enums.BalanceTransactionType;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Repository
-public interface BalanceTransactionRepository extends JpaRepository<BalanceTransaction, Long> {
+public interface BalanceTransactionRepository extends JpaRepository<BalanceTransaction, Long>,
+        JpaSpecificationExecutor<BalanceTransaction> {
 
     List<BalanceTransaction> findByStudent_IdOrderByCreatedAtDesc(Long studentId);
 
-    @Query("""
-        SELECT t FROM BalanceTransaction t
-        LEFT JOIN FETCH t.studentGroup sg
-        LEFT JOIN FETCH sg.group
-        LEFT JOIN FETCH t.createdBy
-        WHERE t.student.id = :studentId
-          AND (:groupId IS NULL OR sg.group.id = :groupId)
-          AND (:from IS NULL OR t.createdAt >= :from)
-          AND (:to IS NULL OR t.createdAt <= :to)
-        ORDER BY t.createdAt DESC, t.id DESC
-        """)
-    List<BalanceTransaction> findHistory(
-        @Param("studentId") Long studentId,
-        @Param("groupId") Long groupId,
-        @Param("from") LocalDateTime from,
-        @Param("to") LocalDateTime to);
+    /**
+     * Balans tarixi (filtr — {@code BalanceTransactionService#getHistory} dagi Specification).
+     *
+     * <p>Avval {@code (:from IS NULL OR t.createdAt >= :from)} JPQL edi — PostgreSQL'da
+     * {@code could not determine data type of parameter} bilan 500 berardi (H2 sezmaydi).
+     * Ixtiyoriy filtrlar faqat Specification orqali: berilmagan shart SQL ga umuman tushmaydi.
+     */
+    @Override
+    @EntityGraph(attributePaths = {"studentGroup", "studentGroup.group", "createdBy"})
+    List<BalanceTransaction> findAll(Specification<BalanceTransaction> spec, Sort sort);
 
     @Query("""
         SELECT COALESCE(SUM(t.amount), 0) FROM BalanceTransaction t

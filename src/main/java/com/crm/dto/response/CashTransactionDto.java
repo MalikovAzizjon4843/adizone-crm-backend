@@ -1,6 +1,7 @@
 package com.crm.dto.response;
 
 import com.crm.entity.enums.PaymentMethod;
+import com.crm.entity.enums.CashDirection;
 import com.crm.entity.enums.CashTransactionStatus;
 import com.crm.entity.enums.CashTransactionType;
 import lombok.Data;
@@ -22,6 +23,16 @@ public class CashTransactionDto {
     private String teacherName;
     private String transactionName;
     private BigDecimal amount;
+    /** IN — kassaga kirdi, OUT — chiqdi ({@link com.crm.entity.enums.CashDirection}). */
+    private CashDirection direction;
+    /** IN → +amount, OUT → −amount. */
+    private BigDecimal signedAmount;
+    /** O'"'"'quvchi to'"'"'lovi (kirim va uning REVERSAL i). */
+    private Long paymentId;
+    /** Oylik to'"'"'lovi (chiqim va uning REVERSAL i). */
+    private Long payrollId;
+    /** REVERSAL → asl yozuv; TRANSFER kirim qatori → chiqim qatori. */
+    private Long relatedTxId;
     /** Faqat CASH_AND_CARD uchun to'ldiriladi. */
     private BigDecimal cashPart;
     private BigDecimal cardPart;

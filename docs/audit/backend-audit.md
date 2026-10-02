@@ -927,6 +927,9 @@ Balansga ta'sir **yo'q** (ikki marta yechmaslik uchun, `:325-331`). Faqat: `less
 
 ### C) Oylik (Payroll), SalaryRule, KPI, Bonus/Jarima
 
+> **02.10.2026: payroll v2 bilan qayta qurildi** — quyidagi C.1, C.2, C.4, C.5 v1 holatini tasvirlaydi. Joriy qoidalar:
+> [`docs/design/payroll-v2.md`](../design/payroll-v2.md), API — [`payroll-v2-api.md`](../design/payroll-v2-api.md).
+
 #### C.1 SalaryRule (`entity/SalaryRule.java`, CRUD faqat SUPER_ADMIN: `/api/salary-rules`)
 Qoida turi alohida enum emas — bitta qoida maydonlari: `role*`, `userId` (null = rol uchun umumiy), `baseSalary`, `perStudentFee`, `newStudentBonus`, `kpiThreshold` (int), `kpiBonus`, `isActive`, `effectiveFrom`. Foizli qoida YO'Q. DELETE = soft (`isActive=false`, `service/SalaryRuleService.java:46-52`).
 
@@ -1017,6 +1020,8 @@ TRANSFER qatorlari bir xil `type` — yo'nalishni `transactionName` yoki `target
 - Payroll to'lovi `Expense(SALARY)` yaratmaydi.
 
 #### D.4 Moliya hisobotlari
+
+> **02.10.2026 (payroll v2 §11 #8):** `/api/finance/report` ga `payrollPaid`, `payrollByRole` qo'shildi; `netProfit = income − expenses − payrollPaid` ([`payroll-v2-api.md` §6](../design/payroll-v2-api.md)).
 - `GET /api/finance/report?from&to` (default: oy boshi → bugun) (`service/FinanceService.java:141-171`):
   ```
   totalIncome  = Σ COALESCE(payment.cashAmount, payment.amount), status=PAID, paymentDate ∈ [from,to]

@@ -9,6 +9,7 @@ import com.crm.entity.StudentGroup;
 import com.crm.entity.enums.BalanceTransactionType;
 import com.crm.entity.enums.BillingPeriodStatus;
 import com.crm.entity.enums.PaymentStatus;
+import com.crm.entity.enums.TeacherAttribution;
 import com.crm.exception.CodedException;
 import com.crm.exception.ConflictException;
 import com.crm.repository.BalanceTransactionRepository;
@@ -217,6 +218,10 @@ public class BillingMigrationService {
                     .amount(p.amount())
                     .status(p.status())
                     .migrationRunId(runId)
+                    // Payroll v2 (§8): o'tgan davr o'qituvchisi noma'lum — hozirgisi, taxminiy
+                    .teacherId(sg.getGroup() != null && sg.getGroup().getTeacher() != null
+                        ? sg.getGroup().getTeacher().getId() : null)
+                    .teacherSource(TeacherAttribution.ESTIMATED)
                     .build());
                 if (p.status() == BillingPeriodStatus.CHARGED && p.amount().signum() > 0) {
                     BalanceTransaction tx = ledger.post(LedgerService.Entry.builder()

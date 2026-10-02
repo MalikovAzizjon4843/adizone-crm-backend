@@ -819,13 +819,20 @@ public class LeadService {
     /**
      * {@link LeadRepository#countKanbanGrouped} ning filtrli varianti: ustunlar shakli bir xil —
      * {@code [status, count, unassignedCount, amountSum, unassignedAmountSum]}.
+     *
+     * <p>DIQQAT: SUM ichida COALESCE YO'Q (JPQL variantidagi {@code SUM(COALESCE(amount, 0))}
+     * o'rniga {@code COALESCE(SUM(amount), 0)}). Hibernate 6 Criteria'da
+     * {@code cb.sum(cb.coalesce(path, ...))} ClassCastException beradi
+     * ({@code SqmBasicValuedSimplePath → ReturnableType}) — filtrli kanban 500 bergan edi;
+     * {@link PaymentService} dagi izohga qarang. Natija bir xil: SQL SUM NULL larni tashlab
+     * ketadi, hammasi NULL bo'lsa tashqi COALESCE 0 qaytaradi.
      */
     private List<Object[]> countKanbanGrouped(Specification<Lead> spec) {
         CriteriaBuilder cb = entityManager.getCriteriaBuilder();
         CriteriaQuery<Object[]> cq = cb.createQuery(Object[].class);
         Root<Lead> root = cq.from(Lead.class);
 
-        Expression<BigDecimal> amount = cb.coalesce(root.<BigDecimal>get("amount"), BigDecimal.ZERO);
+        Expression<BigDecimal> amount = root.get("amount");
         Predicate isUnassigned = cb.isNull(root.get("assignedUser"));
         Expression<Integer> unassignedOne = cb.<Integer>selectCase().when(isUnassigned, 1).otherwise(0);
         Expression<BigDecimal> unassignedAmount = cb.<BigDecimal>selectCase()

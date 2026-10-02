@@ -1,10 +1,11 @@
 package com.crm;
+import com.crm.support.TestProfilesResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 @SpringBootTest
-@ActiveProfiles("test")
+@ActiveProfiles(resolver = TestProfilesResolver.class)
 class CrmApplicationTests {
     @Test
     void contextLoads() {}

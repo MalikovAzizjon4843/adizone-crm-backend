@@ -36,6 +36,7 @@ public class FinanceService {
     private final TeacherRepository teacherRepository;
     private final UserRepository userRepository;
     private final CashRegisterService cashRegisterService;
+    private final PayrollRepository payrollRepository;
 
     @Transactional(readOnly = true)
     public List<ExpenseResponse> getExpenses(LocalDate from, LocalDate to) {
@@ -160,10 +161,23 @@ public class FinanceService {
         expenseRepository.sumByCategory(start, end).forEach(row ->
             expenseByCategory.put(row[0].toString(), (BigDecimal) row[1]));
 
+        // Oylik (payroll-v2 §11 #8): PAID, paidAt ∈ [start, end]; CANCELLED kirmaydi.
+        // totalExpenses faqat Expense jadvalidan — oylikning kassa chiqimi u yerda yo'q, ikki marta ayirilmaydi.
+        Map<String, BigDecimal> payrollByRole = new LinkedHashMap<>();
+        BigDecimal payrollPaid = BigDecimal.ZERO;
+        for (Object[] row : payrollRepository.sumPaidByRole(start.atStartOfDay(), end.plusDays(1).atStartOfDay())) {
+            String role = row[0] != null ? row[0].toString() : "OTHER";
+            BigDecimal sum = row[1] != null ? (BigDecimal) row[1] : BigDecimal.ZERO;
+            payrollByRole.merge(role, sum, BigDecimal::add);
+            payrollPaid = payrollPaid.add(sum);
+        }
+
         return FinanceReportResponse.builder()
             .totalIncome(totalIncome)
             .totalExpenses(totalExpenses)
-            .netProfit(totalIncome.subtract(totalExpenses))
+            .payrollPaid(payrollPaid)
+            .payrollByRole(payrollByRole)
+            .netProfit(totalIncome.subtract(totalExpenses).subtract(payrollPaid))
             .incomeByCategory(incomeByCategory)
             .expenseByCategory(expenseByCategory)
             .period(start + " to " + end)

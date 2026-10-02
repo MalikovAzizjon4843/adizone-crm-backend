@@ -256,7 +256,7 @@ public class TeacherService {
         dashboard.put("totalStudents", totalStudents);
 
         java.time.LocalDate now = java.time.LocalDate.now();
-        payrollRepository.findByTeacherIdAndMonthAndYear(
+        payrollRepository.findActiveByTeacher(
                 teacher.getId(), now.getMonthValue(), now.getYear())
             .ifPresent(p -> {
                 dashboard.put("salary", p.getNetSalary());
@@ -361,7 +361,10 @@ public class TeacherService {
         BigDecimal bonus = BigDecimal.ZERO;
         BigDecimal penalty = BigDecimal.ZERO;
 
-        for (Payroll p : payrollRepository.findByTeacherId(teacherId)) {
+        for (Payroll p : payrollRepository.findByTeacherIdOrderByYearDescMonthDesc(teacherId)) {
+            if (p.getStatus() == com.crm.entity.enums.PayrollStatus.CANCELLED) {
+                continue;
+            }
             if (!payrollOverlapsRange(p, from, to)) {
                 continue;
             }
@@ -561,30 +564,42 @@ public class TeacherService {
         }
     }
 
+    /** Egasiz profilni userga bog'lash natijasi (repair — {@link TeacherProfileSyncService#repairTeacherLinks}). */
+    public record OrphanLinkResult(Long teacherId, Long userId, String username, boolean linked, String reason) {
+    }
+
+    /**
+     * {@code user_id} si yo'q Teacher profillarini ism/telefon/email bo'yicha TEACHER userga bog'laydi.
+     * Har profil uchun natija va (o'tkazilgan bo'lsa) sabab qaytadi.
+     */
     @Transactional
-    public Map<String, Object> linkTeacherUsers() {
-        int linked = 0;
-        int skipped = 0;
+    public List<OrphanLinkResult> linkOrphanTeachers() {
+        List<OrphanLinkResult> out = new ArrayList<>();
         for (Teacher teacher : teacherRepository.findByUserIsNull()) {
             Optional<User> match = resolveUserForTeacher(teacher);
             if (match.isEmpty()) {
-                skipped++;
+                out.add(new OrphanLinkResult(teacher.getId(), null, null, false,
+                    "Mos TEACHER user topilmadi (ism, telefon, email bo'yicha)"));
                 continue;
             }
             User user = match.get();
-            if (teacherRepository.findByUser_Id(user.getId()).isPresent()) {
-                skipped++;
+            Optional<Teacher> taken = teacherRepository.findByUser_Id(user.getId());
+            if (taken.isPresent()) {
+                out.add(new OrphanLinkResult(teacher.getId(), user.getId(), user.getUsername(), false,
+                    "Mos user #" + user.getId() + " allaqachon boshqa profilga (#" + taken.get().getId()
+                        + ") bog'langan"));
                 continue;
             }
             teacher.setUser(user);
             teacherRepository.save(teacher);
-            linked++;
+            out.add(new OrphanLinkResult(teacher.getId(), user.getId(), user.getUsername(), true, null));
         }
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("linkedCount", linked);
-        result.put("skippedCount", skipped);
-        result.put("remainingUnlinked", teacherRepository.findByUserIsNull().size());
-        return result;
+        return out;
+    }
+
+    @Transactional(readOnly = true)
+    public long countTeachersWithoutUser() {
+        return teacherRepository.findByUserIsNull().size();
     }
 
     // ------------------------------------------------------------------

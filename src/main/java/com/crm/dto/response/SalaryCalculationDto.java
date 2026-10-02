@@ -6,10 +6,12 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.util.List;
-import java.util.Map;
 
+/**
+ * Oylik hisobi (preview) — {@code GET /api/payroll/calculate}. Payroll v2 da v1 dagi
+ * {@code details} (Map) va {@code students} o'rniga {@link #calculationDetails} — tuzilgan obyekt
+ * (docs/design/payroll-v2.md §6).
+ */
 @Data
 @Builder
 @NoArgsConstructor
@@ -21,33 +23,27 @@ public class SalaryCalculationDto {
     private Integer month;
     private Integer year;
 
+    /** = qoidaning {@code fixedSalary}. */
     private BigDecimal baseSalary;
     private Integer paidStudentCount;
+    /** TEACHER: to'lagan birliklar (davrlar + PER_LESSON ulushlari, kasr bo'lishi mumkin — §11 #2). */
+    private BigDecimal paidStudentUnits;
     private BigDecimal perStudentAmount;
     private Integer newStudentCount;
     private BigDecimal newStudentAmount;
     private Boolean kpiApplied;
     private BigDecimal kpiAmount;
+    /** ADMIN: oy oxirida hisob davri bor o'quvchilar (§2.3). */
     private Integer totalActiveStudents;
+    private BigDecimal grossAmount;
     private BigDecimal bonusPenaltyAdjustment;
+    /** net = gross + bonusPenaltyAdjustment. */
     private BigDecimal totalAmount;
 
     private Boolean calculable;
     private String message;
+    /** calculable=false sababi: RULE_NOT_FOUND, TEACHER_PROFILE_MISSING, TEACHER_PROFILE_LINKED_TO_OTHER_USER, ROLE_NOT_CALCULATED. */
+    private String messageCode;
 
-    private Map<String, Object> details;
-    private List<StudentDetailItem> students;
-
-    @Data
-    @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class StudentDetailItem {
-        private Long studentId;
-        private String name;
-        private Long groupId;
-        private String groupName;
-        private LocalDate paymentDate;
-        private String type; // PAID | NEW
-    }
+    private PayrollCalculationDetails calculationDetails;
 }

@@ -15,6 +15,7 @@ import com.crm.entity.Student;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
 import com.crm.entity.enums.PaymentMethod;
+import com.crm.entity.enums.CashDirection;
 import com.crm.entity.enums.CashRegisterStatus;
 import com.crm.entity.enums.CashTransactionStatus;
 import com.crm.entity.enums.CashTransactionType;
@@ -227,8 +228,8 @@ public class CashRegisterService {
             headerStyle.setBorderRight(BorderStyle.THIN);
 
             String[] headers = {
-                "ID", "Sana", "Turi", "Usul", "O'quvchi", "O'qituvchi",
-                "Nomi", "Summa", "Izoh", "Holat", "Yaratuvchi"
+                "ID", "Sana", "Turi", "Yo'nalish", "Usul", "O'quvchi", "O'qituvchi",
+                "Nomi", "Summa (±)", "Izoh", "Holat", "Yaratuvchi"
             };
             Row headerRow = sheet.createRow(0);
             for (int i = 0; i < headers.length; i++) {
@@ -243,22 +244,25 @@ public class CashRegisterService {
                 row.createCell(0).setCellValue(t.getId() != null ? t.getId() : 0);
                 row.createCell(1).setCellValue(
                     t.getTransactionDate() != null ? t.getTransactionDate().toString() : "");
+                CashDirection direction = direction(t);
                 row.createCell(2).setCellValue(
                     t.getType() != null ? t.getType().name() : "");
-                row.createCell(3).setCellValue(
+                row.createCell(3).setCellValue(direction.name());
+                row.createCell(4).setCellValue(
                     t.getPaymentMethod() != null ? t.getPaymentMethod().name() : "");
-                row.createCell(4).setCellValue(t.getStudent() != null
+                row.createCell(5).setCellValue(t.getStudent() != null
                     ? t.getStudent().getFirstName() + " " + t.getStudent().getLastName() : "");
-                row.createCell(5).setCellValue(t.getTeacher() != null
+                row.createCell(6).setCellValue(t.getTeacher() != null
                     ? t.getTeacher().getFirstName() + " " + t.getTeacher().getLastName() : "");
-                row.createCell(6).setCellValue(
-                    t.getTransactionName() != null ? t.getTransactionName() : "");
                 row.createCell(7).setCellValue(
-                    t.getAmount() != null ? t.getAmount().doubleValue() : 0);
-                row.createCell(8).setCellValue(t.getNote() != null ? t.getNote() : "");
-                row.createCell(9).setCellValue(
+                    t.getTransactionName() != null ? t.getTransactionName() : "");
+                // Ishorali summa: kirim +, chiqim − (DTO dagi signedAmount bilan bir xil)
+                row.createCell(8).setCellValue(
+                    t.getAmount() != null ? signed(t.getAmount(), direction).doubleValue() : 0);
+                row.createCell(9).setCellValue(t.getNote() != null ? t.getNote() : "");
+                row.createCell(10).setCellValue(
                     t.getStatus() != null ? t.getStatus().name() : "");
-                row.createCell(10).setCellValue(t.getCreatedBy() != null
+                row.createCell(11).setCellValue(t.getCreatedBy() != null
                     ? t.getCreatedBy().getFirstName() + " " + t.getCreatedBy().getLastName() : "");
             }
 
@@ -399,14 +403,21 @@ public class CashRegisterService {
     }
 
     /**
-     * To'lov bekor qilinganda kirimning teskarisi (§6.4): {@code type = REVERSAL},
-     * chelaklar ASL taqsimot bo'yicha kamayadi, manfiyga tushishi mumkin.
-     * Asl yozuv o'chirilmaydi.
+     * Kassa yozuvining teskarisi: {@code type = REVERSAL}, asl yozuv o'chirilmaydi, chelaklar ASL
+     * taqsimot bo'yicha o'zgaradi.
+     * <ul>
+     *   <li>INCOME (to'lov bekor qilindi, billing-v2 §6.4) — chelaklar kamayadi, manfiyga tushishi mumkin;</li>
+     *   <li>EXPENSE (oylik to'lovi bekor qilindi, payroll-v2 §5.3) — pul kassaga qaytadi.</li>
+     * </ul>
      */
     @Transactional
     public ReversalResult recordReversal(CashTransaction original, String note) {
+        if (original.getType() != CashTransactionType.INCOME && original.getType() != CashTransactionType.EXPENSE) {
+            throw new IllegalStateException("Faqat kirim yoki chiqim teskari yoziladi: " + original.getType());
+        }
         CashRegister register = billingLocks.lockCashRegister(original.getCashRegister().getId());
         BucketAmounts parts = bucketAmounts(original);
+        boolean income = original.getType() == CashTransactionType.INCOME;
 
         CashTransaction tx = new CashTransaction();
         tx.setCashRegister(register);
@@ -416,17 +427,23 @@ public class CashRegisterService {
         tx.setCashPart(original.getCashPart());
         tx.setCardPart(original.getCardPart());
         tx.setTransactionName("Bekor qilindi: " + (original.getTransactionName() != null
-            ? original.getTransactionName() : "kirim"));
+            ? original.getTransactionName() : (income ? "kirim" : "chiqim")));
         tx.setNote(note);
         tx.setTransactionDate(LocalDate.now());
         tx.setStatus(CashTransactionStatus.COMPLETED);
         tx.setCreatedBy(currentUser());
         tx.setStudent(original.getStudent());
+        tx.setTeacher(original.getTeacher());
         tx.setPaymentId(original.getPaymentId());
+        tx.setPayrollId(original.getPayrollId());
         tx.setRelatedTxId(original.getId());
         CashTransaction saved = cashTransactionRepository.save(tx);
 
-        subtractFromBalanceAllowNegative(register, parts);
+        if (income) {
+            subtractFromBalanceAllowNegative(register, parts);
+        } else {
+            addToBalance(register, parts);
+        }
         cashRegisterRepository.save(register);
         boolean negative = register.getCashBalance().signum() < 0 || register.getPlasticBalance().signum() < 0;
         return new ReversalResult(saved, negative);
@@ -506,6 +523,27 @@ public class CashRegisterService {
             BigDecimal totalAmount,
             BigDecimal cashPart,
             BigDecimal cardPart) {
+        return recordExpense(registerId, amount, method, transactionName, note, date, createdBy,
+            student, teacher, periodMonth, totalAmount, cashPart, cardPart, null);
+    }
+
+    /** Chiqim. {@code payrollId} — oylik to'lovi (payroll-v2 §5.2): bekor qilishda shu yozuv teskari yoziladi. */
+    @Transactional
+    public CashTransaction recordExpense(
+            Long registerId,
+            BigDecimal amount,
+            PaymentMethod method,
+            String transactionName,
+            String note,
+            LocalDate date,
+            User createdBy,
+            Student student,
+            Teacher teacher,
+            LocalDate periodMonth,
+            BigDecimal totalAmount,
+            BigDecimal cashPart,
+            BigDecimal cardPart,
+            Long payrollId) {
 
         CashRegister register = billingLocks.lockCashRegister(registerId);
         BigDecimal positiveAmount = requirePositiveAmount(amount);
@@ -513,6 +551,7 @@ public class CashRegisterService {
         SplitParts parts = validateParts(cashMethod, positiveAmount, cashPart, cardPart);
 
         CashTransaction tx = new CashTransaction();
+        tx.setPayrollId(payrollId);
         tx.setCashRegister(register);
         tx.setType(CashTransactionType.EXPENSE);
         tx.setPaymentMethod(cashMethod);
@@ -643,8 +682,11 @@ public class CashRegisterService {
         inTx.setTransactionDate(txDate);
         inTx.setCreatedBy(creator);
 
+        CashTransaction savedOut = cashTransactionRepository.save(outTx);
+        // Kirim qatori chiqim qatoriga bog'lanadi — yo'nalish (IN) nomga emas, bog'lanishga tayanadi
+        inTx.setRelatedTxId(savedOut.getId());
         return List.of(
-            toTransactionDto(cashTransactionRepository.save(outTx)),
+            toTransactionDto(savedOut),
             toTransactionDto(cashTransactionRepository.save(inTx))
         );
     }
@@ -837,6 +879,40 @@ public class CashRegisterService {
         return dto;
     }
 
+    /**
+     * Pul yo'nalishi ({@link CashDirection}): INCOME → IN, EXPENSE → OUT; TRANSFER — kirim qatori IN
+     * (yangi qatorlarda {@code relatedTxId} = chiqim qatori, eskilarida nom "(kirim)"), chiqim qatori OUT;
+     * REVERSAL — asl yozuvga ({@code relatedTxId}) teskari; asl topilmasa: to'lov teskarisi OUT,
+     * boshqasi (oylik/chiqim teskarisi) IN.
+     */
+    CashDirection direction(CashTransaction t) {
+        if (t.getType() == null) {
+            return CashDirection.OUT;
+        }
+        return switch (t.getType()) {
+            case INCOME -> CashDirection.IN;
+            case EXPENSE -> CashDirection.OUT;
+            case TRANSFER -> t.getRelatedTxId() != null
+                || (t.getTransactionName() != null && t.getTransactionName().contains("(kirim)"))
+                ? CashDirection.IN : CashDirection.OUT;
+            case REVERSAL -> {
+                CashTransaction original = t.getRelatedTxId() != null
+                    ? cashTransactionRepository.findById(t.getRelatedTxId()).orElse(null) : null;
+                if (original != null && original.getType() != CashTransactionType.REVERSAL) {
+                    yield direction(original).opposite();
+                }
+                yield t.getPaymentId() != null ? CashDirection.OUT : CashDirection.IN;
+            }
+        };
+    }
+
+    private static BigDecimal signed(BigDecimal amount, CashDirection direction) {
+        if (amount == null) {
+            return null;
+        }
+        return direction == CashDirection.IN ? amount : amount.negate();
+    }
+
     private CashTransactionDto toTransactionDto(CashTransaction t) {
         CashTransactionDto dto = new CashTransactionDto();
         dto.setId(t.getId());
@@ -856,6 +932,12 @@ public class CashRegisterService {
         }
         dto.setTransactionName(t.getTransactionName());
         dto.setAmount(t.getAmount());
+        CashDirection direction = direction(t);
+        dto.setDirection(direction);
+        dto.setSignedAmount(signed(t.getAmount(), direction));
+        dto.setPaymentId(t.getPaymentId());
+        dto.setPayrollId(t.getPayrollId());
+        dto.setRelatedTxId(t.getRelatedTxId());
         dto.setCashPart(t.getCashPart());
         dto.setCardPart(t.getCardPart());
         dto.setNote(t.getNote());

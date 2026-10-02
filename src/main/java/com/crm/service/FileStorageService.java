@@ -5,8 +5,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Iterator;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -19,7 +23,16 @@ import java.util.Set;
 @Service
 public class FileStorageService {
 
-    private static final long MAX_BYTES = 4L * 1024 * 1024;
+    /** Bitta fayl hajmi chegarasi — multipart sozlamasi (4MB) bilan bir xil. */
+    public static final long MAX_BYTES = 4L * 1024 * 1024;
+
+    /**
+     * Rasm o'lchami chegaralari. 4MB lik siqilgan PNG ichida 20000×20000 piksel
+     * bo'lishi mumkin — to'liq dekodlansa GB lab xotira (phase5-audit CH-02).
+     * Telefon kamerasi (≤ 50 MP, tomoni ≤ 12000) sig'adi.
+     */
+    public static final int MAX_IMAGE_SIDE = 12_000;
+    public static final long MAX_IMAGE_PIXELS = 50_000_000L;
 
     /**
      * Saqlangan fayl URL'ining boshi. {@code public} — chat kelgan
@@ -135,7 +148,47 @@ public class FileStorageService {
         if (file.getSize() > MAX_BYTES) {
             throw new BadRequestException("Fayl hajmi 4MB dan oshmasligi kerak");
         }
+        int[] size = readImageDimensions(file);
+        if (size != null && !isImageSizeAllowed(size[0], size[1])) {
+            throw new BadRequestException("Rasm o'lchami juda katta: " + size[0] + "×" + size[1]
+                + " (ko'pi bilan " + MAX_IMAGE_SIDE + " piksel tomoni)");
+        }
         return extension;
+    }
+
+    /**
+     * Rasm eni va bo'yi — faqat SARLAVHADAN, piksellar dekodlanmaydi
+     * ({@code ImageIO.read} butun rasmni xotiraga ochadi, bu esa "decompression
+     * bomb" ga yo'l ochardi). Formatni o'qib bo'lmasa (masalan ImageIO
+     * plaginisiz WebP) {@code null} — bu xato emas.
+     */
+    public static int[] readImageDimensions(MultipartFile file) {
+        try (InputStream in = file.getInputStream();
+             ImageInputStream iis = ImageIO.createImageInputStream(in)) {
+            if (iis == null) {
+                return null;
+            }
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
+            if (!readers.hasNext()) {
+                return null;
+            }
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(iis, true, true);
+                return new int[]{reader.getWidth(0), reader.getHeight(0)};
+            } finally {
+                reader.dispose();
+            }
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Tomon ham, piksellar soni ham chegarada. */
+    public static boolean isImageSizeAllowed(int width, int height) {
+        return width > 0 && height > 0
+            && width <= MAX_IMAGE_SIDE && height <= MAX_IMAGE_SIDE
+            && (long) width * height <= MAX_IMAGE_PIXELS;
     }
 
     /**

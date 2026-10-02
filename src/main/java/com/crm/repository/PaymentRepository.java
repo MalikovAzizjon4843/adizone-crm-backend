@@ -117,20 +117,6 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
             @Param("start") LocalDate start,
             @Param("end") LocalDate end);
 
-    @Query("SELECT p FROM Payment p WHERE " +
-           "(:studentId IS NULL OR p.student.id = :studentId) AND " +
-           "(:groupId IS NULL OR (p.group IS NOT NULL AND p.group.id = :groupId)) AND " +
-           "(:status IS NULL OR p.status = :status) AND " +
-           "(:from IS NULL OR p.paymentDate >= :from) AND " +
-           "(:to IS NULL OR p.paymentDate <= :to)")
-    Page<Payment> searchPayments(
-            @Param("studentId") Long studentId,
-            @Param("groupId") Long groupId,
-            @Param("status") PaymentStatus status,
-            @Param("from") LocalDate from,
-            @Param("to") LocalDate to,
-            Pageable pageable);
-
     Optional<Payment> findFirstByStudent_IdAndPeriodEndIsNotNullOrderByPeriodEndDesc(Long studentId);
 
     /** Bitta enrollment bo'yicha to'lovlar — balans tekshiruvi va ta'mirlash uchun. */
@@ -141,21 +127,6 @@ public interface PaymentRepository extends JpaRepository<Payment, Long>, JpaSpec
 
     @Query("SELECT p FROM Payment p ORDER BY p.createdAt DESC")
     Page<Payment> findAllOrderByCreatedAtDesc(Pageable pageable);
-
-    @Query("SELECT p FROM Payment p " +
-           "WHERE (:studentId IS NULL OR p.student.id = :studentId) " +
-           "AND (:groupId IS NULL OR p.group.id = :groupId) " +
-           "AND (:status IS NULL OR p.status = :status) " +
-           "AND (:from IS NULL OR p.paymentDate >= :from) " +
-           "AND (:to IS NULL OR p.paymentDate <= :to) " +
-           "ORDER BY p.createdAt DESC")
-    Page<Payment> findFiltered(
-        @Param("studentId") Long studentId,
-        @Param("groupId") Long groupId,
-        @Param("status") String status,
-        @Param("from") LocalDate from,
-        @Param("to") LocalDate to,
-        Pageable pageable);
 
     /** Batch: userId, paymentCount, paymentSum */
     @Query("""

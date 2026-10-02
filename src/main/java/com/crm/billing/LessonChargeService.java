@@ -74,6 +74,8 @@ public class LessonChargeService {
             BalanceTransaction tx = ledger.post(LedgerService.Entry.builder()
                 .enrollment(sg)
                 .type(BalanceTransactionType.LESSON_CHARGE)
+                .teacherId(sg.getGroup() != null && sg.getGroup().getTeacher() != null
+                    ? sg.getGroup().getTeacher().getId() : null)
                 .amount(price.negate())
                 .effectiveDate(a.getAttendanceDate())
                 .referenceId(a.getId())

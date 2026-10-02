@@ -35,13 +35,14 @@ public class BonusPenaltyController {
             @RequestParam(required = false) String targetType,
             @RequestParam(required = false) Long studentId,
             @RequestParam(required = false) Long teacherId,
+            @RequestParam(required = false) Long userId,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         Pageable pageable = PageRequest.of(page, size,
             Sort.by(Sort.Direction.DESC, "createdAt"));
         return ResponseEntity.ok(ApiResponse.success(
-            bonusPenaltyService.getAll(kind, targetType, studentId, teacherId, status, pageable)));
+            bonusPenaltyService.getAll(kind, targetType, studentId, teacherId, userId, status, pageable)));
     }
 
     @GetMapping("/summary")
@@ -62,6 +63,16 @@ public class BonusPenaltyController {
         }
         return ResponseEntity.ok(ApiResponse.success(
             bonusPenaltyService.previewForTeacher(teacherId, cutoff)));
+    }
+
+    /** STAFF (ADMIN/SALES) xodim oyligiga tushadigan PENDING bonus/jarimalar. */
+    @GetMapping("/preview/staff/{userId}")
+    public ResponseEntity<ApiResponse<BonusPenaltyPreviewDto>> previewForStaff(
+            @PathVariable Long userId,
+            @RequestParam(required = false) String upToDate) {
+        LocalDate cutoff = parseOptionalDate(upToDate);
+        return ResponseEntity.ok(ApiResponse.success(
+            bonusPenaltyService.previewForStaff(userId, cutoff != null ? cutoff : LocalDate.now())));
     }
 
     @GetMapping("/preview/student/{studentId}")

@@ -13,11 +13,14 @@ import com.crm.entity.Teacher;
 import com.crm.entity.User;
 import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.CodedException;
+import com.crm.exception.ConflictException;
 import com.crm.exception.ForbiddenException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.RefreshTokenRepository;
 import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
+import com.crm.security.PasswordPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -30,7 +33,6 @@ import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -109,21 +111,35 @@ public class UserService {
         return toResponse(saved);
     }
 
+    /**
+     * O'qituvchi profiliga YANGI login yaratadi (phase5-audit U-01).
+     *
+     * <p>Avval login band bo'lsa profil o'sha mavjud userga jimgina bog'lanardi —
+     * roli, egaligi va boshqa profilga bog'langanligi tekshirilmasdan (SA/ACC
+     * hisobini ham "o'g'irlash" mumkin edi). Endi bu yo'l faqat yaratadi:
+     * <ul>
+     *   <li>login band (registrsiz) — 409 {@code user.username.taken};</li>
+     *   <li>profilda allaqachon login bor — 409 {@code teacher.user.alreadyLinked};</li>
+     *   <li>parol siyosati (≥ 8) — 400 {@code user.password.size}.</li>
+     * </ul>
+     * Mavjud userni profilga bog'lash — faqat SUPER_ADMIN ning ta'mir yo'llari
+     * ({@code /api/teachers/{userId}/ensure-profile}, {@code /api/admin/repair/…}).
+     */
     @Transactional
     @Audited(action = AuditAction.CREATE, entity = "User",
         summary = "'O''qituvchiga hisob yaratildi: ' + #result.username",
         entityId = "#result.id", label = "#result.username")
     public UserResponse createForTeacher(Long teacherId, CreateUserRequest request) {
+        assertCanGrantRole(requireCurrentUser(), UserRole.TEACHER);
         Teacher teacher = teacherRepository.findById(teacherId)
             .orElseThrow(() -> new ResourceNotFoundException(
                 messages.get("error.teacher.notFound", teacherId)));
 
-        if (request.getUsername() != null && !request.getUsername().isBlank()) {
-            Optional<User> existing = userRepository.findByUsername(request.getUsername());
-            if (existing.isPresent()) {
-                linkTeacherToUser(teacher, existing.get());
-                return toResponse(existing.get());
-            }
+        if (teacher.getUser() != null) {
+            throw new ConflictException("teacher.user.alreadyLinked", teacher.getUser().getUsername());
+        }
+        if (!PasswordPolicy.isValid(request.getPassword())) {
+            throw CodedException.badRequest("user.password.size");
         }
 
         String firstName = request.getFirstName() != null
@@ -131,9 +147,15 @@ public class UserService {
         String lastName = request.getLastName() != null
             ? request.getLastName() : teacher.getLastName();
 
-        String username = request.getUsername() != null && !request.getUsername().isBlank()
-            ? request.getUsername()
-            : generateUsername(firstName, lastName);
+        String username;
+        if (request.getUsername() != null && !request.getUsername().isBlank()) {
+            username = request.getUsername().trim();
+            if (userRepository.existsByUsernameIgnoreCase(username)) {
+                throw new ConflictException("user.username.taken", username);
+            }
+        } else {
+            username = generateUsername(firstName, lastName);
+        }
 
         User user = User.builder()
             .firstName(firstName)
@@ -179,11 +201,21 @@ public class UserService {
         if (request.getPhone() != null) {
             user.setPhone(normalizeBlank(request.getPhone()));
         }
-        if (request.getRole() != null) {
+        // Rol va faollik — PATCH /status dagi himoyalar bilan (U-04): avval bu yerda
+        // to'g'ridan-to'g'ri yozilardi va o'zini bloklash, SA ni bloklash, o'z rolini
+        // tushirish taqiqlari chetlab o'tilardi. Qiymat o'zgarmasa (eski frontend har
+        // tahrirda role/isActive ni qayta yuboradi) hech qanday tekshiruv ishlamaydi.
+        if (request.getRole() != null && request.getRole() != user.getRole()) {
+            // O'z rolini o'zgartirish taqiqi oxirgi SUPER_ADMIN ni ham himoya qiladi:
+            // SA rolini faqat BOSHQA (faol) SA o'zgartira oladi.
+            if (actor.getId().equals(user.getId())) {
+                throw CodedException.badRequest("user.role.self");
+            }
+            AuditContext.change("role", user.getRole(), request.getRole());
             user.setRole(request.getRole());
         }
-        if (request.getIsActive() != null) {
-            user.setIsActive(request.getIsActive());
+        if (request.getIsActive() != null && request.getIsActive() != isActive(user)) {
+            applyActive(actor, user, request.getIsActive());
         }
 
         User saved = userRepository.save(user);
@@ -339,12 +371,14 @@ public class UserService {
         if (actor.getId().equals(target.getId())) {
             throw new BadRequestException(messages.get("user.password.resetSelf"));
         }
-        if (target.getRole() == UserRole.SUPER_ADMIN && actor.getRole() != UserRole.SUPER_ADMIN) {
-            throw new ForbiddenException(messages.get("user.password.resetSuperAdmin"));
-        }
+        // ADMIN boshqa ADMIN parolini tiklab, ochiq parolni olib hisobini egallay
+        // olardi (U-03). Endi ADMIN/SA hisoblarini faqat SUPER_ADMIN boshqaradi.
+        assertCanManage(actor, target);
 
         String temporaryPassword = generateTemporaryPassword();
         target.setPassword(passwordEncoder.encode(temporaryPassword));
+        // Eski access tokenlar ham shu zahoti bekor (U-05), refresh — pastda.
+        target.bumpTokenVersion();
         userRepository.save(target);
 
         int revoked = refreshTokenRepository.revokeAllByUserId(target.getId());
@@ -372,8 +406,12 @@ public class UserService {
             .orElseThrow(() -> new ResourceNotFoundException(
                 messages.get("error.user.notFound", userId)));
         assertCanManage(requireCurrentUser(), target);
+        if (!PasswordPolicy.isValid(newPassword)) {
+            throw CodedException.badRequest("user.password.size");
+        }
 
         target.setPassword(passwordEncoder.encode(newPassword));
+        target.bumpTokenVersion();
         userRepository.save(target);
         refreshTokenRepository.revokeAllByUserId(target.getId());
     }
@@ -400,28 +438,14 @@ public class UserService {
                 messages.get("error.user.notFound", userId)));
         User actor = requireCurrentUser();
         assertCanManage(actor, target);
-        AuditContext.change("isActive", target.getIsActive(), active);
 
-        if (!active) {
-            if (actor.getId().equals(target.getId())) {
-                throw new BadRequestException(messages.get("user.status.selfDeactivate"));
-            }
-            if (target.getRole() == UserRole.SUPER_ADMIN) {
-                throw new ForbiddenException(messages.get("user.status.superAdmin"));
-            }
-        }
-
-        target.setIsActive(active);
+        int revoked = applyActive(actor, target, active);
         userRepository.save(target);
 
         // Bloklangan o'qituvchi /api/teachers ro'yxatida faol bo'lib qolmasin;
         // blokdan chiqarilsa qaytadan ACTIVE bo'ladi.
         teacherService.syncTeacherProfile(target);
 
-        int revoked = 0;
-        if (!active) {
-            revoked = refreshTokenRepository.revokeAllByUserId(target.getId());
-        }
         log.info("User {}: target={} (id={}), by={}, revokedSessions={}",
             active ? "activated" : "deactivated",
             target.getUsername(), target.getId(), actor.getUsername(), revoked);
@@ -444,18 +468,64 @@ public class UserService {
         assertCanManage(requireCurrentUser(), target);
     }
 
-    /** SUPER_ADMIN hisobini faqat SUPER_ADMIN o'zgartiradi (tahrir, parol, rol, faollik). */
+    /**
+     * ADMIN va SUPER_ADMIN hisoblarini faqat SUPER_ADMIN boshqaradi: tahrir, parol,
+     * rol, faollik, rasm (phase5-audit Q2, U-03). Avval faqat SA himoyalangan edi —
+     * ADMIN boshqa ADMIN ning parolini tiklab, hisobini egallay olardi.
+     */
     private void assertCanManage(User actor, User target) {
-        if (target.getRole() == UserRole.SUPER_ADMIN && actor.getRole() != UserRole.SUPER_ADMIN) {
-            throw new ForbiddenException(messages.get("user.superAdmin.protected"));
+        if (isPrivileged(target.getRole()) && actor.getRole() != UserRole.SUPER_ADMIN) {
+            throw CodedException.forbidden("user.manage.adminProtected");
         }
     }
 
-    /** SUPER_ADMIN rolini faqat SUPER_ADMIN beradi. */
+    /**
+     * Rol berish huquqi:
+     * <ul>
+     *   <li>STUDENT/PARENT — hech kimga (Q1: ularning logini bloklangan, kabinet yo'q);</li>
+     *   <li>ADMIN/SUPER_ADMIN — faqat SUPER_ADMIN (Q2).</li>
+     * </ul>
+     */
     private void assertCanGrantRole(User actor, UserRole role) {
-        if (role == UserRole.SUPER_ADMIN && actor.getRole() != UserRole.SUPER_ADMIN) {
-            throw new ForbiddenException(messages.get("user.role.superAdminGrant"));
+        if (role == null) {
+            return;
         }
+        if (role == UserRole.STUDENT || role == UserRole.PARENT) {
+            throw CodedException.forbidden("user.role.notAllowed", role.name());
+        }
+        if (isPrivileged(role) && actor.getRole() != UserRole.SUPER_ADMIN) {
+            throw CodedException.forbidden("user.role.adminGrant", role.name());
+        }
+    }
+
+    private static boolean isPrivileged(UserRole role) {
+        return role == UserRole.SUPER_ADMIN || role == UserRole.ADMIN;
+    }
+
+    private static boolean isActive(User user) {
+        return !Boolean.FALSE.equals(user.getIsActive());
+    }
+
+    /**
+     * Faollikni o'zgartirish — PATCH /status ham, PUT ham shu yerdan o'tadi (U-04).
+     * O'zini bloklash va SUPER_ADMIN ni bloklash taqiqlanadi; bloklanganda barcha
+     * refresh tokenlar bekor qilinadi (access token esa user nofaol bo'lgani uchun
+     * keyingi so'rovda o'zi rad etiladi).
+     *
+     * @return bekor qilingan sessiyalar soni
+     */
+    private int applyActive(User actor, User target, boolean active) {
+        AuditContext.change("isActive", target.getIsActive(), active);
+        if (!active) {
+            if (actor.getId().equals(target.getId())) {
+                throw new BadRequestException(messages.get("user.status.selfDeactivate"));
+            }
+            if (target.getRole() == UserRole.SUPER_ADMIN) {
+                throw new ForbiddenException(messages.get("user.status.superAdmin"));
+            }
+        }
+        target.setIsActive(active);
+        return active ? 0 : refreshTokenRepository.revokeAllByUserId(target.getId());
     }
 
     /** Email va telefon takrorlanmasin (bo'sh bo'lmasa). */

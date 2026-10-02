@@ -129,6 +129,8 @@ Sinovdagi o'quvchi to'lasa, avtomatik to'lovliga o'tadi: `paymentStartDate = to'
 | Endpoint | O'zgarish |
 |---|---|
 | `POST /api/cash-registers/{id}/income` | `studentId` bilan → 400 `cash.income.studentPaymentViaPayments` (o'quvchi to'lovi faqat `/api/payments` orqali). |
+| `GET /api/cash-registers/{id}/transactions` (va har qanday `CashTransactionDto`) | **02.10.2026:** yangi maydonlar `direction` (`IN`\|`OUT`), `signedAmount` (IN → +amount, OUT → −amount), `paymentId`, `payrollId`, `relatedTxId`. Qoida: INCOME → IN; EXPENSE → OUT; TRANSFER — chiqim qatori OUT, kirim qatori IN (yangi kirim qatorida `relatedTxId` = chiqim qatori; eski qatorlar nomi "(kirim)" bo'yicha); REVERSAL — asl yozuvga teskari (bekor qilingan to'lov → OUT, bekor qilingan oylik/chiqim → IN). `amount` avvalgidek musbat — ro'yxatda ishorani `direction`/`signedAmount` dan oling. |
+| `GET /api/cash-registers/{id}/transactions/export` | Excel: yangi ustun **"Yo'nalish"** (IN/OUT, "Turi" dan keyin); **"Summa (±)"** — ishorali (chiqim manfiy). |
 
 ## 6. Davomat (PER_LESSON)
 

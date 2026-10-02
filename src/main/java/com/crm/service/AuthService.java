@@ -5,12 +5,15 @@ import com.crm.audit.AuditContext;
 import com.crm.audit.AuditRecorder;
 import com.crm.audit.Audited;
 import com.crm.config.Messages;
+import com.crm.config.SecurityConfig;
 import com.crm.dto.request.LoginRequest;
 import com.crm.dto.response.AuthResponse;
 import com.crm.dto.response.UserResponse;
 import com.crm.entity.RefreshToken;
 import com.crm.entity.User;
+import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.CodedException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.UnauthorizedException;
 import com.crm.repository.RefreshTokenRepository;
@@ -28,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.UUID;
 
 @Service
@@ -59,11 +63,18 @@ public class AuthService {
         } catch (RuntimeException e) {
             // Muvaffaqiyatsiz urinish ham qayd qilinadi. @Audited buni ushlay olmaydi:
             // metod exception bilan tugagani uchun aspect ataylab log yozmaydi.
-            recordFailedLogin(request.getUsername(), e);
+            recordFailedLogin(request.getUsername(), e.getClass().getSimpleName());
             throw e;
         }
         User user = userRepository.findByUsername(request.getUsername())
             .orElseThrow(() -> new BadRequestException(messages.get("error.auth.userNotFound")));
+
+        // STUDENT/PARENT: kabinet yo'q, kirish bloklangan (phase5-audit Q1, U-02).
+        // Parol tekshirilgandan KEYIN — begona odamga rol oshkor qilinmasin.
+        if (!isStaffRole(user.getRole())) {
+            recordFailedLogin(request.getUsername(), "roleNotAllowed");
+            throw CodedException.forbidden("auth.roleNotAllowed");
+        }
 
         // SecurityContext bu bosqichda hali bo'sh — JWT filtri keyingi so'rovlarda
         // to'ldiradi. Kim kirganini shu yerda o'zimiz bilamiz, aspectga beramiz.
@@ -101,7 +112,7 @@ public class AuthService {
     }
 
     /** Parol hech qachon logga tushmaydi — faqat login va sabab. */
-    private void recordFailedLogin(String username, RuntimeException cause) {
+    private void recordFailedLogin(String username, String reason) {
         try {
             auditRecorder.record(com.crm.entity.AuditLog.builder()
                 .createdAt(LocalDateTime.now())
@@ -109,15 +120,19 @@ public class AuthService {
                 .action(AuditAction.LOGIN_FAILED)
                 .entityType("User")
                 .entityLabel(username)
-                .summary("Tizimga kirish muvaffaqiyatsiz: " + username
-                    + " (" + cause.getClass().getSimpleName() + ")")
+                .summary("Tizimga kirish muvaffaqiyatsiz: " + username + " (" + reason + ")")
                 .build());
         } catch (Exception ignored) {
             // Audit hech qachon login oqimini buzmasligi kerak
         }
     }
 
-    @Transactional
+    /**
+     * {@code noRollbackFor}: rad etilgan refresh token (muddati o'tgan yoki rol bloklangan)
+     * bekor qilingan holda SAQLANISHI kerak — aks holda istisno bilan birga
+     * {@code isRevoked = true} ham rollback bo'lardi.
+     */
+    @Transactional(noRollbackFor = {UnauthorizedException.class, CodedException.class})
     public AuthResponse refreshToken(String refreshTokenValue) {
         RefreshToken refreshToken = refreshTokenRepository
             .findByTokenAndIsRevokedFalse(refreshTokenValue)
@@ -130,6 +145,12 @@ public class AuthService {
         }
 
         User user = refreshToken.getUser();
+        // Login oldin ochiq bo'lgan davrdan qolgan STUDENT/PARENT sessiyasi uzaytirilmaydi.
+        if (!isStaffRole(user.getRole())) {
+            refreshToken.setIsRevoked(true);
+            refreshTokenRepository.save(refreshToken);
+            throw CodedException.forbidden("auth.roleNotAllowed");
+        }
         UserDetails userDetails =
             userDetailsService.loadUserByUsername(user.getUsername());
         String newAccessToken = jwtUtils.generateToken(userDetails);
@@ -180,8 +201,16 @@ public class AuthService {
         }
 
         user.setPassword(passwordEncoder.encode(newPassword));
+        // Barcha qurilmalardagi access tokenlar ham shu zahoti bekor (U-05):
+        // foydalanuvchi yangi parol bilan qayta kiradi.
+        user.bumpTokenVersion();
         userRepository.save(user);
         refreshTokenRepository.revokeAllByUserId(user.getId());
+    }
+
+    /** Tizimga kira oladigan rollar — {@link SecurityConfig#STAFF_ROLES}. */
+    static boolean isStaffRole(UserRole role) {
+        return role != null && Arrays.asList(SecurityConfig.STAFF_ROLES).contains(role.name());
     }
 
     public UserResponse getCurrentUser(String username) {

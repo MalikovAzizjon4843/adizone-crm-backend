@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+/** Oylik qoidasi — nomlar {@link com.crm.dto.request.SalaryRuleRequest} bilan bir xil (payroll-v2 §7). */
 @Data
 @Builder
 @NoArgsConstructor
@@ -19,12 +20,14 @@ public class SalaryRuleResponse {
     private UserRole role;
     private Long userId;
     private String userName;
-    private BigDecimal baseSalary;
-    private BigDecimal perStudentFee;
-    private BigDecimal newStudentBonus;
+    private BigDecimal fixedSalary;
+    private BigDecimal perPayingStudent;
+    private BigDecimal perNewStudent;
     private Integer kpiThreshold;
     private BigDecimal kpiBonus;
     private Boolean isActive;
     private LocalDate effectiveFrom;
+    private LocalDate effectiveTo;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }

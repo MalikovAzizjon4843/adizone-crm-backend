@@ -94,6 +94,14 @@ public class BillingPeriod {
     @Column(name = "coverage_source", length = 20)
     private String coverageSource;
 
+    // ── Payroll v2 (payroll-v2 §8): davr yozilgan paytdagi o'qituvchi ──
+    @Column(name = "teacher_id")
+    private Long teacherId;
+
+    /** {@link com.crm.entity.enums.TeacherAttribution}: LIVE | ESTIMATED. */
+    @Column(name = "teacher_source", length = 20)
+    private String teacherSource;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

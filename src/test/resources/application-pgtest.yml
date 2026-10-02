@@ -1,0 +1,47 @@
+# PostgreSQL test profili — H2 ko'rmaydigan xatolarni (nullable parametr tipi, dialekt
+# farqlari) ushlash uchun. Default `mvn test` H2 da qoladi.
+#
+#   mvn test -Dspring.profiles.active=pgtest
+#
+# `test` profili (application.yml) baribir yoqiladi (TestProfilesResolver) — bu fayl
+# faqat bazaga oid qismini ustidan yozadi.
+#
+# Baza: lokal adizone_test, crm_user. Parol faqat env'dan (DB_PASSWORD), default YO'Q.
+# Sxemani Hibernate quradi (create-drop) — bazadagi jadvallar har ishga tushishda
+# qayta yaratiladi, shu sababli bu profilni ishchi bazaga ulamang.
+spring:
+  datasource:
+    url: ${PGTEST_DB_URL:jdbc:postgresql://localhost:5432/adizone_test}
+    driver-class-name: org.postgresql.Driver
+    username: ${PGTEST_DB_USER:crm_user}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    # Skriptlar Hibernate jadvallarni yaratgandan KEYIN bajariladi (V52–V58 ALTER TABLE qiladi).
+    defer-datasource-initialization: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  sql:
+    init:
+      mode: always
+      # Prodda qo'lda bajariladigan migratsiyalar AYNAN o'zi: sequence, UNIQUE, partial
+      # indekslar va h.k. H2 ning billing-test-schema.sql i bu yerda ishlatilmaydi.
+      # Separator — butun fayl bitta statement: DO $$ ... $$ bloklarini ScriptUtils
+      # ';' bo'yicha bo'lib yubormasin (pgjdbc ko'p statementli matnni o'zi ajratadi).
+      separator: "^^^ END OF SCRIPT ^^^"
+      schema-locations:
+        - classpath:db/migration/V52__billing_v2.sql
+        - classpath:db/migration/V53__director_dashboard.sql
+        - classpath:db/migration/V54__payroll_v2.sql
+        - classpath:db/migration/V55__payroll_v2_decisions.sql
+        - classpath:db/migration/V56__legacy_constraints.sql
+        - classpath:db/migration/V57__salary_rule_overlaps.sql
+        - classpath:db/migration/V58__phase5_security.sql
+        - classpath:pgtest-schema.sql
+
+app:
+  schema:
+    # Prod bilan bir xil: PostgreSQL da enum CHECK larni tozalovchi ishlaydi.
+    drop-enum-checks: true

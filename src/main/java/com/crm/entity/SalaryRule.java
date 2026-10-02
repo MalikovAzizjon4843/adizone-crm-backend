@@ -32,15 +32,15 @@ public class SalaryRule {
 
     @Column(name = "base_salary", precision = 12, scale = 2)
     @Builder.Default
-    private BigDecimal baseSalary = BigDecimal.ZERO;
+    private BigDecimal fixedSalary = BigDecimal.ZERO;
 
     @Column(name = "per_student_fee", precision = 12, scale = 2)
     @Builder.Default
-    private BigDecimal perStudentFee = BigDecimal.ZERO;
+    private BigDecimal perPayingStudent = BigDecimal.ZERO;
 
     @Column(name = "new_student_bonus", precision = 12, scale = 2)
     @Builder.Default
-    private BigDecimal newStudentBonus = BigDecimal.ZERO;
+    private BigDecimal perNewStudent = BigDecimal.ZERO;
 
     @Column(name = "kpi_threshold")
     private Integer kpiThreshold;
@@ -55,6 +55,13 @@ public class SalaryRule {
 
     @Column(name = "effective_from")
     private LocalDate effectiveFrom;
+
+    /**
+     * Shu sanagacha (kiritilgan) amal qiladi; null — muddatsiz (payroll-v2 §11 #3). Shu
+     * xodim/rol uchun yangi qoida yaratilganda oldingisiga avtomatik {@code yangi.effectiveFrom − 1}.
+     */
+    @Column(name = "effective_to")
+    private LocalDate effectiveTo;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

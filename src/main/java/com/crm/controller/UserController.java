@@ -13,6 +13,7 @@ import com.crm.dto.response.UsernamePreviewResponse;
 import com.crm.entity.User;
 import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.CodedException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.UserRepository;
 import com.crm.service.FileStorageService;
@@ -22,7 +23,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -37,7 +37,6 @@ import java.util.stream.Collectors;
 public class UserController {
 
     private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
     private final FileStorageService fileStorageService;
     private final UserService userService;
 
@@ -93,66 +92,30 @@ public class UserController {
             updated));
     }
 
+    /**
+     * O'qituvchi profiliga yangi login. Band login yoki profilda allaqachon login
+     * bo'lsa — 409 (U-01); avvalgi "200 ALREADY_EXISTS + mavjud userga bog'lash"
+     * xulqi olib tashlandi.
+     */
     @PostMapping("/create-for-teacher/{teacherId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<UserResponse>> createForTeacher(
             @PathVariable Long teacherId,
             @RequestBody CreateUserRequest request) {
-
-        if (request.getUsername() != null && !request.getUsername().isBlank()
-                && userRepository.findByUsername(request.getUsername()).isPresent()) {
-            return ResponseEntity.ok(
-                ApiResponse.<UserResponse>builder()
-                    .success(true)
-                    .message("ALREADY_EXISTS")
-                    .data(userService.createForTeacher(teacherId, request))
-                    .build()
-            );
-        }
-
         UserResponse created = userService.createForTeacher(teacherId, request);
         return ResponseEntity.status(HttpStatus.CREATED)
             .body(ApiResponse.success("User yaratildi", created));
     }
 
+    /**
+     * O'quvchi logini yaratilmaydi: STUDENT/PARENT uchun kabinet yo'q va ularning
+     * kirishi bloklangan (phase5-audit Q1, U-02, U-08). Endpoint eski frontend
+     * tushunarli javob olishi uchun qoldirilgan — doim 403.
+     */
     @PostMapping("/create-for-student/{studentId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
-    public ResponseEntity<ApiResponse<UserResponse>> createForStudent(
-            @PathVariable Long studentId,
-            @RequestBody CreateUserRequest request) {
-
-        if (request.getUsername() != null && !request.getUsername().isBlank()) {
-            Optional<User> existing = userRepository.findByUsername(request.getUsername());
-            if (existing.isPresent()) {
-                return ResponseEntity.ok(
-                    ApiResponse.<UserResponse>builder()
-                        .success(true)
-                        .message("ALREADY_EXISTS")
-                        .data(toResponse(existing.get()))
-                        .build()
-                );
-            }
-        }
-
-        String username = request.getUsername() != null && !request.getUsername().isBlank()
-            ? request.getUsername()
-            : userService.generateUsername(request.getFirstName(), request.getLastName());
-
-        User user = User.builder()
-            .firstName(request.getFirstName())
-            .lastName(request.getLastName())
-            .username(username)
-            .password(passwordEncoder.encode(request.getPassword()))
-            .role(UserRole.STUDENT)
-            .phone(request.getPhone())
-            .email(request.getEmail())
-            .isActive(true)
-            .build();
-
-        User saved = userRepository.save(user);
-
-        return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success("User yaratildi", toResponse(saved)));
+    public ResponseEntity<ApiResponse<UserResponse>> createForStudent(@PathVariable Long studentId) {
+        throw CodedException.forbidden("user.role.notAllowed", UserRole.STUDENT.name());
     }
 
     @GetMapping

@@ -3,6 +3,7 @@ package com.crm.billing;
 import com.crm.entity.BonusPenalty;
 import com.crm.entity.CashRegister;
 import com.crm.entity.Payment;
+import com.crm.entity.Payroll;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
 import com.crm.exception.ConflictException;
@@ -29,7 +30,7 @@ import java.util.TreeSet;
  *
  * <p><b>Qulf tartibi</b> (deadlock yo'q):
  * <pre>
- * Student → StudentGroup(lar) id o'sishida → Payment → BonusPenalty(lar) id o'sishida → CashRegister(lar) id o'sishida
+ * Student → StudentGroup(lar) id o'sishida → Payment → Payroll → BonusPenalty(lar) id o'sishida → CashRegister(lar) id o'sishida
  * </pre>
  * Har bir amal o'z qulflarini BITTA {@link #acquire(Plan)} chaqiruvi bilan oladi —
  * tartib shu metod ichida majburlanadi, chaqiruvchi uni buza olmaydi.
@@ -58,6 +59,7 @@ public class BillingLocks {
         private Long studentId;
         private final TreeSet<Long> enrollmentIds = new TreeSet<>();
         private Long paymentId;
+        private Long payrollId;
         private final TreeSet<Long> bonusIds = new TreeSet<>();
         private final TreeSet<Long> cashRegisterIds = new TreeSet<>();
 
@@ -87,6 +89,11 @@ public class BillingLocks {
             return this;
         }
 
+        public Plan payroll(Long id) {
+            this.payrollId = id;
+            return this;
+        }
+
         public Plan bonuses(Collection<Long> ids) {
             ids.forEach(id -> {
                 if (id != null) {
@@ -109,6 +116,7 @@ public class BillingLocks {
         Student student,
         Map<Long, StudentGroup> enrollments,
         Payment payment,
+        Payroll payroll,
         List<BonusPenalty> bonuses,
         Map<Long, CashRegister> cashRegisters) {
 
@@ -131,6 +139,8 @@ public class BillingLocks {
 
         Payment payment = plan.paymentId != null ? lockRefreshing(Payment.class, plan.paymentId) : null;
 
+        Payroll payroll = plan.payrollId != null ? lockRefreshing(Payroll.class, plan.payrollId) : null;
+
         List<BonusPenalty> bonuses = new ArrayList<>();
         for (Long id : plan.bonusIds) {
             bonuses.add(lockRefreshing(BonusPenalty.class, id));
@@ -141,7 +151,7 @@ public class BillingLocks {
             registers.put(id, lockRefreshing(CashRegister.class, id));
         }
 
-        return new Locked(student, enrollments, payment, bonuses, registers);
+        return new Locked(student, enrollments, payment, payroll, bonuses, registers);
     }
 
     /**

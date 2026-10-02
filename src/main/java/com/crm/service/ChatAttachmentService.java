@@ -15,10 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -64,8 +61,9 @@ public class ChatAttachmentService {
      * ma'lumotni qaytaradi. Xabar bu yerda yaratilmaydi.
      *
      * <p>Hajm chegarasi ikki joyda: Spring multipart sozlamasi (4MB)
-     * so'rovni controllergacha yetkazmaydi, {@code FileStorageService}
-     * dagi tekshiruv esa ikkinchi to'siq. Ikkovi ham 4MB.
+     * so'rovni controllergacha yetkazmaydi, shu metoddagi
+     * {@link FileStorageService#MAX_BYTES} tekshiruvi esa ikkinchi to'siq.
+     * Rasm o'lchami (eni × bo'yi) ham diskka yozishdan oldin tekshiriladi.
      *
      * <p>{@code durationMs} va {@code waveform} faqat ovoz uchun.
      * Ikkovini ham brauzer hisoblaydi: server audio oqimini ochmaydi,
@@ -83,9 +81,17 @@ public class ChatAttachmentService {
         String extension = FileStorageService.extensionOf(originalName);
         requireAllowedType(extension, contentType);
 
+        // Hajm — multipart chegarasidan tashqari shu yerda ham (ikkinchi to'siq).
+        if (file.getSize() > FileStorageService.MAX_BYTES) {
+            throw new BadRequestException(messages.get("chat.upload.tooLarge"));
+        }
+
         boolean isAudio = contentType.startsWith(AUDIO_PREFIX);
         Integer duration = isAudio ? requireDuration(durationMs) : null;
         String points = isAudio ? normalizeWaveform(waveform) : null;
+
+        // Rasm o'lchami diskka yozishdan OLDIN va faqat sarlavhadan (CH-02).
+        int[] size = contentType.startsWith(IMAGE_PREFIX) ? requireImageSize(file) : null;
 
         String storedName = UUID.randomUUID() + "." + extension;
 
@@ -97,7 +103,6 @@ public class ChatAttachmentService {
             throw new BadRequestException(messages.get("chat.upload.failed"));
         }
 
-        int[] size = contentType.startsWith(IMAGE_PREFIX) ? imageSize(file) : null;
         return ChatUploadResponse.builder()
             .fileUrl(fileUrl)
             .fileName(originalName)
@@ -202,18 +207,21 @@ public class ChatAttachmentService {
     }
 
     /**
-     * Rasm o'lchamlari. Aniqlab bo'lmasa {@code null} — bu xato emas:
-     * {@code ImageIO} SVG va ba'zi WebP variantlarini o'qiy olmaydi,
-     * lekin bunday fayl ham yuborilishi kerak.
+     * Rasm o'lchamlari — faqat sarlavhadan, piksellar dekodlanmaydi
+     * ({@link FileStorageService#readImageDimensions}). Chegaradan oshsa 400.
+     *
+     * <p>Aniqlab bo'lmasa {@code null} — bu xato emas: ImageIO ba'zi WebP
+     * variantlarini o'qiy olmaydi, lekin bunday fayl ham yuborilishi kerak.
+     * Avval bu yerda {@code ImageIO.read} butun rasmni xotiraga ochardi:
+     * 4MB lik "decompression bomb" PNG JVM ni OOM qilardi (phase5-audit CH-02).
      */
-    private int[] imageSize(MultipartFile file) {
-        try (InputStream in = file.getInputStream()) {
-            BufferedImage image = ImageIO.read(in);
-            return image != null ? new int[]{image.getWidth(), image.getHeight()} : null;
-        } catch (IOException | RuntimeException e) {
-            log.debug("Chat: rasm o'lchami aniqlanmadi: {}", e.getMessage());
-            return null;
+    private int[] requireImageSize(MultipartFile file) {
+        int[] size = FileStorageService.readImageDimensions(file);
+        if (size != null && !FileStorageService.isImageSizeAllowed(size[0], size[1])) {
+            throw new BadRequestException(messages.get("chat.upload.imageDimensions",
+                size[0], size[1], FileStorageService.MAX_IMAGE_SIDE));
         }
+        return size;
     }
 
     /** Foydalanuvchiga ko'rinadigan nom — yo'l qismlari olib tashlanadi. */

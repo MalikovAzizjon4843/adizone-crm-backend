@@ -1,5 +1,6 @@
 package com.crm.billing.support;
 
+import com.crm.support.TestProfilesResolver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,12 +20,17 @@ import java.util.function.Supplier;
  * soat, har test oldidan billing jadvallari tozalanadi.
  *
  * <p>Hujjat (§12.1) Testcontainers PostgreSQL ni taklif qiladi; bu muhitda
- * Docker yo'q, shuning uchun H2 ishlatiladi — u {@code SELECT … FOR UPDATE},
+ * Docker yo'q, shuning uchun default — H2: u {@code SELECT … FOR UPDATE},
  * UNIQUE constraint va sequence ni qo'llab-quvvatlaydi.
+ *
+ * <p>H2 PostgreSQL'ning tip xulqini to'liq takrorlamaydi (masalan nullable
+ * parametr {@code :p IS NULL OR ...}). Shuning uchun xuddi shu testlar lokal
+ * PostgreSQL'da ham yuradi: {@code mvn test -Dspring.profiles.active=pgtest}
+ * ({@code application-pgtest.yml}, {@link TestProfilesResolver}).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles("test")
+@ActiveProfiles(resolver = TestProfilesResolver.class)
 @Import(BillingTestConfig.class)
 public abstract class AbstractBillingIT {
 

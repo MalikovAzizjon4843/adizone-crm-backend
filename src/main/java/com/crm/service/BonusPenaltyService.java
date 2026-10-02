@@ -19,6 +19,7 @@ import com.crm.entity.User;
 import com.crm.entity.enums.BonusPenaltyKind;
 import com.crm.entity.enums.BonusPenaltyStatus;
 import com.crm.entity.enums.BonusTargetType;
+import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.BonusPenaltyRepository;
@@ -56,6 +57,7 @@ public class BonusPenaltyService {
             String targetType,
             Long studentId,
             Long teacherId,
+            Long userId,
             String status,
             Pageable pageable) {
 
@@ -64,6 +66,7 @@ public class BonusPenaltyService {
             parseTargetType(targetType),
             studentId,
             teacherId,
+            userId,
             parseStatus(status));
 
         Page<BonusPenalty> page = bonusPenaltyRepository.findAll(spec, pageable);
@@ -111,6 +114,33 @@ public class BonusPenaltyService {
             .build();
     }
 
+    /** STAFF (ADMIN/SALES) — oyligiga tushadigan PENDING bonus/jarimalar (payroll-v2 §11 #5). */
+    @Transactional(readOnly = true)
+    public BonusPenaltyPreviewDto previewForStaff(Long userId, LocalDate upToDate) {
+        LocalDate cutoff = upToDate != null ? upToDate : LocalDate.now();
+        BigDecimal totalBonus = BigDecimal.ZERO;
+        BigDecimal totalPenalty = BigDecimal.ZERO;
+        long count = 0;
+        for (BonusPenalty bp : bonusPenaltyRepository.findByUser_IdAndStatus(userId, BonusPenaltyStatus.PENDING)) {
+            if (bp.getTargetType() != BonusTargetType.STAFF
+                    || (bp.getEffectiveDate() != null && bp.getEffectiveDate().isAfter(cutoff))) {
+                continue;
+            }
+            count++;
+            if (bp.getKind() == BonusPenaltyKind.BONUS) {
+                totalBonus = totalBonus.add(bp.getAmount());
+            } else {
+                totalPenalty = totalPenalty.add(bp.getAmount());
+            }
+        }
+        return BonusPenaltyPreviewDto.builder()
+            .totalBonus(totalBonus)
+            .totalPenalty(totalPenalty)
+            .net(totalBonus.subtract(totalPenalty))
+            .count(count)
+            .build();
+    }
+
     @Transactional(readOnly = true)
     public BonusPenaltyPreviewDto previewForTeacher(Long teacherId, LocalDate upToDate) {
         LocalDate cutoff = upToDate != null ? upToDate : LocalDate.now();
@@ -142,32 +172,6 @@ public class BonusPenaltyService {
             .net(totalBonus.subtract(totalPenalty))
             .count(count)
             .build();
-    }
-
-    @Transactional
-    public BigDecimal applyPendingForTeacher(Long teacherId, Long payrollId, LocalDate upToDate) {
-        LocalDate cutoff = upToDate != null ? upToDate : LocalDate.now();
-        List<BonusPenalty> pending = bonusPenaltyRepository
-            .findByTeacherIdAndStatus(teacherId, BonusPenaltyStatus.PENDING);
-
-        BigDecimal net = BigDecimal.ZERO;
-        for (BonusPenalty bp : pending) {
-            if (bp.getTargetType() != BonusTargetType.TEACHER) {
-                continue;
-            }
-            if (bp.getEffectiveDate() != null && bp.getEffectiveDate().isAfter(cutoff)) {
-                continue;
-            }
-            if (bp.getKind() == BonusPenaltyKind.BONUS) {
-                net = net.add(bp.getAmount());
-            } else {
-                net = net.subtract(bp.getAmount());
-            }
-            bp.setStatus(BonusPenaltyStatus.APPLIED);
-            bp.setAppliedToPayrollId(payrollId);
-            bonusPenaltyRepository.save(bp);
-        }
-        return net;
     }
 
     @Transactional(readOnly = true)
@@ -284,9 +288,24 @@ public class BonusPenaltyService {
                 .orElseThrow(() -> new ResourceNotFoundException("Student", dto.getStudentId()));
             entity.setStudent(student);
             entity.setTeacher(null);
+            entity.setUser(null);
             entity.setStudentGroupId(dto.getGroupId() != null
                 ? paymentPlanner.resolveEnrollment(student.getId(), dto.getGroupId()).getId()
                 : null);
+        } else if (dto.getTargetType() == BonusTargetType.STAFF) {
+            // payroll-v2 §11 #5: ADMIN/SALES oyligiga — o'qituvchi uchun TEACHER turi ishlatiladi
+            if (dto.getUserId() == null) {
+                throw CodedException.badRequest("bonus.staff.userRequired");
+            }
+            User user = userRepository.findById(dto.getUserId())
+                .orElseThrow(() -> new ResourceNotFoundException("User", dto.getUserId()));
+            if (user.getRole() != UserRole.ADMIN && user.getRole() != UserRole.SALES_MANAGER) {
+                throw CodedException.badRequest("bonus.staff.roleInvalid", user.getRole());
+            }
+            entity.setUser(user);
+            entity.setStudent(null);
+            entity.setTeacher(null);
+            entity.setStudentGroupId(null);
         } else {
             if (dto.getTeacherId() == null) {
                 throw new BadRequestException("TEACHER uchun teacherId ko'rsatilishi shart");
@@ -295,6 +314,7 @@ public class BonusPenaltyService {
                 .orElseThrow(() -> new ResourceNotFoundException("Teacher", dto.getTeacherId()));
             entity.setTeacher(teacher);
             entity.setStudent(null);
+            entity.setUser(null);
         }
     }
 
@@ -309,6 +329,7 @@ public class BonusPenaltyService {
             BonusTargetType targetType,
             Long studentId,
             Long teacherId,
+            Long userId,
             BonusPenaltyStatus status) {
 
         Specification<BonusPenalty> spec = Specification.where(null);
@@ -322,6 +343,10 @@ public class BonusPenaltyService {
         if (studentId != null) {
             spec = spec.and((root, query, cb) ->
                 cb.equal(root.get("student").get("id"), studentId));
+        }
+        if (userId != null) {
+            spec = spec.and((root, query, cb) ->
+                cb.equal(root.get("user").get("id"), userId));
         }
         if (teacherId != null) {
             spec = spec.and((root, query, cb) ->
@@ -381,6 +406,7 @@ public class BonusPenaltyService {
             .studentGroupId(bp.getStudentGroupId())
             .ledgerTxId(bp.getLedgerTxId())
             .appliedToPaymentId(bp.getAppliedToPaymentId())
+            .appliedToPayrollId(bp.getAppliedToPayrollId())
             .cancelReason(bp.getCancelReason())
             .build();
         if (bp.getStudentGroupId() != null) {
@@ -401,6 +427,14 @@ public class BonusPenaltyService {
             dto.setTeacherId(bp.getTeacher().getId());
             dto.setTeacherName(name);
             if (bp.getTargetType() == BonusTargetType.TEACHER) {
+                dto.setTargetName(name);
+            }
+        }
+        if (bp.getUser() != null) {
+            String name = (bp.getUser().getFirstName() + " " + bp.getUser().getLastName()).trim();
+            dto.setUserId(bp.getUser().getId());
+            dto.setUserName(name);
+            if (bp.getTargetType() == BonusTargetType.STAFF) {
                 dto.setTargetName(name);
             }
         }

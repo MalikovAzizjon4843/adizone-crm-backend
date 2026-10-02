@@ -101,7 +101,7 @@ public class BonusLedgerService {
         BonusPenalty candidate = bonusPenaltyRepository.findById(bonusId)
             .orElseThrow(() -> CodedException.notFound("bonus.notFound", bonusId));
         if (candidate.getTargetType() != BonusTargetType.STUDENT || candidate.getStudent() == null) {
-            // O'qituvchi bonusi oylikka qo'llanadi — payroll v2 doirasidan tashqarida (§13 #27)
+            // O'qituvchi bonusi oylikka qo'llanadi — avval payroll bekor qilinadi (payroll-v2 §4)
             throw CodedException.badRequest("bonus.cancel.teacherApplied");
         }
         if (candidate.getLedgerTxId() == null) {

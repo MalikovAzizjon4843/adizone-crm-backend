@@ -1,18 +1,35 @@
 package com.crm.controller;
 
+import com.crm.dto.request.PayrollApproveRequest;
+import com.crm.dto.request.PayrollCancelRequest;
+import com.crm.dto.request.PayrollGenerateRequest;
 import com.crm.dto.request.PayrollPayDto;
-import com.crm.dto.request.PayrollRequest;
-import com.crm.dto.response.*;
+import com.crm.dto.response.ApiResponse;
+import com.crm.dto.response.PageResponse;
+import com.crm.dto.response.PayrollGenerateResult;
+import com.crm.dto.response.PayrollResponse;
+import com.crm.dto.response.SalaryCalculationDto;
+import com.crm.exception.CodedException;
 import com.crm.service.PayrollService;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.*;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.Map;
 
+/**
+ * Oylik — docs/design/payroll-v2-api.md. Holat faqat amallar orqali o'zgaradi
+ * ({@code POST /api/payroll} va {@code PUT /api/payroll/{id}} olib tashlangan).
+ */
 @RestController
 @RequestMapping("/api/payroll")
 @RequiredArgsConstructor
@@ -38,61 +55,89 @@ public class PayrollController {
             payrollService.previewCalculateUser(userId, month, year)));
     }
 
+    /** Query ({@code ?month&year&recalculate}) yoki body — ikkalasi ham; query ustun. */
     @PostMapping("/generate")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> generate(
-            @RequestParam int month,
-            @RequestParam int year,
-            @RequestParam(defaultValue = "false") boolean overwrite) {
+    public ResponseEntity<ApiResponse<PayrollGenerateResult>> generate(
+            @RequestParam(required = false) Integer month,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Boolean recalculate,
+            @RequestBody(required = false) PayrollGenerateRequest body) {
+        Integer m = month != null ? month : (body != null ? body.getMonth() : null);
+        Integer y = year != null ? year : (body != null ? body.getYear() : null);
+        Boolean r = recalculate != null ? recalculate : (body != null ? body.getRecalculate() : null);
+        if (m == null || y == null) {
+            throw CodedException.badRequest("payroll.period.required");
+        }
         return ResponseEntity.ok(ApiResponse.success("Oylik yaratildi",
-            payrollService.generatePayroll(month, year, overwrite)));
+            payrollService.generatePayroll(m, y, Boolean.TRUE.equals(r))));
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<PageResponse<PayrollResponse>>> getAllPayroll(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String status) {
-        return ResponseEntity.ok(ApiResponse.success(payrollService.getAllPayroll(page, size, status)));
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Integer month,
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Long userId) {
+        return ResponseEntity.ok(ApiResponse.success(
+            payrollService.getAllPayroll(page, size, status, month, year, userId)));
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<PayrollResponse>> getPayrollById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(payrollService.getPayrollById(id)));
     }
 
     @GetMapping("/teacher/{teacherId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<List<PayrollResponse>>> getByTeacher(@PathVariable Long teacherId) {
         return ResponseEntity.ok(ApiResponse.success(payrollService.getPayrollByTeacher(teacherId)));
     }
 
-    @PostMapping
+    @PostMapping("/{id}/recalculate")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
-    public ResponseEntity<ApiResponse<PayrollResponse>> createPayroll(@Valid @RequestBody PayrollRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success("Payroll created", payrollService.createPayroll(request)));
+    public ResponseEntity<ApiResponse<PayrollResponse>> recalculate(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success("Oylik qayta hisoblandi", payrollService.recalculate(id)));
     }
 
+    @PostMapping("/{id}/approve")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<PayrollResponse>> approve(
+            @PathVariable Long id,
+            @RequestBody(required = false) PayrollApproveRequest body) {
+        return ResponseEntity.ok(ApiResponse.success("Oylik tasdiqlandi",
+            payrollService.approve(id, body != null ? body.getExpectedNetSalary() : null)));
+    }
+
+    /** {@code Idempotency-Key} — frontend to'lov dialogi ochilganda UUID; takror bosish ikkinchi chiqim yozmaydi. */
     @PostMapping("/{id}/pay")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<PayrollResponse>> markPayrollPaid(
             @PathVariable Long id,
-            @RequestBody(required = false) PayrollPayDto body) {
-        return ResponseEntity.ok(ApiResponse.success("Payroll marked paid",
-            payrollService.markAsPaid(id, body)));
+            @RequestBody(required = false) PayrollPayDto body,
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey) {
+        return ResponseEntity.ok(ApiResponse.success("Oylik to'landi",
+            payrollService.markAsPaid(id, body, idempotencyKey)));
     }
 
-    @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
-    public ResponseEntity<ApiResponse<PayrollResponse>> updatePayroll(
-            @PathVariable Long id, @Valid @RequestBody PayrollRequest request) {
-        return ResponseEntity.ok(ApiResponse.success("Payroll updated", payrollService.updatePayroll(id, request)));
+    @PostMapping("/{id}/cancel")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<PayrollResponse>> cancel(
+            @PathVariable Long id,
+            @RequestBody(required = false) PayrollCancelRequest body) {
+        return ResponseEntity.ok(ApiResponse.success("Oylik bekor qilindi",
+            payrollService.cancel(id, body != null ? body.getReason() : null)));
     }
 
+    /** Faqat DRAFT. */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deletePayroll(@PathVariable Long id) {
         payrollService.deletePayroll(id);
-        return ResponseEntity.ok(ApiResponse.success("Payroll deleted", null));
+        return ResponseEntity.ok(ApiResponse.success("Oylik qoralamasi o'chirildi", null));
     }
 }

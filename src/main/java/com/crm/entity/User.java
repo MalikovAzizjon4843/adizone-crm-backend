@@ -3,6 +3,7 @@ package com.crm.entity;
 import com.crm.entity.enums.UserRole;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.LocalDateTime;
@@ -67,4 +68,20 @@ public class User extends BaseEntity {
 
     @Column(name = "photo_url", length = 500)
     private String photoUrl;
+
+    /**
+     * Access token versiyasi: parol almashtirilsa yoki tiklansa oshadi va eski
+     * JWT lar ({@code tv} claim'i boshqacha) rad etiladi. Ustunni V58 yaratadi
+     * ({@code NOT NULL DEFAULT 0}); entity'da nullable — {@code ddl-auto: update}
+     * mavjud qatorli jadvalga NOT NULL ustunni defaultsiz qo'sha olmaydi.
+     */
+    @Column(name = "token_version")
+    @ColumnDefault("0")
+    @Builder.Default
+    private Integer tokenVersion = 0;
+
+    /** Parol o'zgargan har safar — barcha eski access tokenlar bekor. */
+    public void bumpTokenVersion() {
+        this.tokenVersion = (tokenVersion != null ? tokenVersion : 0) + 1;
+    }
 }

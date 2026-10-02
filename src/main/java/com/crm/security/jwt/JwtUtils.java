@@ -1,5 +1,6 @@
 package com.crm.security.jwt;
 
+import com.crm.security.CrmUserDetails;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
@@ -36,8 +37,15 @@ public class JwtUtils {
         return claimsResolver.apply(claims);
     }
 
+    /** Token versiyasi claim'i — {@link CrmUserDetails#getTokenVersion()}. */
+    public static final String TOKEN_VERSION_CLAIM = "tv";
+
     public String generateToken(UserDetails userDetails) {
-        return generateToken(new HashMap<>(), userDetails);
+        Map<String, Object> claims = new HashMap<>();
+        if (userDetails instanceof CrmUserDetails crm) {
+            claims.put(TOKEN_VERSION_CLAIM, crm.getTokenVersion());
+        }
+        return generateToken(claims, userDetails);
     }
 
     public String generateToken(Map<String, Object> extraClaims, UserDetails userDetails) {
@@ -60,9 +68,21 @@ public class JwtUtils {
                 .compact();
     }
 
+    /**
+     * Imzo, egasi, muddat va token versiyasi. Versiya claim'i yo'q (eski) token
+     * 0-versiya hisoblanadi: parol hali almashmagan bo'lsa ishlayveradi, birinchi
+     * almashuvdan keyin rad etiladi.
+     */
     public boolean isTokenValid(String token, UserDetails userDetails) {
         final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername())) && !isTokenExpired(token);
+        if (!username.equals(userDetails.getUsername()) || isTokenExpired(token)) {
+            return false;
+        }
+        if (userDetails instanceof CrmUserDetails crm) {
+            Integer version = extractClaim(token, c -> c.get(TOKEN_VERSION_CLAIM, Integer.class));
+            return (version != null ? version : 0) == crm.getTokenVersion();
+        }
+        return true;
     }
 
     private boolean isTokenExpired(String token) {

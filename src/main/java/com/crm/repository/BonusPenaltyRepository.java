@@ -16,8 +16,14 @@ public interface BonusPenaltyRepository extends JpaRepository<BonusPenalty, Long
 
     List<BonusPenalty> findByStudentIdAndStatus(Long studentId, BonusPenaltyStatus status);
 
+    /** STAFF (ADMIN/SALES) bonuslari — payroll-v2 §11 #5. */
+    List<BonusPenalty> findByUser_IdAndStatus(Long userId, BonusPenaltyStatus status);
+
     /** Bekor qilishda: shu to'lovda qo'llangan bonus/jarimalar. */
     List<BonusPenalty> findByAppliedToPaymentId(Long paymentId);
+
+    /** Payroll bekor qilinganda: shu oylikka qo'llangan bonus/jarimalar (payroll-v2 §4). */
+    List<BonusPenalty> findByAppliedToPayrollId(Long payrollId);
 
     List<BonusPenalty> findByTeacherIdOrderByEffectiveDateDesc(Long teacherId);
 }

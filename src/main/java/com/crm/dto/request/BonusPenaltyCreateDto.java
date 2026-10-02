@@ -17,6 +17,8 @@ public class BonusPenaltyCreateDto {
     private BonusTargetType targetType;
     private Long studentId;
     private Long teacherId;
+    /** STAFF (ADMIN/SALES_MANAGER) uchun majburiy — payroll-v2 §11 #5. */
+    private Long userId;
     /** Billing v2 (§6.5): STUDENT uchun ixtiyoriy — bonus faqat shu guruh yozilmasiga qo'llanadi. */
     private Long groupId;
     @NotNull(message = "{bonusPenalty.amount.required}")

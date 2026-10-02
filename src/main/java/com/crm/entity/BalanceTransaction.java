@@ -75,6 +75,14 @@ public class BalanceTransaction {
     @Column(name = "migration_run_id")
     private Long migrationRunId;
 
+    /** Payroll v2 (§8): LESSON_CHARGE yozilgan paytdagi o'qituvchi. */
+    @Column(name = "teacher_id")
+    private Long teacherId;
+
+    /** LIVE | ESTIMATED ({@link com.crm.entity.enums.TeacherAttribution}). */
+    @Column(name = "teacher_source", length = 20)
+    private String teacherSource;
+
     @Column(columnDefinition = "TEXT")
     private String note;
 

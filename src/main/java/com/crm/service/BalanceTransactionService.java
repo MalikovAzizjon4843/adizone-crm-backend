@@ -22,13 +22,14 @@ import com.crm.repository.PaymentRepository;
 import com.crm.repository.StudentGroupRepository;
 import com.crm.repository.StudentRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -65,9 +66,9 @@ public class BalanceTransactionService {
         if (!studentRepository.existsById(studentId)) {
             throw new ResourceNotFoundException("Student", studentId);
         }
-        LocalDateTime fromDt = from != null ? from.atStartOfDay() : null;
-        LocalDateTime toDt = to != null ? to.atTime(LocalTime.MAX) : null;
-        List<BalanceTransaction> rows = balanceTransactionRepository.findHistory(studentId, groupId, fromDt, toDt);
+        List<BalanceTransaction> rows = balanceTransactionRepository.findAll(
+            historySpec(studentId, groupId, from, to),
+            Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
 
         Map<Long, BillingPeriod> periods = periodRepository.findAllById(rows.stream()
                 .map(BalanceTransaction::getBillingPeriodId).filter(Objects::nonNull).collect(Collectors.toSet()))
@@ -77,6 +78,30 @@ public class BalanceTransactionService {
                 .map(BalanceTransaction::getReferenceId).collect(Collectors.toSet()))
             .stream().collect(Collectors.toMap(Payment::getId, Function.identity()));
         return rows.stream().map(t -> toHistoryDto(t, periods, payments)).toList();
+    }
+
+    /**
+     * Ixtiyoriy filtrlar — faqat berilganlari SQL ga tushadi. {@code (:p IS NULL OR ...)}
+     * shakli PostgreSQL'da parametr tipini aniqlay olmay yiqiladi.
+     * {@code to} — kun oxirigacha (keyingi kun boshidan qat'iy kichik).
+     */
+    private static Specification<BalanceTransaction> historySpec(
+            Long studentId, Long groupId, LocalDate from, LocalDate to) {
+        Specification<BalanceTransaction> spec = (root, q, cb) ->
+            cb.equal(root.get("student").get("id"), studentId);
+        if (groupId != null) {
+            spec = spec.and((root, q, cb) ->
+                cb.equal(root.get("studentGroup").get("group").get("id"), groupId));
+        }
+        if (from != null) {
+            LocalDateTime start = from.atStartOfDay();
+            spec = spec.and((root, q, cb) -> cb.greaterThanOrEqualTo(root.get("createdAt"), start));
+        }
+        if (to != null) {
+            LocalDateTime exclusiveEnd = to.plusDays(1).atStartOfDay();
+            spec = spec.and((root, q, cb) -> cb.lessThan(root.get("createdAt"), exclusiveEnd));
+        }
+        return spec;
     }
 
     /**

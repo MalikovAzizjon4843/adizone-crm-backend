@@ -1,5 +1,6 @@
 package com.crm.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -23,7 +24,14 @@ public class ExamResultRequest {
     /** Yangi alias: notes */
     private String notes;
 
-    /** O'zgartirish sababi — PUT da majburiy */
+    /**
+     * O'zgartirish sababi — PUT da majburiy.
+     *
+     * <p>{@code changeReason} — eski frontend nomi (deprecated alias, phase5-audit
+     * E-03): eski UI shu nom bilan yuborardi va har tahrir 400 qaytarardi. Yangi
+     * mijozlar {@code editNote} yuborsin; alias eski UI o'chirilgach olib tashlanadi.
+     */
+    @JsonAlias("changeReason")
     private String editNote;
 
     /** Deprecated: server o'tish bali bo'yicha hisoblaydi */

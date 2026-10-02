@@ -20,4 +20,6 @@ public class ErrorResponse {
     /** Mashina o'qiydigan xato kodi (CodedException); boshqa xatolarda yo'q. */
     private String code;
     private Map<String, String> validationErrors;
+    /** CodedException tafsiloti (masalan {@code payroll.netChanged} da yangi {@code netSalary}). */
+    private Map<String, Object> data;
 }

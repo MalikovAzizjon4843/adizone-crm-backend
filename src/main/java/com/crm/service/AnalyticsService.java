@@ -99,7 +99,8 @@ public class AnalyticsService {
 
         long totalParents = parentRepository.count();
         long pendingLeaves = leaveRepository.countPending();
-        long unpaidPayroll = payrollRepository.countPending();
+        long unpaidPayroll = payrollRepository.countByStatusIn(
+            java.util.EnumSet.of(com.crm.entity.enums.PayrollStatus.DRAFT, com.crm.entity.enums.PayrollStatus.APPROVED));
 
         List<NoticeResponse> latestNotices = noticeRepository
             .findActiveNotices(java.time.LocalDate.now().atStartOfDay(),

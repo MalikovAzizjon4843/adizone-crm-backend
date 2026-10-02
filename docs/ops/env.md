@@ -23,6 +23,19 @@ portlar, limitlar) `application.yml` da qoldi.
 Testlar (`src/test/resources/application.yml`) bu o'zgaruvchilarni talab
 qilmaydi: u H2 va o'zining test JWT kalitidan foydalanadi.
 
+Xuddi shu testlarni lokal PostgreSQL'da yurgizish (H2 sezmaydigan xatolar uchun —
+masalan `(:p IS NULL OR ...)` so'rovlari):
+
+```bash
+DB_PASSWORD=... mvn test -Dspring.profiles.active=pgtest
+```
+
+`application-pgtest.yml`: baza `adizone_test` (`PGTEST_DB_URL` bilan o'zgartiriladi),
+foydalanuvchi `crm_user` (`PGTEST_DB_USER`), parol faqat `DB_PASSWORD`. Sxema
+`create-drop` — har ishga tushishda jadvallar qayta yaratiladi, so'ng
+`db/migration/V52…V58` (billing v2, dashboard, payroll v2, qarorlar, eski cheklovlar, qoida ustma-ustligi, phase5 xavfsizlik) aynan o'zi bajariladi.
+**Ishchi bazaga ulamang.**
+
 ## systemd bilan o'rnatish
 
 1. Sir faylini yarating (faqat servis foydalanuvchisi o'qiy olsin):

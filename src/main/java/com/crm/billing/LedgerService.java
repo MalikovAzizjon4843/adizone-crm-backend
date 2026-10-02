@@ -5,6 +5,7 @@ import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
 import com.crm.entity.User;
 import com.crm.entity.enums.BalanceTransactionType;
+import com.crm.entity.enums.TeacherAttribution;
 import com.crm.repository.BalanceTransactionRepository;
 import com.crm.repository.StudentGroupRepository;
 import com.crm.repository.StudentRepository;
@@ -58,6 +59,8 @@ public class LedgerService {
         private final Long relatedTxId;
         private final Long billingPeriodId;
         private final Long migrationRunId;
+        /** Payroll v2 (§8): faqat LESSON_CHARGE — dars paytidagi o'qituvchi. */
+        private final Long teacherId;
         private final String note;
     }
 
@@ -94,6 +97,8 @@ public class LedgerService {
             .relatedTxId(e.getRelatedTxId())
             .billingPeriodId(e.getBillingPeriodId())
             .migrationRunId(e.getMigrationRunId())
+            .teacherId(e.getTeacherId())
+            .teacherSource(e.getTeacherId() != null ? TeacherAttribution.LIVE : null)
             .effectiveDate(effective)
             .note(e.getNote())
             .createdBy(currentUserOrNull())

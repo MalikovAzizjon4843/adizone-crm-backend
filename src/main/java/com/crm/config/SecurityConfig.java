@@ -55,6 +55,15 @@ public class SecurityConfig {
             "http://127.0.0.1:3000"
     );
 
+    /**
+     * Xodim rollari — "har qanday kirgan foydalanuvchi" o'rniga shu ro'yxat
+     * ishlatiladi. STUDENT va PARENT uchun portal yo'q, ularning logini
+     * bloklangan (phase5-audit Q1, U-02): eski token bilan kelsa ham
+     * hech bir endpoint ochilmasin. Yangi xodim roli qo'shilsa — shu yerga.
+     */
+    public static final String[] STAFF_ROLES =
+        {"SUPER_ADMIN", "ADMIN", "SALES_MANAGER", "ACCOUNTANT", "TEACHER"};
+
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final CustomUserDetailsService userDetailsService;
     private final ObjectMapper objectMapper;
@@ -89,7 +98,7 @@ public class SecurityConfig {
                 // Butun /api/settings/** ni ochiq qoldirmaymiz: kelajakda qo'shiladigan
                 // POST/PUT avtomatik ravishda ommaviy bo'lib qolmasin.
                 .requestMatchers(HttpMethod.GET, "/api/settings/academic-year").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/settings/**").authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/settings/**").hasAnyRole(STAFF_ROLES)
                 .requestMatchers("/api/settings/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/actuator/health").permitAll()
                 // WebSocket qo'l berishi: Authorization sarlavhasi yo'q, chunki
@@ -110,7 +119,7 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
                 .requestMatchers(HttpMethod.GET, "/api/exams/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
-                .requestMatchers(HttpMethod.GET, "/api/notices/**").authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/notices/**").hasAnyRole(STAFF_ROLES)
 
                 .requestMatchers(HttpMethod.POST, "/api/students/*/transfer-group")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
@@ -154,10 +163,10 @@ public class SecurityConfig {
                 // qo'llaydi, ya'ni tartibni buzmang.
                 .requestMatchers("/api/meta/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
-                // Bosqichlarni o'qish hammaga ochiq — kanban, lid kartasi va
+                // Bosqichlarni o'qish barcha xodimlarga ochiq — kanban, lid kartasi va
                 // filtrlar nomlarni shu yerdan oladi. Yozish controllerdagi
                 // metod darajasidagi @PreAuthorize bilan cheklangan.
-                .requestMatchers("/api/lead-stages/**").authenticated()
+                .requestMatchers("/api/lead-stages/**").hasAnyRole(STAFF_ROLES)
                 .requestMatchers("/api/promotions/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/parents/**")
@@ -226,24 +235,26 @@ public class SecurityConfig {
                 .requestMatchers("/api/classrooms/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
-                // Notice read-status — any authenticated user (before admin-only POST)
+                // Notice read-status — har qanday xodim (admin-only POST dan oldin)
                 .requestMatchers(HttpMethod.POST, "/api/notices/read-all", "/api/notices/*/read")
-                    .authenticated()
+                    .hasAnyRole(STAFF_ROLES)
                 .requestMatchers(HttpMethod.POST, "/api/notices/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/api/notices/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
-                // Ichki chat — barcha xodimlar uchun, rol cheklovisiz.
+                // Ichki chat — faqat xodimlar (Q13: STUDENT/PARENT yo'q).
                 // Suhbatga kirish huquqi a'zolik bo'yicha ChatAccessService'da.
-                .requestMatchers("/api/chat/**").authenticated()
-                .requestMatchers("/api/search/**").authenticated()
-                .requestMatchers(HttpMethod.POST, "/api/files/**").authenticated()
+                .requestMatchers("/api/chat/**").hasAnyRole(STAFF_ROLES)
+                .requestMatchers("/api/search/**").hasAnyRole(STAFF_ROLES)
+                .requestMatchers(HttpMethod.POST, "/api/files/**").hasAnyRole(STAFF_ROLES)
 
                 .requestMatchers(HttpMethod.DELETE, "/api/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
-                .anyRequest().authenticated()
+                // Qolgan hammasi — faqat xodimlar (U-02): eski "authenticated" STUDENT/PARENT
+                // tokeniga ham ochiq edi (masalan /api/auth/me, /api/enums/**).
+                .anyRequest().hasAnyRole(STAFF_ROLES)
             )
             .exceptionHandling(ex -> ex
                 .authenticationEntryPoint((request, response, authException) -> {

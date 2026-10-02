@@ -216,6 +216,7 @@ Majburiy query param yuborilmasa **500** qaytadi.
 | POST | /api/teachers/{id}/photo | #uploadPhoto (`:186`) | SA, A | path `id` (\d+); multipart `file` | `ApiResponse<TeacherResponse>` "Rasm saqlandi" | yo'q | |
 | POST | /api/teachers/import | #importTeachersFromFile (`:204`) | SA, A | multipart `file` (required=false, bo'sh → 400) | `ApiResponse<ImportResult>` "Import tugadi" | yo'q | `/api/import/teachers` bilan dublikat (`controller/ImportController.java:46`). |
 | POST | /api/teachers/sync-from-users | #syncFromUsers (`:220`) | **SA** | — | `ApiResponse<{total:int, created:int, linked:int, updated:int, errors:string[]}>` | yo'q | Idempotent (`service/TeacherProfileSyncService.java:33`, `:60-64`). |
+| POST | /api/teachers/{userId}/ensure-profile | #ensureProfile | **SA** | path `userId` — **User** id | `ApiResponse<{linkedCount, createdCount, skippedCount, items[{type:"USER", teacherId, userId, username, action: CREATED|LINKED|EXISTS|SKIPPED, reason}]}>` | yo'q | **02.10.2026:** bitta user uchun repair 2-qadami (UI tugmasi). Rol TEACHER emas yoki shu telefon/email li profil boshqa userga bog'langan bo'lsa — SKIPPED + sabab; user yo'q → 404 |
 | GET | /api/teachers/export | #exportTeachers (`:228`) | SA, A | — | `ResponseEntity<byte[]>` `text/csv`, `Content-Disposition: attachment; filename="teachers.csv"` | yo'q | Ustunlar: ID,UUID,First Name,Last Name,Phone,Email,Subject,Status,Hire Date,Created At (`TeacherService.java:175`). Blob sifatida yuklash. |
 
 #### DTO tafsilotlari (Teachers)
@@ -1468,7 +1469,7 @@ Shablon yuklab olish endpointi lid importi uchun YO'Q (amoCRM eksport fayli kuti
 
 | METHOD | path | Controller#metod | Effektiv rollar | Request | Response | Pagination | Izoh |
 |---|---|---|---|---|---|---|---|
-| POST | `/api/admin/repair/link-teacher-users` | `linkTeacherUsers` (`AdminRepairController.java:35`) | SUPER_ADMIN | — | `ApiResponse<Map<String,Object>>` = `{linkedCount, skippedCount, remainingUnlinked}` (`service/TeacherService.java:565+`) | yo'q | Teacher ↔ User bog'lash |
+| POST | `/api/admin/repair/link-teacher-users` | `linkTeacherUsers` → `TeacherProfileSyncService.repairTeacherLinks` | SUPER_ADMIN | — | `ApiResponse<Map<String,Object>>` = `{linkedCount, createdCount, skippedCount, remainingUnlinked, usersWithoutProfile, items[{type: TEACHER|USER, teacherId, userId, username, action: LINKED|CREATED|SKIPPED, reason}]}` | yo'q | **02.10.2026 (payroll-v2 §12):** 1) egasiz profillarni TEACHER userga bog'laydi; 2) profili yo'q TEACHER userlarga profil yaratadi (sync-from-users qoidasi, har user alohida tranzaksiyada). Avval 2-qadam yo'q edi — `remainingUnlinked = 0` bo'lsa ham user'larda profil yo'q bo'lishi mumkin edi |
 | POST | `/api/admin/repair/link-timetable-rooms` | `linkTimetableRooms` (`:42`) | SUPER_ADMIN | — | `ApiResponse<Map<String,Integer>>` = `{updated, skipped}` (`service/GroupService.java:853`) | yo'q | |
 | POST | `/api/admin/repair/recalculate-payment-dates` | `recalculatePaymentDates` (`:49`) | SUPER_ADMIN | — | `ApiResponse<Map<String,Object>>` = `{studentsProcessed, groupsRecalculated, aggregatesUpdated, paymentsFixed, inconsistentActiveWithLeaveDate, inconsistentInactiveWithoutLeaveDate, details: [{studentId, name, groups, paymentStatus, nextPaymentDate, monthlyFee, changed}]}` (`service/PaymentScheduleService.java:853+`) | yo'q | dryRun YO'Q — darhol yozadi |
 | POST | `/api/admin/repair/fix-payment-periods` | `fixPaymentPeriods` (`:56`) | SUPER_ADMIN | — | `ApiResponse<Map<String,Integer>>` = `{paymentsFixed, groupsRecalculated}` (`service/PaymentScheduleService.java:846-849`) | yo'q | dryRun yo'q |
@@ -1580,7 +1581,7 @@ Eslatma: To'lovni **tahrirlash / o'chirish / bekor qilish endpointi YO'Q** (cont
 |---|---|---|---|---|---|---|---|
 | GET | `/api/finance/expenses` | `getExpenses` (`FinanceController.java:21-30`) | SA, A, ACC | query: `from:LocalDate?`, `to:LocalDate?` (ISO, `@DateTimeFormat`), `category:String?` (ExpenseCategory, case-insens.; noto'g'ri → e'tiborsiz), `page:int` (def 0), `size:int` (def 20) | `ApiResponse<Page<ExpenseResponse>>` | Spring `Page`; sort `expenseDate DESC` (`service/FinanceService.java:53`) | `GET /api/expenses` bilan **aynan dublikat** |
 | POST | `/api/finance/expenses` | `createExpense` (`:32-36`) | SA, A, ACC | body: `ExpenseRequest` (`@Valid`) | `ApiResponse<ExpenseResponse>`, **201**, `"Expense recorded"` | yo'q | `POST /api/expenses` dublikati |
-| GET | `/api/finance/report` | `getReport` (`:38-43`) | SA, A, ACC | query: `from:LocalDate?` (def: oy boshi), `to:LocalDate?` (def: bugun) (`FinanceService.java:142-143`) | `ApiResponse<FinanceReportResponse>` | yo'q | |
+| GET | `/api/finance/report` | `getReport` (`:38-43`) | SA, A, ACC | query: `from:LocalDate?` (def: oy boshi), `to:LocalDate?` (def: bugun) (`FinanceService.java:142-143`) | `ApiResponse<FinanceReportResponse>` `{totalIncome, totalExpenses, payrollPaid, payrollByRole, netProfit, incomeByCategory, expenseByCategory, period}` | yo'q | **Payroll v2:** `payrollPaid` = Σ PAID `netSalary` (`paidAt` davrda, CANCELLED kirmaydi), `payrollByRole`; `netProfit = income − expenses − payrollPaid` ([`payroll-v2-api.md` §6](../design/payroll-v2-api.md)) |
 
 **`FinanceReportResponse`** (`dto/response/FinanceReportResponse.java:6-13`): `totalIncome: BigDecimal` [PUL] (SUM payment cash_amount, `FinanceService.java:145-147`), `totalExpenses: BigDecimal` [PUL], `netProfit: BigDecimal` [PUL], `incomeByCategory: Map<String,BigDecimal>` [PUL] (kalit — `IncomeCategory` nomi: `STUDENT_PAYMENT`, `OTHER_INCOME`), `expenseByCategory: Map<String,BigDecimal>` [PUL] (kalit — `ExpenseCategory` nomi), `period: String` (`"2026-09-01 to 2026-09-29"` shakli, `:169`).
 Diqqat: `totalIncome` Payment jadvalidan, `incomeByCategory` esa Income jadvalidan olinadi — yig'indilar mos kelmasligi mumkin (**TAXMIN**).
@@ -1634,7 +1635,7 @@ Xarajatni tahrirlash/o'chirish endpointi YO'Q.
 | PATCH | `/api/cash-registers/{id}/status` | `updateStatus` (`:68-78`) | SA, A, ACC | body: `CashRegisterStatusUpdateDto {status}`; bo'sh → **400 `ApiResponse.error`** (controllerning o'zida, `:72-75`) | `ApiResponse<CashRegisterDto>`, `"Kassa holati yangilandi"` | yo'q | Xato shakli boshqa endpointlardan farq qiladi |
 | GET | `/api/cash-registers/{id}/balance` | `getBalance` (`:80-83`) | SA, A, ACC | path `id` | `ApiResponse<CashBalanceDto>` | yo'q | |
 | GET | `/api/cash-registers/{id}/transactions` | `getTransactions` (`:85-103`) | SA, A, ACC | query: `from:String?`, `to:String?` (ISO; noto'g'ri → `DateTimeParseException` → **500**, `:126-131`), `studentId:Long?`, `teacherId:Long?`, `type:String?` (`INCOME/EXPENSE/TRANSFER`, noto'g'ri → e'tiborsiz), `paymentMethod:String?` (aliaslar ok, noto'g'ri → e'tiborsiz), `page:int` (0), `size:int` (20) | `ApiResponse<Page<CashTransactionDto>>` | Spring `Page`; sort `transactionDate DESC, createdAt DESC` (`:98-99`) | |
-| GET | `/api/cash-registers/{id}/transactions/export` | `exportTransactions` (`:105-124`) | SA, A, ACC | yuqoridagi filtrlar (page/size siz) | `ResponseEntity<byte[]>` — `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `Content-Disposition: attachment; filename=cash-transactions-{id}.xlsx` | yo'q | Envelope YO'Q; frontend `responseType:'blob'` |
+| GET | `/api/cash-registers/{id}/transactions/export` | `exportTransactions` (`:105-124`) | SA, A, ACC | yuqoridagi filtrlar (page/size siz) | `ResponseEntity<byte[]>` — `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `Content-Disposition: attachment; filename=cash-transactions-{id}.xlsx` | yo'q | Envelope YO'Q; frontend `responseType:'blob'`. Ustunlar: ID, Sana, Turi, **Yo'nalish (IN/OUT)**, Usul, O'quvchi, O'qituvchi, Nomi, **Summa (±)** (chiqim manfiy), Izoh, Holat, Yaratuvchi |
 | POST | `/api/cash-registers/{id}/income` | `addIncome` (`:133-139`) | SA, A, ACC | body: `IncomeCreateDto` | `ApiResponse<CashTransactionDto>`, **201**, `"Kirim qo'shildi"` | yo'q | `studentId` berilsa `Student.balance += amount` (`CashRegisterService.java:395-400`) |
 | POST | `/api/cash-registers/{id}/expense` | `addExpense` (`:141-147`) | SA, A, ACC | body: `ExpenseCreateDto` | `ApiResponse<CashTransactionDto>`, **201**, `"Chiqim qo'shildi"` | yo'q | Balans manfiyga tushishi mumkin (`:405-407`) |
 | POST | `/api/cash-registers/transfer` | `transfer` (`:149-154`) | SA, A, ACC | body: `TransferDto` | `ApiResponse<List<CashTransactionDto>>` (chiqim+kirim juftligi), **201**, `"O'tkazma bajarildi"` | yo'q | Manba=maqsad → 400; balans yetmasa 400 (`:536-554`, `:667-679`) |
@@ -1653,7 +1654,7 @@ Xarajatni tahrirlash/o'chirish endpointi YO'Q.
 
 **`CashBalanceDto`** (`dto/response/CashBalanceDto.java:14-19`): `cashRegisterId: Long`, [PUL] `balance`, `cashBalance`, `plasticBalance`.
 
-**`CashTransactionDto`** (`dto/response/CashTransactionDto.java:13-35`): `id: Long`, `uuid: String`, `cashRegisterId: Long`, `type: CashTransactionType`, `paymentMethod: PaymentMethod`, `studentId: Long`, `studentName`, `teacherId: Long`, `teacherName`, `transactionName: String`, [PUL] `amount`, `cashPart`, `cardPart` (faqat CASH_AND_CARD), `note`, `status: CashTransactionStatus`, `periodMonth: LocalDate`, [PUL] `totalAmount`, `transactionDate: LocalDate`, `createdAt: LocalDateTime`, `createdByName: String`.
+**`CashTransactionDto`** (`dto/response/CashTransactionDto.java`): `id: Long`, `uuid: String`, `cashRegisterId: Long`, `type: CashTransactionType` (INCOME/EXPENSE/TRANSFER/REVERSAL), `paymentMethod: PaymentMethod`, `studentId: Long`, `studentName`, `teacherId: Long`, `teacherName`, `transactionName: String`, [PUL] `amount` (doim musbat), **`direction: "IN"|"OUT"`**, [PUL] **`signedAmount`** (IN → +, OUT → −), **`paymentId: Long?`**, **`payrollId: Long?`**, **`relatedTxId: Long?`** (REVERSAL → asl yozuv; TRANSFER kirim qatori → chiqim qatori) — 02.10.2026, `cashPart`, `cardPart` (faqat CASH_AND_CARD), `note`, `status: CashTransactionStatus`, `periodMonth: LocalDate`, [PUL] `totalAmount`, `transactionDate: LocalDate`, `createdAt: LocalDateTime`, `createdByName: String`.
 
 **Enumlar:** `CashRegisterStatus` = `ACTIVE, ARCHIVED`; `CashTransactionType` = `INCOME, EXPENSE, TRANSFER`; `CashTransactionStatus` = `COMPLETED, PENDING, CANCELLED` (`entity/enums/*.java`).
 
@@ -1661,39 +1662,40 @@ Xarajatni tahrirlash/o'chirish endpointi YO'Q.
 
 ### Oylik (Payroll) — `controller/PayrollController.java`
 
-- Base path: `/api/payroll` (`PayrollController.java:17`). Class-level `@PreAuthorize`: **yo'q**.
-- SecurityConfig: `/api/payroll/**` → SA, A, ACC (`SecurityConfig.java:126-127`) — `DELETE /api/**` dan oldin.
+> **Payroll v2 (02.10.2026) bilan yangilandi.** To'liq shartnoma (DTO, misollar, xato kodlari):
+> [`docs/design/payroll-v2-api.md`](../design/payroll-v2-api.md); dizayn — [`payroll-v2.md`](../design/payroll-v2.md).
 
-| METHOD | path | Controller#metod | Effektiv rollar | Request | Response | Pagination | Izoh |
-|---|---|---|---|---|---|---|---|
-| GET | `/api/payroll/calculate` | `calculateAll` (`:23-29`) | SA, A, ACC | query: `month:int` **req**, `year:int` **req** | `ApiResponse<List<SalaryCalculationDto>>` | yo'q | Dry-run hisob |
-| GET | `/api/payroll/calculate/{userId}` | `calculateUser` (`:31-39`) | SA, A, ACC | path `userId:Long` (**User id**, Teacher id emas); query `month`, `year` req | `ApiResponse<SalaryCalculationDto>` | yo'q | |
-| POST | `/api/payroll/generate` | `generate` (`:41-49`) | SA, A, ACC | **query** (body emas!): `month:int` req, `year:int` req, `overwrite:boolean` (def `false`) | `ApiResponse<Map<String,Object>>` `{created:int, skipped:int, totalAmount:BigDecimal}` (HashMap, tartibsiz), **200**, `"Oylik yaratildi"` | yo'q | Oy uchun mavjud va `overwrite=false` → 400 (`service/PayrollService.java:87-90`); PAID lar o'tkazib yuboriladi |
-| GET | `/api/payroll` | `getAllPayroll` (`:51-57`) | SA, A, ACC (faqat URL qoidasi) | query: `page:int` (0), `size:int` (20), `status:String?` (aniq, **case-sensitive** mos, `PayrollService.java:54-56`) | `ApiResponse<PageResponse<PayrollResponse>>` | **PageResponse**; sort `createdAt DESC` | |
-| GET | `/api/payroll/{id}` | `getPayrollById` (`:59-62`) | SA, A, ACC (URL) | path `id` | `ApiResponse<PayrollResponse>` | yo'q | |
-| GET | `/api/payroll/teacher/{teacherId}` | `getByTeacher` (`:64-67`) | SA, A, ACC (URL) | path `teacherId:Long` (Teacher id) | `ApiResponse<List<PayrollResponse>>` | yo'q | |
-| POST | `/api/payroll` | `createPayroll` (`:69-74`) | SA, A, ACC | body: `PayrollRequest` (`@Valid`) | `ApiResponse<PayrollResponse>`, **201**, `"Payroll created"` | yo'q | Dublikat (teacher+oy+yil) → 409 (`PayrollService.java:176-180`) |
-| POST | `/api/payroll/{id}/pay` | `markPayrollPaid` (`:76-83`) | SA, A, ACC | body: `PayrollPayDto` (`required=false`) | `ApiResponse<PayrollResponse>`, 200, `"Payroll marked paid"` | yo'q | `cashRegisterId` berilsa kassadan `netSalary` chiqim (`PayrollService.java:311-334`) |
-| PUT | `/api/payroll/{id}` | `updatePayroll` (`:85-90`) | SA, A, ACC | body: `PayrollRequest` (`@Valid`) | `ApiResponse<PayrollResponse>`, `"Payroll updated"` | yo'q | **Upsert**: id topilmasa yangi yaratadi (`PayrollService.java:211-216`) |
-| DELETE | `/api/payroll/{id}` | `deletePayroll` (`:92-97`) | SA, A | path `id` | `ApiResponse<Void>`, `"Payroll deleted"` | yo'q | Hard delete; kassa/bonus qaytarilmaydi |
+- Base path: `/api/payroll`. Har endpointda `@PreAuthorize` (avval GET larda yo'q edi).
+- SecurityConfig: `/api/payroll/**` → SA, A, ACC.
+- Holat: `PayrollStatus` enum `DRAFT → APPROVED → PAID`, `APPROVED/PAID → CANCELLED`. Holat faqat amallar orqali.
 
-**`PayrollRequest`** (`dto/request/PayrollRequest.java:12-32`)
-- `teacherId: Long` — `@NotNull` (`:13-14`)
-- `month: Integer` — `@NotNull @Min(1) @Max(12)` (`:16-18`)
-- `year: Integer` — `@NotNull` (`:20-21`)
-- [PUL] `basicSalary: BigDecimal`, `allowances: BigDecimal`
-- [PUL] `deductions: BigDecimal`, `netSalary: BigDecimal` — **E'TIBORSIZ**: servis `deductions=0`, `netSalary=basic+allowances(+bonus)` qiladi (`PayrollService.java:390-395`)
-- `paymentDate: LocalDate`
-- `paymentMethod: String` — PaymentMethod nomi (alias ok); noto'g'ri/null → `BANK` (`:397`)
-- `status: String` — erkin matn; null → `"PENDING"` (`:398`)
-- `notes: String`, `createdById: Long` (yo'q → 404)
+| METHOD | path | Effektiv rollar | Request | Response | Izoh |
+|---|---|---|---|---|---|
+| GET | `/api/payroll/calculate` | SA, A, ACC | query `month`, `year` **req** | `ApiResponse<List<SalaryCalculationDto>>` | Preview; cutover oyidan oldin → 400 `payroll.beforeCutover` |
+| GET | `/api/payroll/calculate/{userId}` | SA, A, ACC | path `userId` (User id); `month`, `year` | `ApiResponse<SalaryCalculationDto>` | |
+| POST | `/api/payroll/generate` | SA, A, ACC | query **yoki** body `{month, year, recalculate}` | `ApiResponse<PayrollGenerateResult>` `{created, recalculated, skipped[{userId, fullName, reason, message, payrollId}], totalAmount}`, 200 | Yetishmayotganlarga DRAFT; DRAFT faqat `recalculate=true`; APPROVED/PAID tegilmaydi |
+| GET | `/api/payroll` | SA, A, ACC | `page`, `size`, `status` (enum; noto'g'ri → 400), `month`, `year`, `userId` | `ApiResponse<PageResponse<PayrollResponse>>` | sort yil↓, oy↓, id↓ |
+| GET | `/api/payroll/{id}` | SA, A, ACC | | `ApiResponse<PayrollResponse>` | |
+| GET | `/api/payroll/teacher/{teacherId}` | SA, A, ACC | Teacher id | `ApiResponse<List<PayrollResponse>>` | |
+| POST | `/api/payroll/{id}/recalculate` | SA, A, ACC | — | `ApiResponse<PayrollResponse>` | faqat DRAFT (409 `payroll.notDraft`) |
+| POST | `/api/payroll/{id}/approve` | SA, A | body ixtiyoriy `{expectedNetSalary}` | `ApiResponse<PayrollResponse>` | Bonuslar APPLIED; farq → 409 `payroll.netChanged` + `data.netSalary` |
+| POST | `/api/payroll/{id}/pay` | SA, A, ACC | `PayrollPayDto` (+ `idempotencyKey`), sarlavha `Idempotency-Key` | `ApiResponse<PayrollResponse>` | faqat APPROVED; qulf ostida; takror kalit — o'sha javob |
+| POST | `/api/payroll/{id}/cancel` | **SA** | `{reason}` (3–500) | `ApiResponse<PayrollResponse>` | APPROVED/PAID → CANCELLED; bonuslar PENDING; PAID → kassaga REVERSAL |
+| DELETE | `/api/payroll/{id}` | SA, A | | `ApiResponse<Void>` | faqat DRAFT |
+| ~~POST~~ | ~~`/api/payroll`~~ | | | **405** | olib tashlandi (v2) |
+| ~~PUT~~ | ~~`/api/payroll/{id}`~~ | | | **405** | olib tashlandi (v2) |
 
-**`PayrollPayDto`** (`dto/request/PayrollPayDto.java:9-21`): `paymentMethod: PaymentMethod` (null → CASH), `cashRegisterId: Long`, `paymentMethodForCash: String` (alias ok; noto'g'ri → jimgina e'tiborsiz, `PayrollService.java:372-379`), [PUL] `cashPart`, `cardPart` (yig'indi = netSalary).
+**`PayrollResponse`** (asosiy maydonlar): `id`, `uuid`, `userId`, `userName`, `role`, `teacherId`, `teacherName`, `month`, `year`,
+`status: PayrollStatus`, [PUL] `basicSalary`, `allowances`, `deductions` (0), `grossSalary`, `bonusPenaltyAdjustment`, `netSalary`,
+`paidStudentCount: Integer`, `paidStudentUnits: BigDecimal` (kasr bo'lishi mumkin), `newStudentCount`, `kpiApplied`, `kpiAmount`,
+`calculationDetails: object` (avval string edi), `calcVersion`, `paymentDate`, `paymentMethod*`, `cashRegisterId/Name`,
+`cashTransactionId`, `approvedAt/ByName`, `paidAt/ByName`, `cancelledAt/ByName`, `cancelReason`, `notes`, `createdByName`,
+`createdAt`, `updatedAt`.
 
-**`PayrollResponse`** (`dto/response/PayrollResponse.java:11-41`): `id: Long`, `uuid: UUID`, `teacherId: Long?`, `teacherName: String?` (teacher yo'q bo'lsa user ismi), `userId: Long?`, `userName: String?`, `month: Integer`, `year: Integer`, [PUL] `basicSalary`, `allowances`, `deductions`, `netSalary`, `bonusPenaltyAdjustment`, `paidStudentCount: Integer`, `newStudentCount: Integer`, `kpiApplied: Boolean`, [PUL] `kpiAmount`, `calculationDetails: String` (**JSON matn sifatida string**, `PayrollService.java:139`), `paymentDate: LocalDate`, `paymentMethod: String` (enum nomi), `paymentMethodLabel: String`, `paymentMethodIcon: String` (emoji), `status: String` (`PENDING`/`PAID`, enum emas), `notes`, `createdByName: String` (**username**, ism emas, `:436`), `cashRegisterId: Long?`, `cashRegisterName`, `createdAt: LocalDateTime`.
-
-**`SalaryCalculationDto`** (`dto/response/SalaryCalculationDto.java:17-53`): `userId: Long`, `fullName`, `role: String`, `month: Integer`, `year: Integer`, [PUL] `baseSalary`, `paidStudentCount: Integer`, [PUL] `perStudentAmount`, `newStudentCount: Integer`, [PUL] `newStudentAmount`, `kpiApplied: Boolean`, [PUL] `kpiAmount`, `totalActiveStudents: Integer`, [PUL] `bonusPenaltyAdjustment`, [PUL] `totalAmount`, `calculable: Boolean`, `message: String`, `details: Map<String,Object>`, `students: List<StudentDetailItem>`;
-`StudentDetailItem {studentId: Long, name, groupId: Long, groupName, paymentDate: LocalDate, type: String ("PAID"|"NEW")}`.
+**`SalaryCalculationDto`**: `userId`, `fullName`, `role`, `month`, `year`, [PUL] `baseSalary`, `paidStudentCount`,
+`paidStudentUnits`, [PUL] `perStudentAmount`, `newStudentCount`, [PUL] `newStudentAmount`, `kpiApplied`, [PUL] `kpiAmount`,
+`totalActiveStudents`, [PUL] `grossAmount`, `bonusPenaltyAdjustment`, `totalAmount` (= net), `calculable`, `message`,
+`calculationDetails: object` (v1 dagi `details`/`students` olib tashlandi).
 
 ---
 
@@ -1709,11 +1711,11 @@ Xarajatni tahrirlash/o'chirish endpointi YO'Q.
 | PUT | `/api/salary-rules/{id}` | `update` (`:35-40`) | SA | path `id`; body `SalaryRuleRequest` | `ApiResponse<SalaryRuleResponse>`, `"Salary rule updated"` | yo'q | |
 | DELETE | `/api/salary-rules/{id}` | `delete` (`:42-46`) | SA | path `id` | `ApiResponse<Void>`, `"Salary rule deactivated"` | yo'q | **Soft**: `isActive=false` (`SalaryRuleService.java:47-50`) |
 
-`GET /api/salary-rules/{id}` YO'Q (eski frontend `salaryRuleService.js:8` chaqiradi → 405 **TAXMIN**).
+`GET /api/salary-rules/{id}` — **qo'shildi** (payroll v2). `PUT` — qoida APPROVED/PAID oylikda ishlatilgan bo'lsa 409 `salaryRule.inUse`; `POST` (`effectiveFrom` bilan) shu doiradagi oldinroq boshlangan faol qoidani `effectiveFrom − 1` da yopadi, shu sanadan yoki keyin boshlanganini nofaol qiladi (ishlatilgan bo'lsa 409 `salaryRule.overlapsUsed`). Batafsil: [`payroll-v2-api.md` §4](../design/payroll-v2-api.md).
 
-**`SalaryRuleRequest`** (`dto/request/SalaryRuleRequest.java:11-22`): `role: UserRole` — `@NotNull` (`:12-13`); `userId: Long` (ixtiyoriy — shaxsiy qoida); [PUL] `baseSalary`, `perStudentFee`, `newStudentBonus`, `kpiBonus: BigDecimal`; `kpiThreshold: Integer`; `isActive: Boolean` (JSON kaliti `isActive`; null → true, `SalaryRuleService.java:68`); `effectiveFrom: LocalDate`.
+**`SalaryRuleRequest`** (payroll v2 — yakuniy nomlar): `role: UserRole` — `@NotNull` (TEACHER/ADMIN/SALES_MANAGER); `userId: Long?` (shaxsiy qoida, roli `role` ga teng); [PUL] `fixedSalary`, `perPayingStudent` (TEACHER), `perNewStudent` (ADMIN, SALES), `kpiBonus` (ADMIN) — hammasi ≥ 0; `kpiThreshold: Integer` (ADMIN); `isActive: Boolean` (null → true); `effectiveFrom: LocalDate?`, `effectiveTo: LocalDate?`. Noma'lum/eski nomlar (`baseSalary`, `perStudentFee`, `newStudentBonus`) → 400 `salaryRule.field.unknown`; rolga tegishli bo'lmagan nol emas maydon → 400 `salaryRule.field.notApplicable`.
 
-**`SalaryRuleResponse`** (`dto/response/SalaryRuleResponse.java:17-30`): `id: Long`, `role: UserRole`, `userId: Long?`, `userName: String?`, [PUL] `baseSalary`, `perStudentFee`, `newStudentBonus`, `kpiThreshold: Integer`, [PUL] `kpiBonus`, `isActive: Boolean`, `effectiveFrom: LocalDate`, `createdAt: LocalDateTime`.
+**`SalaryRuleResponse`**: `id`, `role`, `userId?`, `userName?`, [PUL] `fixedSalary`, `perPayingStudent`, `perNewStudent`, `kpiThreshold`, [PUL] `kpiBonus`, `isActive`, `effectiveFrom`, `effectiveTo`, `createdAt`, `updatedAt` (so'rov bilan bir xil nomlar).
 
 **Enum** `UserRole` = `SUPER_ADMIN, ADMIN, SALES_MANAGER, TEACHER, ACCOUNTANT, STUDENT, PARENT` (`entity/enums/UserRole.java:3-11`).
 
@@ -1726,9 +1728,10 @@ Xarajatni tahrirlash/o'chirish endpointi YO'Q.
 
 | METHOD | path | Controller#metod | Effektiv rollar | Request | Response | Pagination | Izoh |
 |---|---|---|---|---|---|---|---|
-| GET | `/api/bonus-penalties` | `getAll` (`:31-44`) | SA, A, ACC | query: `kind:String?` (BONUS/PENALTY), `targetType:String?` (STUDENT/TEACHER), `studentId:Long?`, `teacherId:Long?`, `status:String?` (PENDING/APPLIED/CANCELLED) — noto'g'ri enum → e'tiborsiz (`service/BonusPenaltyService.java:339-348`); `page:int` (0), `size:int` (20) | `ApiResponse<PageResponse<BonusPenaltyDto>>` | **PageResponse**; sort `createdAt DESC` (`:40-41`) | |
+| GET | `/api/bonus-penalties` | `getAll` (`:31-44`) | SA, A, ACC | query: `kind:String?` (BONUS/PENALTY), `targetType:String?` (STUDENT/TEACHER/STAFF), `studentId:Long?`, `teacherId:Long?`, `userId:Long?` (STAFF, payroll v2), `status:String?` (PENDING/APPLIED/CANCELLED) — noto'g'ri enum → e'tiborsiz (`service/BonusPenaltyService.java:339-348`); `page:int` (0), `size:int` (20) | `ApiResponse<PageResponse<BonusPenaltyDto>>` | **PageResponse**; sort `createdAt DESC` (`:40-41`) | |
 | GET | `/api/bonus-penalties/summary` | `getSummary` (`:46-52`) | SA, A, ACC | query: `from:String?` (def oy boshi), `to:String?` (def bugun); ISO, noto'g'ri → **500** (`:115-120`) | `ApiResponse<BonusPenaltySummaryDto>` | yo'q | `effectiveDate` oralig'ida, CANCELLED dan tashqari (`BonusPenaltyService.java:76-102`) |
 | GET | `/api/bonus-penalties/preview/teacher/{teacherId}` | `previewForTeacher` (`:54-64`) | SA, A, ACC | path `teacherId:Long`; query `upToDate:String?` (def bugun) | `ApiResponse<BonusPenaltyPreviewDto>` | yo'q | PENDING yozuvlar bo'yicha |
+| GET | `/api/bonus-penalties/preview/staff/{userId}` | `previewForStaff` | SA, A, ACC | path `userId:Long` (ADMIN/SALES xodim); query `upToDate:String?` (def bugun) | `ApiResponse<BonusPenaltyPreviewDto>` | yo'q | **Payroll v2:** STAFF PENDING yozuvlari |
 | GET | `/api/bonus-penalties/preview/student/{studentId}` | `previewForStudent` (`:66-76`) | SA, A, ACC | path `studentId:Long`; query `upToDate:String?` | `ApiResponse<BonusPenaltyPreviewDto>` | yo'q | To'lov formasida ishlatiladi (TAXMIN) |
 | GET | `/api/bonus-penalties/{id}` | `getById` (`:78-81`) | SA, A, ACC | path `id` | `ApiResponse<BonusPenaltyDto>` | yo'q | |
 | POST | `/api/bonus-penalties` | `create` (`:83-88`) | SA, A, ACC | body `BonusPenaltyCreateDto` (`@Valid`) | `ApiResponse<BonusPenaltyDto>`, **201**, `"Yozuv yaratildi"` | yo'q | status=PENDING; `effectiveDate` null → bugun |
@@ -1737,9 +1740,9 @@ Xarajatni tahrirlash/o'chirish endpointi YO'Q.
 | DELETE | `/api/bonus-penalties/{id}` | `delete` (`:104-108`) | **SA, A** (ACC URL darajasida 403) | path `id` | `ApiResponse<Void>`, `"Yozuv o'chirildi"` | yo'q | Faqat PENDING; hard delete |
 | GET | `/api/bonus-penalties/teacher/{teacherId}` | `getByTeacher` (`:110-113`) | SA, A, ACC | path `teacherId` | `ApiResponse<List<BonusPenaltyDto>>` | yo'q; `effectiveDate DESC` | |
 
-**`BonusPenaltyCreateDto`** (`dto/request/BonusPenaltyCreateDto.java:13-25`): `kind: BonusPenaltyKind` — `@NotNull` (`:14-15`); `targetType: BonusTargetType` — `@NotNull` (`:16-17`); `studentId: Long` (STUDENT uchun majburiy — servis, `BonusPenaltyService.java:273-280`); `teacherId: Long` (TEACHER uchun majburiy, `:281-289`); `amount: BigDecimal` [PUL] — `@NotNull @DecimalMin("0.01")` (`:20-22`), doim musbat (belgi `kind` dan); `reason: String`; `effectiveDate: LocalDate`.
+**`BonusPenaltyCreateDto`** (`dto/request/BonusPenaltyCreateDto.java`): `kind: BonusPenaltyKind` — `@NotNull`; `targetType: BonusTargetType` (`STUDENT`/`TEACHER`/**`STAFF`**) — `@NotNull`; `studentId: Long` (STUDENT uchun majburiy); `teacherId: Long` (TEACHER uchun majburiy); **`userId: Long`** (STAFF uchun majburiy, roli ADMIN/SALES_MANAGER — aks holda 400 `bonus.staff.userRequired` / `bonus.staff.roleInvalid`); `amount: BigDecimal` [PUL] — `@NotNull @DecimalMin("0.01")` (`:20-22`), doim musbat (belgi `kind` dan); `reason: String`; `effectiveDate: LocalDate`.
 
-**`BonusPenaltyDto`** (`dto/response/BonusPenaltyDto.java:19-36`): `id: Long`, `uuid: String`, `kind: BonusPenaltyKind`, `targetType: BonusTargetType`, `studentId: Long?`, `studentName`, `teacherId: Long?`, `teacherName`, [PUL] `amount` (musbat), `reason`, `status: BonusPenaltyStatus`, `effectiveDate: LocalDate`, `createdAt: LocalDateTime`, `createdByName: String` (ism familiya), `targetName: String` (target turiga qarab), [PUL] `signedAmount` (PENALTY → manfiy, `BonusPenaltyService.java:397-402`).
+**`BonusPenaltyDto`** (`dto/response/BonusPenaltyDto.java:19-36`): `id: Long`, `uuid: String`, `kind: BonusPenaltyKind`, `targetType: BonusTargetType`, `studentId: Long?`, `studentName`, `teacherId: Long?`, `teacherName`, `userId: Long?`, `userName` (STAFF), `appliedToPayrollId: Long?` (oylikka qo'llangan — tasdiqlashda), [PUL] `amount` (musbat), `reason`, `status: BonusPenaltyStatus`, `effectiveDate: LocalDate`, `createdAt: LocalDateTime`, `createdByName: String` (ism familiya), `targetName: String` (target turiga qarab), [PUL] `signedAmount` (PENALTY → manfiy, `BonusPenaltyService.java:397-402`).
 
 **`BonusPenaltySummaryDto`** (`dto/response/BonusPenaltySummaryDto.java:14-18`): [PUL] `totalBonus`, [PUL] `totalPenalty`, `count: long`.
 **`BonusPenaltyPreviewDto`** (`dto/response/BonusPenaltyPreviewDto.java:14-19`): [PUL] `totalBonus`, [PUL] `totalPenalty`, [PUL] `net`, `count: long`.

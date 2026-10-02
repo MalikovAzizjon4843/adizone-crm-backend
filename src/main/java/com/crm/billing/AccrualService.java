@@ -5,6 +5,7 @@ import com.crm.entity.BillingPeriod;
 import com.crm.entity.StudentGroup;
 import com.crm.entity.enums.BalanceTransactionType;
 import com.crm.entity.enums.BillingPeriodStatus;
+import com.crm.entity.enums.TeacherAttribution;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.BillingPeriodRepository;
 import com.crm.repository.StudentGroupRepository;
@@ -84,6 +85,9 @@ public class AccrualService {
                 .discountPercentage(charge.discountPercentage())
                 .amount(charge.amount())
                 .status(BillingPeriodStatus.CHARGED)
+                // Payroll v2 (§8): davr yozilgan paytdagi o'qituvchi — keyin almashsa ham shu qoladi
+                .teacherId(currentTeacherId(sg))
+                .teacherSource(TeacherAttribution.LIVE)
                 .build());
             // d = 100: davr qatori bor (idempotentlik), ledger yozuvi yo'q (§3.5)
             if (charge.amount().signum() > 0) {
@@ -125,6 +129,11 @@ public class AccrualService {
             .stream().map(BillingPeriod::getPeriodStart).toList();
         return AccrualCalculator.dueCharges(
             AccrualCalculator.State.of(sg), existing, asOf, properties.getMaxCatchUp());
+    }
+
+    private static Long currentTeacherId(StudentGroup sg) {
+        return sg.getGroup() != null && sg.getGroup().getTeacher() != null
+            ? sg.getGroup().getTeacher().getId() : null;
     }
 
     static String periodNote(AccrualCalculator.DueCharge charge) {

@@ -4,6 +4,8 @@ import com.crm.config.Messages;
 import com.crm.dto.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.NestedExceptionUtils;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -12,6 +14,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -21,6 +24,7 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
+import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -62,6 +66,7 @@ public class GlobalExceptionHandler {
                 .error(ex.getStatus().getReasonPhrase())
                 .message(messages.get(ex.getCode(), ex.getArgs()))
                 .code(ex.getCode())
+                .data(ex.getData())
                 .build();
         return ResponseEntity.status(ex.getStatus()).body(response);
     }
@@ -129,6 +134,56 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleMissingPart(MissingServletRequestPartException ex) {
         return buildResponse(HttpStatus.BAD_REQUEST,
             "So'rov qismi topilmadi: " + ex.getRequestPartName() + " (student import uchun 'file' kerak)");
+    }
+
+    /**
+     * Majburiy query/form parametri yo'q (masalan {@code ?studentId=}) — 400.
+     * Avval umumiy handlerga tushib 500 qaytarardi (phase5-audit X-02).
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParam(MissingServletRequestParameterException ex) {
+        return handleCoded(CodedException.badRequest("error.param.missing", ex.getParameterName()));
+    }
+
+    /**
+     * Baza cheklovi buzildi — SQLSTATE bo'yicha (phase5-audit X-02):
+     * <ul>
+     *   <li>{@code 23505} UNIQUE — 409 {@code error.conflict.duplicate}
+     *       (masalan parallel ikki so'rov bir xil yozuvni yaratdi);</li>
+     *   <li>{@code 23503} FK — 409 {@code error.conflict.reference}
+     *       (yozuv boshqa joyda ishlatilgan);</li>
+     *   <li>{@code 23502} NOT NULL, {@code 22001} juda uzun qiymat, {@code 23514} CHECK —
+     *       400 {@code error.data.invalid}.</li>
+     * </ul>
+     * Avval bularning hammasi 500 edi. Cheklov nomi va SQL matni foydalanuvchiga
+     * chiqmaydi, faqat logga.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex) {
+        String state = sqlStateOf(ex);
+        log.warn("Data integrity violation (SQLSTATE {}): {}", state,
+            NestedExceptionUtils.getMostSpecificCause(ex).getMessage());
+        if (state != null && state.startsWith("23505")) {
+            return handleCoded(new ConflictException("error.conflict.duplicate"));
+        }
+        if (state != null && state.startsWith("23503")) {
+            return handleCoded(new ConflictException("error.conflict.reference"));
+        }
+        return handleCoded(CodedException.badRequest("error.data.invalid"));
+    }
+
+    /** Sabablar zanjiridagi birinchi SQLSTATE (Hibernate yoki JDBC istisnosi). */
+    private static String sqlStateOf(Throwable ex) {
+        for (Throwable t = ex; t != null && t.getCause() != t; t = t.getCause()) {
+            if (t instanceof SQLException sql && sql.getSQLState() != null) {
+                return sql.getSQLState();
+            }
+            if (t instanceof org.hibernate.exception.ConstraintViolationException cv
+                    && cv.getSQLState() != null) {
+                return cv.getSQLState();
+            }
+        }
+        return null;
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

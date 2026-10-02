@@ -1,5 +1,6 @@
 package com.crm.security.jwt;
 
+import com.crm.config.SecurityConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.server.ServerHttpRequest;
@@ -67,6 +68,11 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
             if (!jwtUtils.isTokenValid(token, userDetails)) {
                 return reject(response, "token yaroqsiz yoki muddati o'tgan");
             }
+            // Chat faqat xodimlar uchun (phase5-audit Q13): STUDENT/PARENT ning
+            // eski tokeni bilan ham ulanib bo'lmaydi.
+            if (!isStaff(userDetails)) {
+                return reject(response, "rol chatga ruxsat etilmagan");
+            }
 
             Authentication authentication = new UsernamePasswordAuthenticationToken(
                 userDetails, null, userDetails.getAuthorities());
@@ -97,6 +103,17 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
             return header.substring(BEARER_PREFIX.length()).trim();
         }
         return null;
+    }
+
+    private static boolean isStaff(UserDetails userDetails) {
+        for (String role : SecurityConfig.STAFF_ROLES) {
+            for (var authority : userDetails.getAuthorities()) {
+                if (("ROLE_" + role).equals(authority.getAuthority())) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private boolean reject(ServerHttpResponse response, String reason) {

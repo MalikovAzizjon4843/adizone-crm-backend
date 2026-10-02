@@ -7,8 +7,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Xronologik FIFO — har majburiyat <b>qachon</b> to'liq yopilgani (director-dashboard §3.2.2).
@@ -41,6 +43,20 @@ public final class PeriodCoverage {
     }
 
     public static Map<Long, Covered> compute(List<Line> lines) {
+        return allocate(lines, null);
+    }
+
+    /**
+     * To'liq yopilgan har majburiyat (asl yozuv id si) uchun uni yopishda QATNASHGAN kreditlar
+     * (asl yozuv id lari) — payroll-v2 §11 #7: davr real PAYMENT bilan to'langanmi.
+     */
+    public static Map<Long, Set<Long>> contributors(List<Line> lines) {
+        Map<Long, Set<Long>> out = new HashMap<>();
+        allocate(lines, out);
+        return out;
+    }
+
+    private static Map<Long, Covered> allocate(List<Line> lines, Map<Long, Set<Long>> contributors) {
         Map<Long, Line> byId = new HashMap<>();
         for (Line l : lines) {
             if (l.id() != null) {
@@ -73,17 +89,23 @@ public final class PeriodCoverage {
 
         Map<Long, Covered> out = new HashMap<>();
         int o = 0;
+        Set<Long> current = new LinkedHashSet<>();
         BigDecimal remaining = obligations.isEmpty() ? BigDecimal.ZERO : obligations.get(0).net();
         for (Root credit : credits) {
             BigDecimal funds = credit.net();
             while (funds.signum() > 0 && o < obligations.size()) {
                 BigDecimal take = funds.min(remaining);
+                current.add(credit.line().id());
                 funds = funds.subtract(take);
                 remaining = remaining.subtract(take);
                 if (remaining.signum() == 0) {
                     Line ob = obligations.get(o).line();
                     Line cr = credit.line();
                     out.put(ob.id(), new Covered(cr.effectiveDate(), cr.createdAt(), cr.id()));
+                    if (contributors != null) {
+                        contributors.put(ob.id(), current);
+                    }
+                    current = new LinkedHashSet<>();
                     o++;
                     remaining = o < obligations.size() ? obligations.get(o).net() : BigDecimal.ZERO;
                 }

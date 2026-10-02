@@ -162,7 +162,8 @@ public class ChatController {
      * <p>Bu yerda, WebSocket'da emas: STOMP matnli protokol va fayl uni
      * base64 ga aylantirishni talab qilardi.
      *
-     * <p>Ruxsat: autentifikatsiyadan o'tgan har kim. Suhbat a'zoligi bu
+     * <p>Ruxsat: har qanday xodim ({@code SecurityConfig.STAFF_ROLES}). Rasm
+     * o'lchami diskka yozishdan oldin, faqat sarlavhadan tekshiriladi. Suhbat a'zoligi bu
      * qadamda tekshirilmaydi — qaysi suhbatga ketishi hali ma'lum emas;
      * u xabar yuborishda tekshiriladi.
      *
