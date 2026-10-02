@@ -3,6 +3,10 @@ package com.crm.dashboard;
 import com.crm.dashboard.DirectorDtos.AttendanceSection;
 import com.crm.dashboard.DirectorDtos.LessonRow;
 import com.crm.entity.Group;
+import com.crm.entity.LessonSubstitution;
+import com.crm.entity.Teacher;
+import com.crm.entity.enums.SubstitutionStatus;
+import com.crm.repository.LessonSubstitutionRepository;
 import com.crm.entity.LessonException;
 import com.crm.entity.StudentGroup;
 import com.crm.entity.enums.GroupStatus;
@@ -41,6 +45,7 @@ public class AttendanceMetricsService {
     private final GroupScheduleService scheduleService;
     private final HolidayRepository holidayRepository;
     private final LessonExceptionRepository exceptionRepository;
+    private final LessonSubstitutionRepository substitutionRepository;
 
     @Transactional(readOnly = true)
     public AttendanceSection summary(DashboardPeriod p, Long teacherId) {
@@ -68,10 +73,20 @@ public class AttendanceMetricsService {
     List<LessonRow> rows(DashboardPeriod p, Long teacherId) {
         LocalDate from = p.from();
         LocalDate to = p.to();
+        // "Darsni X o'tdi" (leaves-exams-contracts §2.3): shu dars intizomi o'rinbosarga yoziladi
+        Map<String, Teacher> substitutes = new HashMap<>();
+        Set<Long> substitutedGroups = new HashSet<>();
+        for (LessonSubstitution s : substitutionRepository.findActiveBetween(from, to, SubstitutionStatus.CANCELLED)) {
+            substitutes.put(key(s.getGroup().getId(), s.getLessonDate()), s.getSubstituteTeacher());
+            if (teacherId != null && teacherId.equals(s.getSubstituteTeacher().getId())) {
+                substitutedGroups.add(s.getGroup().getId());
+            }
+        }
         List<Group> groups = queries.em().createQuery("""
                 SELECT g FROM Group g LEFT JOIN FETCH g.teacher WHERE g.status = :active
                 """, Group.class).setParameter("active", GroupStatus.ACTIVE).getResultList().stream()
-            .filter(g -> teacherId == null || (g.getTeacher() != null && teacherId.equals(g.getTeacher().getId())))
+            .filter(g -> teacherId == null || (g.getTeacher() != null && teacherId.equals(g.getTeacher().getId()))
+                || substitutedGroups.contains(g.getId()))
             .toList();
         Map<Long, Group> groupById = new HashMap<>();
         groups.forEach(g -> groupById.put(g.getId(), g));
@@ -138,6 +153,10 @@ public class AttendanceMetricsService {
                     continue;
                 }
                 plannedKeys.add(k);
+                Teacher lessonTeacher = substitutes.getOrDefault(k, g.getTeacher());
+                if (teacherId != null && (lessonTeacher == null || !teacherId.equals(lessonTeacher.getId()))) {
+                    continue;
+                }
                 GroupScheduleService.LessonSlot slot = slotByDay.get(d.getDayOfWeek());
                 Object[] m = marks.get(k);
                 LocalDateTime firstMarked = m != null ? (LocalDateTime) m[3] : null;
@@ -150,7 +169,7 @@ public class AttendanceMetricsService {
                 } else {
                     status = Status.UPCOMING.name();
                 }
-                rows.add(row(g, d, slot, active, m, firstMarked, status));
+                rows.add(row(g, lessonTeacher, d, slot, active, m, firstMarked, status));
             }
         }
         // Rejada yo'q, lekin davomat qilingan (jadval eskirgan bo'lishi mumkin)
@@ -161,18 +180,23 @@ public class AttendanceMetricsService {
                 continue;
             }
             LocalDate d = (LocalDate) m[1];
-            rows.add(row(g, d, null, activeOn(enrollments.getOrDefault(g.getId(), List.of()), d), m,
+            Teacher lessonTeacher = substitutes.getOrDefault(e.getKey(), g.getTeacher());
+            if (teacherId != null && (lessonTeacher == null || !teacherId.equals(lessonTeacher.getId()))) {
+                continue;
+            }
+            rows.add(row(g, lessonTeacher, d, null, activeOn(enrollments.getOrDefault(g.getId(), List.of()), d), m,
                 (LocalDateTime) m[3], Status.UNPLANNED.name()));
         }
         rows.sort(Comparator.comparing(LessonRow::date).thenComparing(LessonRow::groupId));
         return rows;
     }
 
-    private static LessonRow row(Group g, LocalDate d, GroupScheduleService.LessonSlot slot, int active,
+    /** {@code teacher} — darsni o'tgan o'qituvchi: o'rinbosar belgisi bo'lsa u, aks holda guruh o'qituvchisi. */
+    private static LessonRow row(Group g, Teacher teacher, LocalDate d, GroupScheduleService.LessonSlot slot, int active,
                                  Object[] m, LocalDateTime firstMarked, String status) {
         return new LessonRow(g.getId(), g.getGroupName(),
-            g.getTeacher() != null ? g.getTeacher().getId() : null,
-            g.getTeacher() != null ? FunnelMetricsService.name(g.getTeacher().getFirstName(), g.getTeacher().getLastName()) : null,
+            teacher != null ? teacher.getId() : null,
+            teacher != null ? FunnelMetricsService.name(teacher.getFirstName(), teacher.getLastName()) : null,
             d, slot != null ? slot.startTime() : null, slot != null ? slot.endTime() : null, active,
             m != null ? (Long) m[2] : 0, firstMarked, status);
     }

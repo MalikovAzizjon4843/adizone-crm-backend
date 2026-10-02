@@ -1,22 +1,30 @@
 package com.crm.controller;
 
+import com.crm.dto.request.ContractCancelRequest;
 import com.crm.dto.request.ContractCreateDto;
 import com.crm.dto.request.ContractTemplateCreateDto;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.ContractDto;
 import com.crm.dto.response.ContractTemplateDto;
 import com.crm.dto.response.PageResponse;
+import com.crm.service.ContractPdfService;
+import com.crm.service.ContractPlaceholders;
 import com.crm.service.ContractService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @RestController
@@ -30,6 +38,12 @@ public class ContractController {
     @GetMapping("/contract-templates")
     public ResponseEntity<ApiResponse<List<ContractTemplateDto>>> getAllTemplates() {
         return ResponseEntity.ok(ApiResponse.success(contractService.getAllTemplates()));
+    }
+
+    /** Shablonda ishlatiladigan belgilar katalogi (C-08). */
+    @GetMapping("/contract-templates/placeholders")
+    public ResponseEntity<ApiResponse<List<ContractPlaceholders.Placeholder>>> getPlaceholders() {
+        return ResponseEntity.ok(ApiResponse.success(contractService.placeholders()));
     }
 
     @GetMapping("/contract-templates/{id}")
@@ -87,18 +101,69 @@ public class ContractController {
             .body(ApiResponse.success("Shartnoma yaratildi", contractService.generateForStudent(dto)));
     }
 
+    /**
+     * Server PDF (§6.3). {@code inline} — brauzerda ochiladi va chop etiladi; {@code download=true} —
+     * yuklab olish. SIGNED/ACCEPTED — muzlatilgan nusxa.
+     */
+    @GetMapping("/contracts/{id}/pdf")
+    public ResponseEntity<byte[]> getPdf(@PathVariable Long id,
+                                         @RequestParam(defaultValue = "false") boolean download) {
+        ContractPdfService.Pdf pdf = contractService.pdf(id);
+        ContentDisposition disposition = (download ? ContentDisposition.attachment() : ContentDisposition.inline())
+            .filename(pdf.fileName(), StandardCharsets.UTF_8)
+            .build();
+        return ResponseEntity.ok()
+            .contentType(MediaType.APPLICATION_PDF)
+            .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+            .header("X-Content-Type-Options", "nosniff")
+            .cacheControl(CacheControl.noStore())
+            .body(pdf.bytes());
+    }
+
+    /** Chop etish ko'rinishi — PDF bilan bir xil XHTML (skriptsiz). */
+    @GetMapping(value = "/contracts/{id}/print", produces = MediaType.TEXT_HTML_VALUE)
+    public ResponseEntity<String> getPrintView(@PathVariable Long id) {
+        return ResponseEntity.ok()
+            .contentType(new MediaType(MediaType.TEXT_HTML, StandardCharsets.UTF_8))
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+            .cacheControl(CacheControl.noStore())
+            .body(contractService.printHtml(id));
+    }
+
+    @PostMapping("/contracts/{id}/accept-offer")
+    public ResponseEntity<ApiResponse<ContractDto>> acceptOfferPost(@PathVariable Long id) {
+        return acceptOffer(id);
+    }
+
     @PatchMapping("/contracts/{id}/accept-offer")
     public ResponseEntity<ApiResponse<ContractDto>> acceptOffer(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success("Taklif qabul qilindi",
             contractService.acceptOffer(id)));
     }
 
+    /** DRAFT → SIGNED; PDF muzlatiladi. */
+    @PostMapping("/contracts/{id}/sign")
+    public ResponseEntity<ApiResponse<ContractDto>> sign(@PathVariable Long id) {
+        return markSigned(id);
+    }
+
+    /** @deprecated {@code POST /contracts/{id}/sign} */
+    @Deprecated
     @PatchMapping("/contracts/{id}/sign")
     public ResponseEntity<ApiResponse<ContractDto>> markSigned(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success("Shartnoma imzolandi",
             contractService.markSigned(id)));
     }
 
+    @PostMapping("/contracts/{id}/cancel")
+    public ResponseEntity<ApiResponse<ContractDto>> cancel(@PathVariable Long id,
+                                                           @RequestBody(required = false) ContractCancelRequest body) {
+        return ResponseEntity.ok(ApiResponse.success("Shartnoma bekor qilindi",
+            contractService.cancel(id, body != null ? body.getReason() : null)));
+    }
+
+    /** Faqat imzolanmagan shartnoma; SIGNED/ACCEPTED — 409 {@code contract.signed}. */
     @DeleteMapping("/contracts/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteContract(@PathVariable Long id) {
         contractService.deleteContract(id);

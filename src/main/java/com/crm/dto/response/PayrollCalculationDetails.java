@@ -28,6 +28,12 @@ public record PayrollCalculationDetails(
     BigDecimal net,
     Items items) {
 
+    /**
+     * Format versiyasi. leaves-exams-contracts §3 qatorlari ({@link #LEAVE_DEDUCTION}, {@link #SUBSTITUTE_LESSONS})
+     * va {@code items.leaves/substitutions} QO'SHIMCHA (ixtiyoriy) maydonlar — eski v2 snapshot'lar o'qilishda
+     * o'zgarmaydi (yangi maydonlar null), shuning uchun versiya oshirilmadi: mavjud DRAFT lar qayta hisoblashsiz
+     * tasdiqlanadi.
+     */
     public static final int VERSION = 2;
 
     public static final String FIXED = "FIXED";
@@ -36,6 +42,10 @@ public record PayrollCalculationDetails(
     public static final String KPI = "KPI";
     public static final String BONUS = "BONUS";
     public static final String PENALTY = "PENALTY";
+    /** Haqsiz ta'til: belgilangan oylikdan ish kunlari ulushi (manfiy), leaves-exams-contracts §3.1. */
+    public static final String LEAVE_DEDUCTION = "LEAVE_DEDUCTION";
+    /** O'rinbosar sifatida o'tilgan (CONDUCTED) darslar, §3.2. */
+    public static final String SUBSTITUTE_LESSONS = "SUBSTITUTE_LESSONS";
 
     /** Hisobda ishlatilgan qoidaning nusxasi (keyin tahrirlansa ham snapshot o'zgarmaydi). */
     public record RuleSnapshot(
@@ -48,7 +58,9 @@ public record PayrollCalculationDetails(
         BigDecimal perPayingStudent,
         BigDecimal perNewStudent,
         Integer kpiThreshold,
-        BigDecimal kpiBonus) {
+        BigDecimal kpiBonus,
+        /** TEACHER: bir o'rinbosar darsi stavkasi (shaxsiy qoida → rol qoidasi); eski snapshot'da null. */
+        BigDecimal substituteLessonRate) {
     }
 
     /** {@code status} — faqat BONUS/PENALTY: PENDING (DRAFT dagi "kutilmoqda") yoki APPLIED. */
@@ -61,7 +73,31 @@ public record PayrollCalculationDetails(
         List<LessonEnrollment> lessonEnrollments,
         List<NewStudent> newStudents,
         Kpi kpi,
-        List<Bonus> bonuses) {
+        List<Bonus> bonuses,
+        /** Oyga tushgan APPROVED ta'tillar (haqli ham — ko'rinish uchun; qator faqat haqsizdan). */
+        List<LeaveItem> leaves,
+        /** O'rinbosar sifatida o'tilgan (CONDUCTED) darslar. */
+        List<SubstitutionItem> substitutions) {
+    }
+
+    /** {@code workdaysInMonth} — ta'tilning shu oyga tushgan ish kunlari (Du–Sha, bayramsiz). */
+    public record LeaveItem(
+        Long leaveId,
+        LocalDate fromDate,
+        LocalDate toDate,
+        String leaveType,
+        boolean paid,
+        int workdaysInMonth) {
+    }
+
+    public record SubstitutionItem(
+        Long substitutionId,
+        Long groupId,
+        String groupName,
+        LocalDate lessonDate,
+        Long originalTeacherId,
+        String originalTeacherName,
+        java.time.LocalDateTime conductedAt) {
     }
 
     /** MONTHLY: {@code countedOn = max(paidOn, periodStart)} — shu sana oyiga sanaladi (§2.1). */

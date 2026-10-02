@@ -7,6 +7,8 @@ import com.crm.dto.response.PayrollCalculationDetails;
 import com.crm.dto.response.PayrollCalculationDetails.Bonus;
 import com.crm.dto.response.PayrollCalculationDetails.Items;
 import com.crm.dto.response.PayrollCalculationDetails.Kpi;
+import com.crm.dto.response.PayrollCalculationDetails.LeaveItem;
+import com.crm.dto.response.PayrollCalculationDetails.SubstitutionItem;
 import com.crm.dto.response.PayrollCalculationDetails.LessonEnrollment;
 import com.crm.dto.response.PayrollCalculationDetails.Line;
 import com.crm.dto.response.PayrollCalculationDetails.NewStudent;
@@ -17,6 +19,8 @@ import com.crm.entity.BalanceTransaction;
 import com.crm.entity.BillingMigrationRun;
 import com.crm.entity.BillingPeriod;
 import com.crm.entity.BonusPenalty;
+import com.crm.entity.Leave;
+import com.crm.entity.LessonSubstitution;
 import com.crm.entity.Payment;
 import com.crm.entity.SalaryRule;
 import com.crm.entity.Student;
@@ -28,12 +32,16 @@ import com.crm.entity.enums.BillingPeriodStatus;
 import com.crm.entity.enums.BonusPenaltyKind;
 import com.crm.entity.enums.BonusPenaltyStatus;
 import com.crm.entity.enums.BonusTargetType;
+import com.crm.entity.enums.LeaveStatus;
+import com.crm.entity.enums.SubstitutionStatus;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.CodedException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.BonusPenaltyRepository;
+import com.crm.repository.LeaveRepository;
+import com.crm.repository.LessonSubstitutionRepository;
 import com.crm.repository.SalaryRuleRepository;
 import com.crm.repository.TeacherRepository;
 import com.crm.repository.UserRepository;
@@ -64,7 +72,9 @@ import java.util.TreeSet;
  *
  * <p><b>Deterministik:</b> faqat tarixiy ma'lumot — {@code billing_periods.teacher_id/paid_on},
  * {@code LESSON_CHARGE.teacher_id}, ledger kreditlari, to'lov sanasi, {@code attributed_user_id},
- * bonus sanasi. Hozirgi {@code group.teacher}, {@code student.status} va "bugun" ishlatilmaydi.
+ * bonus sanasi, APPROVED ta'til ({@code LEAVE_DEDUCTION}) va CONDUCTED o'rinbosar darslari
+ * ({@code SUBSTITUTE_LESSONS}, leaves-exams-contracts §3). Hozirgi {@code group.teacher}, {@code student.status}
+ * va "bugun" ishlatilmaydi.
  *
  * <p>Hech narsa yozmaydi: natija {@link SalaryCalculationDto} + {@link PayrollCalculationDetails}.
  */
@@ -92,6 +102,9 @@ public class SalaryCalculationService {
     private final PayrollProperties properties;
     private final EntityManager em;
     private final ObjectMapper objectMapper;
+    private final LeaveRepository leaveRepository;
+    private final LessonSubstitutionRepository substitutionRepository;
+    private final WorkdayCalendar workdayCalendar;
 
     @Transactional(readOnly = true)
     public List<SalaryCalculationDto> calculateAll(int month, int year) {
@@ -224,7 +237,7 @@ public class SalaryCalculationService {
         BigDecimal bp = addBonusLines(lines, bonuses, status);
         Items old = base.items();
         Items items = new Items(old.paidPeriods(), old.lessonEnrollments(), old.newStudents(), old.kpi(),
-            toBonusItems(bonuses, status));
+            toBonusItems(bonuses, status), old.leaves(), old.substitutions());
         return new PayrollCalculationDetails(base.version(), base.month(), base.year(), base.role(), base.estimated(),
             base.rule(), lines, base.gross(), bp, base.gross().add(bp), items);
     }
@@ -261,20 +274,41 @@ public class SalaryCalculationService {
         BigDecimal fixed = nz(rule.getFixedSalary());
         BigDecimal perPaying = nz(rule.getPerPayingStudent());
         BigDecimal perStudentAmount = Money.uzs(perPaying.multiply(unitsExact));
-        BigDecimal gross = fixed.add(perStudentAmount);
+
+        // O'rinbosar darslari (leaves-exams-contracts §3.2): stavka yo'q bo'lsa jimgina 0 emas — hisoblanmaydi
+        List<LessonSubstitution> conducted = substitutionRepository.findBySubstituteAndStatus(
+            teacher.getId(), SubstitutionStatus.CONDUCTED, from, to);
+        BigDecimal substituteRate = substituteRate(rule, user, to);
+        if (!conducted.isEmpty() && substituteRate == null) {
+            return notCalculable(user, month, year, "SUBSTITUTE_RATE_MISSING",
+                "O'rinbosar dars stavkasi belgilanmagan (oylik qoidasi: substituteLessonRate) — "
+                    + conducted.size() + " ta o'tilgan dars");
+        }
+        BigDecimal substituteAmount = conducted.isEmpty() ? BigDecimal.ZERO
+            : Money.uzs(substituteRate.multiply(BigDecimal.valueOf(conducted.size())));
+        LeaveCalc leave = leaveDeduction(user, fixed, from, to);
+        BigDecimal gross = fixed.add(perStudentAmount).subtract(leave.amount()).add(substituteAmount);
 
         List<Line> lines = new ArrayList<>();
         lines.add(new Line(PayrollCalculationDetails.FIXED, "Belgilangan oylik", fixed, BigDecimal.ONE, fixed, null));
         lines.add(new Line(PayrollCalculationDetails.PER_PAYING_STUDENT, "To'lagan o'quvchi",
             perPaying, units, perStudentAmount, null));
+        if (leave.line() != null) {
+            lines.add(leave.line());
+        }
+        if (!conducted.isEmpty()) {
+            lines.add(new Line(PayrollCalculationDetails.SUBSTITUTE_LESSONS, "O'rinbosar darslari",
+                substituteRate, BigDecimal.valueOf(conducted.size()), substituteAmount, null));
+        }
         List<BonusPenalty> bonuses = pendingBonuses(user, to);
         String status = BonusPenaltyStatus.PENDING.name();
         BigDecimal bp = addBonusLines(lines, bonuses, status);
 
         PayrollCalculationDetails details = new PayrollCalculationDetails(
             PayrollCalculationDetails.VERSION, month, year, UserRole.TEACHER.name(), estimated(month, year),
-            snapshot(rule), lines, gross, bp, gross.add(bp),
-            new Items(paid, lessons, List.of(), null, toBonusItems(bonuses, status)));
+            snapshot(rule, substituteRate), lines, gross, bp, gross.add(bp),
+            new Items(paid, lessons, List.of(), null, toBonusItems(bonuses, status), leave.items(),
+                toSubstitutionItems(conducted)));
 
         return SalaryCalculationDto.builder()
             .userId(user.getId()).fullName(fullName(user)).role(UserRole.TEACHER.name())
@@ -285,12 +319,79 @@ public class SalaryCalculationService {
             .perStudentAmount(perStudentAmount)
             .newStudentCount(0).newStudentAmount(BigDecimal.ZERO)
             .kpiApplied(false).kpiAmount(BigDecimal.ZERO)
+            .leaveDeduction(leave.amount())
+            .unpaidLeaveDays(leave.unpaidDays())
+            .substituteLessonCount(conducted.size())
+            .substituteAmount(substituteAmount)
             .grossAmount(gross)
             .bonusPenaltyAdjustment(bp)
             .totalAmount(details.net())
             .calculable(true)
             .calculationDetails(details)
             .build();
+    }
+
+    // ── Ta'til va o'rinbosar (leaves-exams-contracts §3) ────────────────
+
+    /** {@code amount} — musbat ayirma (qatorda manfiy); {@code line} — haqsiz ish kuni bo'lmasa null. */
+    private record LeaveCalc(Line line, BigDecimal amount, int unpaidDays, List<LeaveItem> items) {
+    }
+
+    /**
+     * §3.1 (buyurtmachi qarori): {@code LEAVE_DEDUCTION = −uzs(fixed × haqsiz ish kunlari / oydagi ish kunlari)},
+     * ish kuni — Du–Sha, bayram emas. Faqat belgilangan qismdan, {@code |ayirma| ≤ fixed} (butun oy — aynan fixed).
+     * Manba — APPROVED ta'til (bekor qilish APPROVED/PAID oylikda 409 — determinizm). Haqli ta'til faqat
+     * {@code items.leaves} da ko'rinadi.
+     */
+    private LeaveCalc leaveDeduction(User user, BigDecimal fixed, LocalDate from, LocalDate to) {
+        List<Leave> leaves = leaveRepository.findOverlapping(user.getId(), from, to, Set.of(LeaveStatus.APPROVED), -1L);
+        if (leaves.isEmpty()) {
+            return new LeaveCalc(null, BigDecimal.ZERO, 0, List.of());
+        }
+        Set<LocalDate> holidays = workdayCalendar.holidays(from, to);
+        int monthWorkdays = WorkdayCalendar.count(from, to, holidays);
+        int unpaid = 0;
+        List<LeaveItem> items = new ArrayList<>();
+        for (Leave l : leaves) {
+            LocalDate f = l.getFromDate().isBefore(from) ? from : l.getFromDate();
+            LocalDate t = l.getToDate().isAfter(to) ? to : l.getToDate();
+            int workdays = WorkdayCalendar.count(f, t, holidays);
+            boolean paid = !Boolean.FALSE.equals(l.getPaid());
+            items.add(new LeaveItem(l.getId(), l.getFromDate(), l.getToDate(), l.getLeaveType().name(), paid, workdays));
+            if (!paid) {
+                unpaid += workdays;
+            }
+        }
+        if (unpaid == 0 || monthWorkdays == 0) {
+            return new LeaveCalc(null, BigDecimal.ZERO, 0, items);
+        }
+        BigDecimal amount = unpaid >= monthWorkdays ? fixed : Money.proportion(fixed, unpaid, monthWorkdays).min(fixed);
+        BigDecimal dailyRate = Money.uzs(Money.divide(fixed, BigDecimal.valueOf(monthWorkdays)));
+        Line line = new Line(PayrollCalculationDetails.LEAVE_DEDUCTION, "Haqsiz ta'til", dailyRate,
+            BigDecimal.valueOf(unpaid), amount.negate(), null);
+        return new LeaveCalc(line, amount, unpaid, items);
+    }
+
+    /** O'rinbosar dars stavkasi: shaxsiy qoida → rol qoidasi (§3.3); ikkalasida ham yo'q — null. */
+    private BigDecimal substituteRate(SalaryRule rule, User user, LocalDate asOf) {
+        if (rule.getSubstituteLessonRate() != null) {
+            return rule.getSubstituteLessonRate();
+        }
+        if (rule.getUser() != null && user.getRole() != null) {
+            return salaryRuleRepository.findActiveRoleRules(user.getRole(), asOf).stream()
+                .map(SalaryRule::getSubstituteLessonRate)
+                .filter(java.util.Objects::nonNull)
+                .findFirst().orElse(null);
+        }
+        return null;
+    }
+
+    private static List<SubstitutionItem> toSubstitutionItems(List<LessonSubstitution> conducted) {
+        return conducted.stream()
+            .map(s -> new SubstitutionItem(s.getId(), s.getGroup().getId(), s.getGroup().getGroupName(),
+                s.getLessonDate(), s.getOriginalTeacher().getId(),
+                LessonSubstitutionService.teacherName(s.getOriginalTeacher()), s.getConductedAt()))
+            .toList();
     }
 
     /**
@@ -403,15 +504,19 @@ public class SalaryCalculationService {
             lines.add(new Line(PayrollCalculationDetails.KPI, "KPI bonusi", nz(rule.getKpiBonus()),
                 applied ? BigDecimal.ONE : BigDecimal.ZERO, kpiAmount, null));
         }
-        BigDecimal gross = fixed.add(newAmount).add(kpiAmount);
+        LeaveCalc leave = leaveDeduction(user, fixed, from, to);
+        if (leave.line() != null) {
+            lines.add(leave.line());
+        }
+        BigDecimal gross = fixed.add(newAmount).add(kpiAmount).subtract(leave.amount());
         List<BonusPenalty> bonuses = pendingBonuses(user, to);
         String status = BonusPenaltyStatus.PENDING.name();
         BigDecimal bp = addBonusLines(lines, bonuses, status);
 
         PayrollCalculationDetails details = new PayrollCalculationDetails(
             PayrollCalculationDetails.VERSION, month, year, user.getRole().name(), estimated(month, year),
-            snapshot(rule), lines, gross, bp, gross.add(bp),
-            new Items(List.of(), List.of(), newStudents, kpi, toBonusItems(bonuses, status)));
+            snapshot(rule, null), lines, gross, bp, gross.add(bp),
+            new Items(List.of(), List.of(), newStudents, kpi, toBonusItems(bonuses, status), leave.items(), List.of()));
 
         return SalaryCalculationDto.builder()
             .userId(user.getId()).fullName(fullName(user)).role(user.getRole().name())
@@ -419,6 +524,8 @@ public class SalaryCalculationService {
             .baseSalary(fixed)
             .newStudentCount(newStudents.size()).newStudentAmount(newAmount)
             .kpiApplied(kpi != null && kpi.applied()).kpiAmount(kpiAmount)
+            .leaveDeduction(leave.amount())
+            .unpaidLeaveDays(leave.unpaidDays())
             .totalActiveStudents(active)
             .grossAmount(gross)
             .bonusPenaltyAdjustment(bp)
@@ -607,11 +714,12 @@ public class SalaryCalculationService {
             .toList();
     }
 
-    private static RuleSnapshot snapshot(SalaryRule r) {
+    /** {@code substituteRate} — hisobda ishlatilgan (shaxsiy yoki rol qoidasidan) o'rinbosar stavkasi. */
+    private static RuleSnapshot snapshot(SalaryRule r, BigDecimal substituteRate) {
         return new RuleSnapshot(r.getId(), r.getUser() != null ? "PERSONAL" : "ROLE",
             r.getRole() != null ? r.getRole().name() : null, r.getEffectiveFrom(), r.getEffectiveTo(),
             nz(r.getFixedSalary()), nz(r.getPerPayingStudent()), nz(r.getPerNewStudent()),
-            r.getKpiThreshold(), nz(r.getKpiBonus()));
+            r.getKpiThreshold(), nz(r.getKpiBonus()), substituteRate);
     }
 
     /**

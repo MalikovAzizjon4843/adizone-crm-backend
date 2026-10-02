@@ -40,16 +40,18 @@ DO $$
 DECLARE
     dup TEXT;
 BEGIN
+    -- To'liq (V27/V58) yoki qisman (V62: status <> 'CANCELLED') — ikkalasi ham yetarli. V62 dan keyin
+    -- V58 qayta bajarilsa to'liq UNIQUE QAYTA YARATILMAYDI (bekor qilingandan keyin qayta yozilish ishlasin).
     IF EXISTS (
         SELECT 1
           FROM pg_index i
-         WHERE i.indrelid = 'exam_registrations'::regclass AND i.indisunique AND i.indpred IS NULL
+         WHERE i.indrelid = 'exam_registrations'::regclass AND i.indisunique
            AND (SELECT array_agg(a.attname::text ORDER BY a.attname)
                   FROM pg_attribute a
                  WHERE a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey))
                = ARRAY['exam_id', 'student_id']
     ) THEN
-        RETURN;  -- V27 yoki oldingi V58 allaqachon yaratgan
+        RETURN;  -- V27, oldingi V58 yoki V62 allaqachon yaratgan
     END IF;
 
     SELECT string_agg(exam_id || '/' || student_id, ', ')

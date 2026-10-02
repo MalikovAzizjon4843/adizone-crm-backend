@@ -53,7 +53,8 @@ public class BillingFixtures {
         "holidays", "lesson_exceptions", "director_daily_stats", "director_digest_log",
         "payroll", "salary_rules",
         "exam_results", "exam_registrations", "exams", "contracts", "contract_templates",
-        "contract_number_counters", "notice_reads", "notice_target_roles", "notices");
+        "contract_number_counters", "notice_reads", "notice_target_roles", "notices",
+        "lesson_substitutions", "leave_requests", "attendance_unlock_requests");
 
     private final CourseRepository courseRepository;
     private final GroupRepository groupRepository;

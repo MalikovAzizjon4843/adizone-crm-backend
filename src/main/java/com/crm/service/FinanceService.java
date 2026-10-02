@@ -37,6 +37,7 @@ public class FinanceService {
     private final UserRepository userRepository;
     private final CashRegisterService cashRegisterService;
     private final PayrollRepository payrollRepository;
+    private final com.crm.repository.CashTransactionRepository cashTransactionRepository;
 
     @Transactional(readOnly = true)
     public List<ExpenseResponse> getExpenses(LocalDate from, LocalDate to) {
@@ -172,12 +173,18 @@ public class FinanceService {
             payrollPaid = payrollPaid.add(sum);
         }
 
+        // Imtihon to'lovlari (leaves-exams-contracts §4.2): o'quvchi to'lovi emas — totalIncome ga kirmaydi,
+        // lekin markaz daromadi: netProfit ga qo'shiladi. Kirim − bekor qilinganlarning REVERSAL i.
+        BigDecimal examFees = Optional.ofNullable(cashTransactionRepository.sumExamFees(start, end))
+            .orElse(BigDecimal.ZERO);
+
         return FinanceReportResponse.builder()
             .totalIncome(totalIncome)
+            .examFees(examFees)
             .totalExpenses(totalExpenses)
             .payrollPaid(payrollPaid)
             .payrollByRole(payrollByRole)
-            .netProfit(totalIncome.subtract(totalExpenses).subtract(payrollPaid))
+            .netProfit(totalIncome.add(examFees).subtract(totalExpenses).subtract(payrollPaid))
             .incomeByCategory(incomeByCategory)
             .expenseByCategory(expenseByCategory)
             .period(start + " to " + end)

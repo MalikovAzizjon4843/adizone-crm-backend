@@ -26,6 +26,7 @@ public class ExamResponse {
     private BigDecimal totalMarks;
     private BigDecimal passMarks;
     private String academicYear;
+    private BigDecimal fee;
     private Boolean isActive;
     private LocalDateTime createdAt;
 }

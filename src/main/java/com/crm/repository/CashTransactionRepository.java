@@ -27,4 +27,17 @@ public interface CashTransactionRepository extends JpaRepository<CashTransaction
         @Param("cashRegisterId") Long cashRegisterId,
         @Param("notePattern") String notePattern
     );
+
+    /**
+     * Imtihon to'lovlari (leaves-exams-contracts §4.2): kirim − teskari yozuvlar, sana oralig'ida.
+     * Moliya hisobotida alohida qator {@code examFees}.
+     */
+    @Query("""
+        SELECT COALESCE(SUM(CASE WHEN t.type = com.crm.entity.enums.CashTransactionType.INCOME THEN t.amount
+                                 WHEN t.type = com.crm.entity.enums.CashTransactionType.REVERSAL THEN -t.amount
+                                 ELSE 0 END), 0)
+        FROM CashTransaction t
+        WHERE t.examRegistrationId IS NOT NULL AND t.transactionDate BETWEEN :from AND :to
+        """)
+    java.math.BigDecimal sumExamFees(@Param("from") java.time.LocalDate from, @Param("to") java.time.LocalDate to);
 }

@@ -25,6 +25,7 @@ public class SalaryRuleResponse {
     private BigDecimal perNewStudent;
     private Integer kpiThreshold;
     private BigDecimal kpiBonus;
+    private BigDecimal substituteLessonRate;
     private Boolean isActive;
     private LocalDate effectiveFrom;
     private LocalDate effectiveTo;

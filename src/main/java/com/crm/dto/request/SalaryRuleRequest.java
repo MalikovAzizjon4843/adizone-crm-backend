@@ -48,6 +48,10 @@ public class SalaryRuleRequest {
     @DecimalMin(value = "0", message = "{salaryRule.amount.min}")
     private BigDecimal kpiBonus;
 
+    /** TEACHER: bir o'tilgan o'rinbosar darsi uchun (leaves-exams-contracts §3.3); null — rol qoidasidan. */
+    @DecimalMin(value = "0", message = "{salaryRule.amount.min}")
+    private BigDecimal substituteLessonRate;
+
     private Boolean isActive;
 
     private LocalDate effectiveFrom;

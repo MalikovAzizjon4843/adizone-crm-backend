@@ -23,6 +23,9 @@ app:
   billing:
     # Testlar soatni o'zi boshqaradi — startup accrual aralashmasin.
     startup-catch-up: false
+  contracts:
+    # Muzlatilgan shartnoma PDF lari (ContractPdfService) — test artefaktlari target/ ichida qoladi.
+    pdf-dir: target/test-uploads/contracts
 
 meta:
   enabled: false

@@ -31,6 +31,8 @@ public class CashTransactionDto {
     private Long paymentId;
     /** Oylik to'"'"'lovi (chiqim va uning REVERSAL i). */
     private Long payrollId;
+    /** Imtihon to'lovi (kirim va uning REVERSAL i). */
+    private Long examRegistrationId;
     /** REVERSAL → asl yozuv; TRANSFER kirim qatori → chiqim qatori. */
     private Long relatedTxId;
     /** Faqat CASH_AND_CARD uchun to'ldiriladi. */

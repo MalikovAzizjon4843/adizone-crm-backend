@@ -36,6 +36,13 @@ public class SalaryCalculationDto {
     /** ADMIN: oy oxirida hisob davri bor o'quvchilar (§2.3). */
     private Integer totalActiveStudents;
     private BigDecimal grossAmount;
+    /** Haqsiz ta'til ayirmasi (musbat summa; qatorda manfiy) — leaves-exams-contracts §3.1. */
+    private BigDecimal leaveDeduction;
+    /** Haqsiz ta'tilning shu oydagi ish kunlari (Du–Sha, bayramsiz). */
+    private Integer unpaidLeaveDays;
+    /** O'rinbosar sifatida o'tilgan (CONDUCTED) darslar va ularning haqi (§3.2). */
+    private Integer substituteLessonCount;
+    private BigDecimal substituteAmount;
     private BigDecimal bonusPenaltyAdjustment;
     /** net = gross + bonusPenaltyAdjustment. */
     private BigDecimal totalAmount;

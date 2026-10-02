@@ -37,6 +37,7 @@ public class LessonCalendarService {
     private final UserRepository userRepository;
     private final TeacherAccessService teacherAccessService;
     private final DirectorDashboardService dashboardService;
+    private final com.crm.service.LessonSubstitutionService lessonSubstitutionService;
     private final Clock billingClock;
 
     public record HolidayRequest(LocalDate date, String name) {
@@ -104,6 +105,10 @@ public class LessonCalendarService {
             .movedTo(r.kind() == LessonException.Kind.MOVED ? r.movedTo() : null)
             .reason(r.reason() != null ? r.reason().trim() : null)
             .createdBy(currentUserId()).createdAt(LocalDateTime.now(billingClock)).build());
+        if (r.kind() == LessonException.Kind.CANCELLED || r.kind() == LessonException.Kind.MOVED) {
+            // Dars o'tilmaydi — o'tilmagan "darsni X o'tdi" belgisi ham bekor (leaves-exams-contracts §2.3)
+            lessonSubstitutionService.onLessonRemoved(groupId, r.lessonDate());
+        }
         dashboardService.invalidate();
         return e;
     }

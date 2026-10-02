@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V60 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V63 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V60 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V63 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
 --   4. CHECK cheklovlari (enum CHECK lar EnumCheckConstraintCleaner tomonidan o'chiriladi)
@@ -21,9 +21,10 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V60 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V63 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
+-- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
 -- Nomi bo'yicha tekshiriladi; boshqa nom bilan yaratilgan ekvivalent (masalan Hibernate uk_*)
 -- 2-bo'limda ustunlar bo'yicha tekshiriladi.
 -- Natija: har migratsiya bo'yicha bor / jami va YO'Q bo'laklar ro'yxati
@@ -245,11 +246,58 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V58', 'column', 'users', 'token_version'),
     ('V58', 'index', 'exam_registrations', 'idx_exam_registrations_exam'),
     ('V58', 'index', 'exam_registrations', 'idx_exam_registrations_student'),
-    ('V58', 'index', 'exam_registrations', 'ux_exam_registrations_exam_student'),
     ('V58', 'sequence', NULL, 'contract_number_seq'),
     ('V59', 'table', 'contract_number_counters', NULL),
     ('V60', 'table', 'notice_target_roles', NULL),
-    ('V60', 'index', 'notice_target_roles', 'idx_notice_target_roles_role')
+    ('V60', 'index', 'notice_target_roles', 'idx_notice_target_roles_role'),
+    ('V61', 'column', 'leave_requests', 'user_id'),
+    ('V61', 'column', 'leave_requests', 'paid'),
+    ('V61', 'column', 'leave_requests', 'decided_by'),
+    ('V61', 'column', 'leave_requests', 'decided_at'),
+    ('V61', 'column', 'leave_requests', 'decision_note'),
+    ('V61', 'column', 'leave_requests', 'cancelled_by'),
+    ('V61', 'column', 'leave_requests', 'cancelled_at'),
+    ('V61', 'column', 'salary_rules', 'substitute_lesson_rate'),
+    ('V61', 'constraint', 'leave_requests', 'ck_leave_requests_dates'),
+    ('V61', 'constraint', 'leave_requests', 'ck_leave_requests_paid'),
+    ('V61', 'constraint', 'lesson_substitutions', 'ck_lesson_substitutions_teachers'),
+    ('V61', 'constraint', 'salary_rules', 'ck_salary_rules_substitute_rate'),
+    ('V61', 'index', 'leave_requests', 'idx_leave_requests_user'),
+    ('V61', 'index', 'leave_requests', 'idx_leave_requests_teacher'),
+    ('V61', 'index', 'lesson_substitutions', 'ux_lesson_substitutions_active'),
+    ('V61', 'index', 'lesson_substitutions', 'idx_lesson_substitutions_substitute'),
+    ('V61', 'index', 'lesson_substitutions', 'idx_lesson_substitutions_original'),
+    ('V61', 'index', 'lesson_substitutions', 'idx_lesson_substitutions_leave'),
+    ('V61', 'table', 'lesson_substitutions', NULL),
+    ('V62', 'column', 'exams', 'fee'),
+    ('V62', 'column', 'exam_registrations', 'cash_transaction_id'),
+    ('V62', 'column', 'exam_registrations', 'refund_cash_transaction_id'),
+    ('V62', 'column', 'exam_registrations', 'receipt_number'),
+    ('V62', 'column', 'exam_registrations', 'idempotency_key'),
+    ('V62', 'column', 'exam_registrations', 'cancelled_at'),
+    ('V62', 'column', 'exam_registrations', 'cancelled_by'),
+    ('V62', 'column', 'exam_registrations', 'cancel_reason'),
+    ('V62', 'column', 'exam_registrations', 'created_by'),
+    ('V62', 'column', 'cash_transactions', 'exam_registration_id'),
+    ('V62', 'constraint', 'exams', 'ck_exams_fee_nonnegative'),
+    ('V62', 'index', 'exam_registrations', 'ux_exam_registrations_active'),
+    ('V62', 'index', 'cash_transactions', 'idx_cash_transactions_exam_registration'),
+    ('V63', 'table', 'settings', NULL),
+    ('V63', 'column', 'contracts', 'student_group_id'),
+    ('V63', 'column', 'contracts', 'payment_type'),
+    ('V63', 'column', 'contracts', 'list_price'),
+    ('V63', 'column', 'contracts', 'discount_percent'),
+    ('V63', 'column', 'contracts', 'discount_amount'),
+    ('V63', 'column', 'contracts', 'final_amount'),
+    ('V63', 'column', 'contracts', 'start_date'),
+    ('V63', 'column', 'contracts', 'signed_at'),
+    ('V63', 'column', 'contracts', 'signed_by'),
+    ('V63', 'column', 'contracts', 'cancelled_at'),
+    ('V63', 'column', 'contracts', 'cancelled_by'),
+    ('V63', 'column', 'contracts', 'cancel_reason'),
+    ('V63', 'column', 'contracts', 'pdf_file'),
+    ('V63', 'column', 'contracts', 'pdf_sha256'),
+    ('V63', 'index', 'contracts', 'idx_contracts_student_group')
 ), checked AS (
     SELECT w.*,
            CASE w.kind
@@ -290,9 +338,16 @@ WITH phase5_uniq AS (
       JOIN pg_class t ON t.oid = i.indrelid AND t.relnamespace = 'public'::regnamespace
      WHERE i.indisunique AND NOT i.indisprimary
 )
-SELECT 'V27/V58 exam_registrations UNIQUE(exam_id, student_id)' AS invariant,
+SELECT 'V62 exam_registrations UNIQUE(exam_id, student_id) qisman (CANCELLED dan tashqari)' AS invariant,
        EXISTS (SELECT 1 FROM phase5_uniq WHERE tbl = 'exam_registrations'
-                 AND cols = ARRAY['exam_id','student_id'] AND NOT partial) AS bajarilgan
+                 AND cols = ARRAY['exam_id','student_id'] AND partial) AS bajarilgan
+UNION ALL
+SELECT 'V62 exam_registrations: eski TO''LIQ UNIQUE(exam_id, student_id) qolmagan (V27/V58)',
+       NOT EXISTS (SELECT 1 FROM phase5_uniq WHERE tbl = 'exam_registrations'
+                     AND cols = ARRAY['exam_id','student_id'] AND NOT partial)
+UNION ALL
+SELECT 'V62 exam_registrations UNIQUE(idempotency_key)',
+       EXISTS (SELECT 1 FROM phase5_uniq WHERE tbl = 'exam_registrations' AND cols = ARRAY['idempotency_key'])
 UNION ALL
 SELECT 'V41 notice_reads UNIQUE(notice_id, user_id)',
        EXISTS (SELECT 1 FROM phase5_uniq WHERE tbl = 'notice_reads'
@@ -334,7 +389,34 @@ SELECT 'V58 users.token_version NOT NULL DEFAULT 0',
                   AND column_default = '0')
 UNION ALL
 SELECT 'V58 contract_number_seq mavjud',
-       to_regclass('public.contract_number_seq') IS NOT NULL;
+       to_regclass('public.contract_number_seq') IS NOT NULL
+UNION ALL
+SELECT 'V61 leave_requests.user_id NOT NULL (backfill tugagan)',
+       EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'leave_requests'
+                  AND column_name = 'user_id' AND is_nullable = 'NO')
+UNION ALL
+SELECT 'V61 lesson_substitutions UNIQUE(group_id, lesson_date) qisman',
+       EXISTS (SELECT 1 FROM phase5_uniq WHERE tbl = 'lesson_substitutions'
+                 AND cols = ARRAY['group_id','lesson_date'] AND partial)
+UNION ALL
+SELECT 'V61 ta''til kesishuvi EXCLUDE (ixtiyoriy, btree_gist)',
+       EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ex_leave_requests_overlap')
+UNION ALL
+SELECT 'V62 exams.fee NOT NULL DEFAULT 0',
+       EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'exams'
+                  AND column_name = 'fee' AND is_nullable = 'NO' AND column_default = '0')
+UNION ALL
+SELECT 'V63 settings UNIQUE(setting_key)',
+       EXISTS (SELECT 1 FROM phase5_uniq WHERE tbl = 'settings' AND cols = ARRAY['setting_key'])
+UNION ALL
+-- settings jadvali V63 dan oldin bo'lmasligi mumkin — so'rov dinamik (yo'q jadvalga murojaat skriptni to'xtatmasin)
+SELECT 'V63 center.* rekvizitlari (13 kalit)',
+       CASE WHEN to_regclass('public.settings') IS NULL THEN FALSE
+            ELSE (xpath('/row/n/text()', query_to_xml(
+                     'SELECT COUNT(*) AS n FROM settings WHERE setting_key LIKE ''center.%''', false, true, '')))[1]::text::int = 13
+       END;
 
 -- V58: sequence mavjud CTR-YYYY-NNNNN raqamlaridan oldindami (sequence bo'lsa)
 SELECT 'contract_number_seq' AS sequence,

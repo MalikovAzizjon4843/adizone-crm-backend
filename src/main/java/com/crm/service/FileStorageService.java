@@ -225,7 +225,14 @@ public class FileStorageService {
         return URL_PREFIX + filename;
     }
 
+    /**
+     * Faqat yuklash katalogining o'zidagi fayl (pastki katalog yo'q): masalan muzlatilgan shartnoma
+     * PDF lari ({@code contracts/}) ochiq {@code GET /api/files/**} orqali berilmaydi (§6.3).
+     */
     public Path resolveSafePath(String filename) throws IOException {
+        if (filename == null || filename.contains("/") || filename.contains("\\")) {
+            return null;
+        }
         Path uploadPath = Paths.get(uploadDir).toAbsolutePath().normalize();
         Path filePath = uploadPath.resolve(filename).normalize();
         if (!filePath.startsWith(uploadPath)) {

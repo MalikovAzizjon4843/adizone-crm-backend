@@ -471,9 +471,12 @@ public class PayrollService {
         PayrollCalculationDetails d = calc.getCalculationDetails();
         p.setTeacher(teacherRepository.findByUser_Id(p.getUser().getId()).orElse(null));
         BigDecimal fixed = nz(calc.getBaseSalary());
+        // leaves-exams-contracts §3.2: deductions = |LEAVE_DEDUCTION|; allowances — o'zgaruvchan qism va
+        // SUBSTITUTE_LESSONS (gross = FIXED + allowances − deductions, Σ lines = net)
+        BigDecimal leave = nz(calc.getLeaveDeduction());
         p.setBasicSalary(fixed);
-        p.setAllowances(d.gross().subtract(fixed));
-        p.setDeductions(BigDecimal.ZERO);
+        p.setAllowances(d.gross().subtract(fixed).add(leave));
+        p.setDeductions(leave);
         p.setBonusPenaltyAdjustment(d.bonusPenalty());
         p.setNetSalary(d.net());
         p.setPaidStudentCount(calc.getPaidStudentCount());

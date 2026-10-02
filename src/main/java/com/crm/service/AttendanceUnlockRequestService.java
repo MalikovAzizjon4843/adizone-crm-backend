@@ -36,6 +36,7 @@ public class AttendanceUnlockRequestService {
     private final UserRepository userRepository;
     private final BonusPenaltyService bonusPenaltyService;
     private final TeacherAccessService teacherAccessService;
+    private final AttendanceAccessService attendanceAccessService;
 
     /**
      * APPROVED ruxsat {@code reviewedAt} dan shuncha soat amal qiladi. Undan keyin o'qituvchi
@@ -83,7 +84,8 @@ public class AttendanceUnlockRequestService {
         Group group = groupRepository.findById(dto.getGroupId())
             .orElseThrow(() -> new ResourceNotFoundException("Group", dto.getGroupId()));
 
-        teacherAccessService.assertOwnsGroup(group);
+        // Guruh o'qituvchisi yoki shu kungi o'rinbosar (leaves-exams-contracts §2.3)
+        attendanceAccessService.assertCanMark(group, dto.getAttendanceDate());
 
         boolean existsPending = attendanceUnlockRequestRepository.existsByTeacherIdAndGroupIdAndAttendanceDateAndStatus(
             teacher.getId(), group.getId(), dto.getAttendanceDate(), UnlockRequestStatus.PENDING

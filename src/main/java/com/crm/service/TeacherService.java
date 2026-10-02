@@ -67,6 +67,8 @@ public class TeacherService {
     private final PayrollRepository payrollRepository;
     private final AttendanceRepository attendanceRepository;
     private final TeacherKpiService teacherKpiService;
+    private final com.crm.repository.LessonSubstitutionRepository lessonSubstitutionRepository;
+    private final GroupScheduleService groupScheduleService;
 
     @Transactional(readOnly = true)
     public List<TeacherResponse> getAllTeachers(boolean activeOnly) {
@@ -281,9 +283,15 @@ public class TeacherService {
             return gm;
         }).collect(Collectors.toList()));
 
-        String todayDay = java.time.LocalDate.now().getDayOfWeek().toString();
+        java.time.LocalDate today = java.time.LocalDate.now();
+        String todayDay = today.getDayOfWeek().toString();
         List<Map<String, Object>> todayLessons = new ArrayList<>();
         for (Group g : myGroups) {
+            // Bugungi darsni boshqa o'qituvchi o'tadi ("darsni X o'tdi", leaves-exams-contracts §2.2) — ko'rsatilmaydi
+            if (lessonSubstitutionRepository.findActive(g.getId(), today)
+                    .filter(s -> !s.getSubstituteTeacher().getId().equals(teacher.getId())).isPresent()) {
+                continue;
+            }
             for (GroupScheduleDay d : groupScheduleDayRepository
                     .findByGroup_IdOrderByDayOfWeekAsc(g.getId())) {
                 if (d.getDayOfWeek() == null
@@ -300,6 +308,24 @@ public class TeacherService {
                     studentGroupRepository.countByGroup_IdAndIsActiveTrue(g.getId()));
                 todayLessons.add(lesson);
             }
+        }
+        // O'rinbosar sifatidagi bugungi darslar
+        for (com.crm.entity.LessonSubstitution s : lessonSubstitutionRepository.findBySubstitute(
+                teacher.getId(), today, today, com.crm.entity.enums.SubstitutionStatus.CANCELLED)) {
+            Group g = s.getGroup();
+            GroupScheduleService.LessonSlot slot = groupScheduleService.slotOn(g.getId(), today).orElse(null);
+            Map<String, Object> lesson = new LinkedHashMap<>();
+            lesson.put("groupId", g.getId());
+            lesson.put("groupName", g.getGroupName());
+            lesson.put("startTime", slot != null && slot.startTime() != null ? slot.startTime() : "");
+            lesson.put("endTime", slot != null && slot.endTime() != null ? slot.endTime() : "");
+            lesson.put("roomNumber", slot != null && slot.room() != null ? slot.room().getRoomNumber() : "");
+            lesson.put("studentCount", studentGroupRepository.countByGroup_IdAndIsActiveTrue(g.getId()));
+            lesson.put("substitute", true);
+            lesson.put("substitutionId", s.getId());
+            lesson.put("originalTeacherName", g.getTeacher() != null
+                ? (g.getTeacher().getFirstName() + " " + g.getTeacher().getLastName()).trim() : null);
+            todayLessons.add(lesson);
         }
         todayLessons.sort((a, b) -> String.valueOf(a.get("startTime"))
             .compareTo(String.valueOf(b.get("startTime"))));

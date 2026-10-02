@@ -135,6 +135,14 @@
             <artifactId>opencsv</artifactId>
             <version>5.9</version>
         </dependency>
+        <!-- Shartnoma PDF (docs/design/leaves-exams-contracts.md §6.3): XHTML/CSS → PDF, PDFBox 3 ustida.
+             LGPL-2.1+. Asl loyiha arxivlangan — community fork io.github.openhtmltopdf. Shriftlar —
+             src/main/resources/fonts (Noto, SIL OFL 1.1). -->
+        <dependency>
+            <groupId>io.github.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+            <version>1.1.87</version>
+        </dependency>
     </dependencies>
 
     <build>

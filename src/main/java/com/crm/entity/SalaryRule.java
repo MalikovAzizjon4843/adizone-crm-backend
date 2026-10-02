@@ -49,6 +49,13 @@ public class SalaryRule {
     @Builder.Default
     private BigDecimal kpiBonus = BigDecimal.ZERO;
 
+    /**
+     * TEACHER: bir o'tilgan o'rinbosar darsi uchun qat'iy summa (leaves-exams-contracts §3.3).
+     * NULL — belgilanmagan: shaxsiy qoidada bo'lmasa rol qoidasidan olinadi.
+     */
+    @Column(name = "substitute_lesson_rate", precision = 12, scale = 2)
+    private BigDecimal substituteLessonRate;
+
     @Column(name = "is_active")
     @Builder.Default
     private Boolean isActive = true;

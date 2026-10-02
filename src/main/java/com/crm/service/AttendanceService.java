@@ -48,6 +48,8 @@ public class AttendanceService {
     private final TeacherAccessService teacherAccessService;
     private final LessonChargeService lessonChargeService;
     private final com.crm.dashboard.AttendanceSignals attendanceSignals;
+    private final AttendanceAccessService attendanceAccessService;
+    private final LessonSubstitutionService lessonSubstitutionService;
 
     @Transactional
     @Audited(action = AuditAction.UPDATE, entity = "Attendance",
@@ -57,9 +59,9 @@ public class AttendanceService {
         Group group = groupRepository.findById(request.getGroupId())
             .orElseThrow(() -> new ResourceNotFoundException("Group", request.getGroupId()));
 
-        teacherAccessService.assertOwnsGroup(group);
-
         LocalDate date = request.getDate();
+        // Guruh o'qituvchisi yoki shu kungi o'rinbosar (leaves-exams-contracts §2.3)
+        attendanceAccessService.assertCanMark(group, date);
         // "Bugun" — Asia/Tashkent (JVM default zonasi, CrmApplication.main).
         LocalDate today = LocalDate.now();
         if (date != null && date.isAfter(today)) {
@@ -176,6 +178,10 @@ public class AttendanceService {
             }
         }
 
+        if (!results.isEmpty()) {
+            // "Darsni X o'tdi" belgisi bo'lsa — dars o'tildi (CONDUCTED), shu tranzaksiyada
+            lessonSubstitutionService.onAttendanceSaved(group.getId(), date, marker);
+        }
         return results;
     }
 
@@ -301,8 +307,8 @@ public class AttendanceService {
 
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getGroupAttendance(Long groupId, LocalDate date) {
-        teacherAccessService.assertOwnsGroup(groupId);
         LocalDate d = date != null ? date : LocalDate.now();
+        attendanceAccessService.assertCanRead(groupId, d);
         List<Attendance> existing = attendanceRepository.findByGroup_IdAndAttendanceDate(groupId, d);
 
         if (!existing.isEmpty()) {

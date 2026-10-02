@@ -2,6 +2,7 @@ package com.crm.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.math.BigDecimal;
@@ -61,6 +62,15 @@ public class Exam extends BaseEntity {
 
     @Column(name = "academic_year", length = 20)
     private String academicYear;
+
+    /**
+     * Imtihon narxi (leaves-exams-contracts §4.1, D7): 0 — bepul. REGISTERED yozilish bo'lsa o'zgarmaydi
+     * (409 {@code exam.feeLocked}). DEFAULT 0 — ddl-auto mavjud qatorlarga ham qo'shadi.
+     */
+    @ColumnDefault("0")
+    @Column(name = "fee", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal fee = BigDecimal.ZERO;
 
     @Column(name = "is_active")
     @Builder.Default

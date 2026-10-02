@@ -99,6 +99,8 @@ public class SecurityConfig {
                 // POST/PUT avtomatik ravishda ommaviy bo'lib qolmasin.
                 .requestMatchers(HttpMethod.GET, "/api/settings/academic-year").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/settings/**").hasAnyRole(STAFF_ROLES)
+                // Markaz rekvizitlari — faqat SUPER_ADMIN (leaves-exams-contracts §5.2, D12)
+                .requestMatchers("/api/settings/center").hasRole("SUPER_ADMIN")
                 .requestMatchers("/api/settings/**").hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/actuator/health").permitAll()
                 // WebSocket qo'l berishi: Authorization sarlavhasi yo'q, chunki
@@ -117,6 +119,13 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT", "TEACHER")
                 .requestMatchers(HttpMethod.GET, "/api/courses/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
+                // Imtihon yozilishlari: pullik imtihon to'lovi kassaga — buxgalter ham (leaves-exams-contracts §4)
+                .requestMatchers(HttpMethod.GET, "/api/exams/*/registrations")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT", "TEACHER")
+                .requestMatchers(HttpMethod.POST, "/api/exams/*/registrations")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT", "TEACHER")
+                .requestMatchers(HttpMethod.POST, "/api/exams/*/registrations/*/cancel")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
                 .requestMatchers(HttpMethod.GET, "/api/exams/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
                 .requestMatchers(HttpMethod.GET, "/api/notices/**").hasAnyRole(STAFF_ROLES)
@@ -190,17 +199,24 @@ public class SecurityConfig {
                 .requestMatchers("/api/audit-logs", "/api/audit-logs/**")
                     .hasRole("SUPER_ADMIN")
 
-                // Ta'tillar: yuborish va o'z arizasini ko'rish — TEACHER ham
-                // (egalik LeaveService da); ro'yxatlar, tasdiqlash/rad,
-                // o'chirish — faqat ma'muriyat. /pending va /teacher/** —
-                // "/api/leaves/*" dan OLDIN, aks holda u ularni ham ochib qo'yardi.
-                .requestMatchers(HttpMethod.GET, "/api/leaves/pending", "/api/leaves/teacher/**")
+                // Ta'tillar (leaves-exams-contracts §1): ariza, o'z arizalari, bekor qilish,
+                // hisobot — barcha xodimlar (egalik LeaveService da); ro'yxat, tasdiqlash/rad,
+                // darslar — faqat ma'muriyat. /pending, /teacher/** — "/api/leaves/*" dan OLDIN,
+                // aks holda u ularni ham ochib qo'yardi.
+                .requestMatchers(HttpMethod.GET, "/api/leaves/pending", "/api/leaves/pending/**",
+                        "/api/leaves/teacher/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers(HttpMethod.GET, "/api/leaves/*", "/api/leaves/user/*")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
-                .requestMatchers(HttpMethod.POST, "/api/leaves")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
+                    .hasAnyRole(STAFF_ROLES)
+                .requestMatchers(HttpMethod.POST, "/api/leaves", "/api/leaves/*/cancel")
+                    .hasAnyRole(STAFF_ROLES)
                 .requestMatchers("/api/leaves", "/api/leaves/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                // "Darsni X o'tdi" (§2.2): ro'yxat — buxgalter ham (oylik), /my — o'qituvchi
+                .requestMatchers(HttpMethod.GET, "/api/substitutions/my").hasRole("TEACHER")
+                .requestMatchers(HttpMethod.GET, "/api/substitutions", "/api/substitutions/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                .requestMatchers("/api/substitutions", "/api/substitutions/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
                 .requestMatchers(HttpMethod.GET, "/api/students", "/api/students/**")

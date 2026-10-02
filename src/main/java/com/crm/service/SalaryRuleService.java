@@ -25,7 +25,7 @@ import java.util.Set;
 /**
  * Oylik qoidalari (faqat SUPER_ADMIN) — docs/design/payroll-v2.md §7.
  *
- * <p>Maydonlar rolga bog'liq: TEACHER — {@code fixedSalary, perPayingStudent};
+ * <p>Maydonlar rolga bog'liq: TEACHER — {@code fixedSalary, perPayingStudent, substituteLessonRate};
  * SALES_MANAGER — {@code fixedSalary, perNewStudent}; ADMIN — {@code fixedSalary, perNewStudent,
  * kpiThreshold, kpiBonus}. Rolga tegishli bo'lmagan maydon nol emas bo'lsa 400 — hisobda
  * baribir ishlatilmaydi va "saqlandi, lekin ta'sir qilmadi" holati bo'lmasin.
@@ -145,6 +145,7 @@ public class SalaryRuleService {
         rule.setPerNewStudent(nz(request.getPerNewStudent()));
         rule.setKpiThreshold(request.getKpiThreshold());
         rule.setKpiBonus(nz(request.getKpiBonus()));
+        rule.setSubstituteLessonRate(role == UserRole.TEACHER ? request.getSubstituteLessonRate() : null);
         rule.setIsActive(request.getIsActive() == null || request.getIsActive());
         if (request.getEffectiveFrom() != null && request.getEffectiveTo() != null
                 && request.getEffectiveTo().isBefore(request.getEffectiveFrom())) {
@@ -161,6 +162,9 @@ public class SalaryRuleService {
         }
         if (role == UserRole.TEACHER && positive(r.getPerNewStudent())) {
             wrong.add("perNewStudent");
+        }
+        if (role != UserRole.TEACHER && positive(r.getSubstituteLessonRate())) {
+            wrong.add("substituteLessonRate");
         }
         if (role != UserRole.ADMIN) {
             if (r.getKpiThreshold() != null && r.getKpiThreshold() > 0) {
@@ -189,6 +193,7 @@ public class SalaryRuleService {
             .perNewStudent(r.getPerNewStudent())
             .kpiThreshold(r.getKpiThreshold())
             .kpiBonus(r.getKpiBonus())
+            .substituteLessonRate(r.getSubstituteLessonRate())
             .isActive(r.getIsActive())
             .effectiveFrom(r.getEffectiveFrom())
             .effectiveTo(r.getEffectiveTo())

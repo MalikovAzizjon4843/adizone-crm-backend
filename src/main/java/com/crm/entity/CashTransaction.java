@@ -93,6 +93,10 @@ public class CashTransaction {
     @Column(name = "payroll_id")
     private Long payrollId;
 
+    /** Imtihon to'lovi kirimi va uning REVERSAL i (leaves-exams-contracts §4.1). */
+    @Column(name = "exam_registration_id")
+    private Long examRegistrationId;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

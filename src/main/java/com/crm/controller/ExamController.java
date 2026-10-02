@@ -1,5 +1,7 @@
 package com.crm.controller;
 
+import com.crm.dto.request.ExamRegistrationCancelRequest;
+import com.crm.dto.request.ExamRegistrationRequest;
 import com.crm.dto.request.ExamRequest;
 import com.crm.dto.request.ExamResultRequest;
 import com.crm.dto.response.*;
@@ -28,6 +30,48 @@ public class ExamController {
         return ResponseEntity.ok(ApiResponse.success(examService.getAllExams(page, size)));
     }
 
+    /** Yozilishlar ro'yxati (E-04): TEACHER — faqat o'z imtihoni. */
+    @GetMapping("/{id}/registrations")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','TEACHER')")
+    public ResponseEntity<ApiResponse<PageResponse<ExamRegistrationResponse>>> getRegistrations(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return ResponseEntity.ok(ApiResponse.success(examService.getRegistrations(id, page, size)));
+    }
+
+    /**
+     * Yozilish (leaves-exams-contracts §4.2). Pullik imtihonda to'lov kassaga shu so'rovda tushadi —
+     * faqat SA/A/ACC; TEACHER — faqat bepul imtihonga. {@code Idempotency-Key} — takror bosish ikkinchi
+     * kirim yozmaydi: o'sha yozilish 200 + {@code X-Idempotent-Replay: true}.
+     */
+    @PostMapping("/{id}/registrations")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','TEACHER')")
+    public ResponseEntity<ApiResponse<ExamRegistrationResponse>> register(
+            @PathVariable Long id,
+            @Valid @RequestBody ExamRegistrationRequest request,
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey) {
+        ExamRegistrationResponse r = examService.register(id, request, idempotencyKey);
+        if (Boolean.TRUE.equals(r.getIdempotentReplay())) {
+            return ResponseEntity.ok().header("X-Idempotent-Replay", "true")
+                .body(ApiResponse.success("Ro'yxatdan o'tgan", r));
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Ro'yxatdan o'tdi", r));
+    }
+
+    /** Bekor qilish (§4.3): PAID bo'lsa kassaga REVERSAL. */
+    @PostMapping("/{id}/registrations/{regId}/cancel")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    public ResponseEntity<ApiResponse<ExamRegistrationResponse>> cancelRegistration(
+            @PathVariable Long id,
+            @PathVariable Long regId,
+            @RequestBody(required = false) ExamRegistrationCancelRequest body) {
+        return ResponseEntity.ok(ApiResponse.success("Yozilish bekor qilindi",
+            examService.cancelRegistration(id, regId, body != null ? body.getReason() : null)));
+    }
+
+    /** @deprecated {@code POST /{id}/registrations}; faqat bepul imtihonda ishlaydi. */
+    @Deprecated
     @PostMapping("/{id}/register-student")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<ExamRegistrationResponse>> registerStudent(
@@ -44,6 +88,8 @@ public class ExamController {
         return ResponseEntity.ok(ApiResponse.success(examService.getEligibleStudents(id)));
     }
 
+    /** @deprecated Endi faqat imtihon narxini qaytaradi (eski "to'lanmagan kunlar" preview olib tashlandi). */
+    @Deprecated
     @PostMapping("/{id}/calculate-payment")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> calculatePayment(

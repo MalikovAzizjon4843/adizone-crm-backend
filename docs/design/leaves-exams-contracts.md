@@ -1,6 +1,6 @@
 # Ta'tillar, o'rinbosarlar, imtihon to'lovi, shartnoma (dizayn hujjati)
 
-> **Holat:** loyiha, kod yozilmagan (2026-10-02, `billing-v2` branch).
+> **Holat:** amalga oshirildi (2026-10-02, `billing-v2` branch) — 1–6-bosqichlar, V61–V63. Yakuniy buyurtmachi qarorlari — §0.1 (hujjatning qolgan qismidan ustun). Bosqichlar bo'yicha fayllar va testlar — §11. Frontend uchun API — [leaves-exams-contracts-api.md](leaves-exams-contracts-api.md).
 > **Asos:** [phase5-audit.md](../audit/phase5-audit.md) §3 (L-01…L-12), §4 (E-04…E-19), §7 (C-02…C-13), §10 (S-03), buyurtmachi javoblari (pastda §0).
 > **Bog'liq:** [payroll-v2.md](payroll-v2.md) (§2 formulalar, §6 `calculationDetails`), [billing-v2.md](billing-v2.md) (§3.4 narx, §6.4 kassa teskari yozuvi).
 > **Yo'llar:** Java — `src/main/java/com/crm/` ga nisbatan. **TAXMIN** — kod yozilganda tasdiqlanadigan da'vo.
@@ -36,6 +36,31 @@
 | D10 | Shartnomada **kurs narxi + chegirma + yakuniy summa** | §6.1: narx snapshot'i (`EnrollmentPricing`) |
 | D11 | **Server PDF + chop etish** | §6.3: HTML → PDF |
 | D12 | Rekvizitlar **Sozlamalardan**, faqat SA tahrirlaydi. Ma'lum qiymatlar: "ADIZONE LC" MChJ, STIR 311626069, Novza MFY Ye mavzesi 10-uy, +998 90 335 13 45. Bank va direktor — kutilmoqda | §5 |
+
+### 0.1 Yakuniy qarorlar (2026-10-02) — hujjatning qolgan qismidan USTUN
+
+| # | Qaror | Kodda |
+|---|---|---|
+| F1 | **Ta'til — hamma xodimlar** (SA, A, SALES, ACC, TEACHER). Tasdiqlashda **haqli/haqsiz** (`paid` majburiy). Haqsiz → `fixedSalary × haqsiz Du–Sha ish kunlari / oydagi Du–Sha ish kunlari`, **bayramlar ish kuni EMAS** (Q-E teskari yopildi: bayram surat ham, maxrajdan ham chiqadi) | `WorkdayCalendar`, `SalaryCalculationService.leaveDeduction` |
+| F2 | **O'rinbosar MAJBURIY EMAS** — o'qituvchilar o'zaro kelishadi. SA/A muayyan **guruh + sana** uchun "darsni X o'tdi" deb belgilaydi (`lesson_substitutions`; dars oldidan ham, keyin ham). Shu dars davomatini o'rinbosar belgilaydi (asosiy o'qituvchi shu kuni — 403). Ta'tilga bog'lash ixtiyoriy (`leaveRequestId`) | `LessonSubstitutionService`, `AttendanceAccessService` |
+| F3 | Haq: `SalaryRule.substituteLessonRate` (TEACHER, **qat'iy summa**, shaxsiy → rol qoidasi) × **o'tilgan** (davomati belgilangan, CONDUCTED) darslar. **Asosiy o'qituvchidan ayirilmaydi** (Q-A, Q-B yopildi). Stavka yo'q va o'tilgan dars bor — `calculable=false`, `SUBSTITUTE_RATE_MISSING` | `SUBSTITUTE_LESSONS` |
+| F4 | Dars o'tilmasa — mavjud `LessonException CANCELLED` (MOVED ham): o'tilmagan (PLANNED) belgi avtomatik bekor | `LessonCalendarService.addException` |
+| F5 | Payroll qatorlari `LEAVE_DEDUCTION`, `SUBSTITUTE_LESSONS` — `calculationDetails` formatida, `items.leaves[]`, `items.substitutions[]` bilan. **`VERSION` = 2 qoldi**: qatorlar va items qo'shimcha (ixtiyoriy) — eski v2 snapshot'lar o'qiladi, mavjud DRAFT lar qayta hisoblashsiz tasdiqlanadi, payroll-v2 testlari (version = 2) buzilmaydi (§3 dagi "VERSION = 3" o'rniga) | `PayrollCalculationDetails` |
+| F6 | Imtihon: `fee` (0 = bepul); OVERDUE yozilolmaydi (bor edi); pullik — yozilishda to'lov **kassaga** (SA/A/ACC, usul, `Idempotency-Key`), bekor qilinsa kassaga **REVERSAL** | `ExamService.register/cancelRegistration` |
+| F7 | Shartnoma: kurs narxi + chegirma + yakuniy summa (snapshot); **server PDF** (OpenHTMLtoPDF 1.1.87 + Noto) va **chop etish ko'rinishi** (`/print`, PDF bilan bir xil XHTML) | `ContractService`, `ContractPdfService` |
+| F8 | Rekvizitlar (SA), boshlang'ich qiymatlar (V63): nomi `"ADIZONE LC" MChJ` / `ООО «ADIZONE LC»`; STIR `311626069`; manzil `Toshkent sh., Chilonzor t., Novza MFY, Ye mavzesi, 10-uy`; bank `ОПЕРУ АКБ «Капитал Банк»`, MFO `00974`, h/r `20208000007147330001`; direktor `Adizov Oqilbek Oybek o'g'li`; tel `+998 90 045 55 17`; litsenziya `Xabarnoma tasdiqnomasi №1180460 (reestr X-1743276)`; yordam telefoni (Mini App) `+998 77 337 32 33`. Q-C, Q-D yopildi (`contractCity` = "Toshkent shahri") | `CenterSettingsService`, V63 |
+
+**Amalga oshirishda qabul qilingan kichik qarorlar (TAXMIN lar yopildi):**
+- `POST /api/exams/{id}/calculate-payment` 410 emas — bir bosqich **imtihon narxini** qaytaradi (eski front va testlar buzilmasin; ruxsat tekshiruvi o'sha). `ExamPaymentCalculatorService` olib tashlandi.
+- Guruhli **bepul** imtihon yaratilganda avtomatik yozish qoladi (FREE), OVERDUE o'quvchi yozilmaydi; **pullik** imtihonda avtomatik yozish yo'q.
+- Imtihonni o'chirish faqat **to'langan** REGISTERED yozilish bo'lsa 409 (`exam.hasRegistrations`); bepul yozilishlar to'smaydi. `fee` esa har qanday REGISTERED bo'lsa o'zgarmaydi (`exam.feeLocked`).
+- V62: eski `PENDING` (kassasiz) va kassasiz `PAID` (eski kod summa 0 da PAID yozardi) → `FREE`.
+- Faol yozilmasi yo'q o'quvchiga shartnoma **narxsiz** tuziladi (snapshot NULL) — avvalgi xulq saqlandi; bir nechta faol yozilma — `studentGroupId` majburiy (400).
+- PDF ga narx jadvali (kurs narxi, chegirma, yakuniy summa, boshlanish) shablondan qat'i nazar qo'shiladi (D10). Shablon tozalash jsoup emas — o'z oq ro'yxati (`ContractHtml`, atributsiz teglar), idempotent.
+- O'tilgan (CONDUCTED) belgini ham SA/A bekor qila oladi (xato belgi), o'rinbosar oyligi APPROVED/PAID bo'lsa — 409 `substitution.payrollLocked`. Belgilash ham shu oyda yopiq oylikda 409.
+- Haqsiz ta'tilni **tasdiqlash** ham (nafaqat bekor qilish) yopiq (APPROVED/PAID) oylik oyiga tushsa — 409 `leave.payrollLocked`.
+- Ta'til bitta arizada ≤ 60 kalendar kun (`leave.tooLong`). Ta'til tasdiqlanganda/bekor qilinganda o'qituvchi statusi darhol yangilanadi (job kutilmaydi).
+- Moliya hisobotida `examFees` — alohida qator, `netProfit` ga qo'shiladi.
 
 ---
 
@@ -171,13 +196,13 @@ Hozir `AttendanceService.markAttendance` → `teacherAccessService.assertOwnsGro
 
 ## §3. Payroll-v2 ga ta'sir
 
-`calculationDetails` formati o'zgarmaydi ([payroll-v2.md §6](payroll-v2.md)): `lines[] {code, label, base, count, amount, status?}` + `items`. `VERSION = 3` (yangi qatorlar va items). v2 yozuvlari o'qishda o'zgarmaydi. APPROVED/PAID — muzlatilgan snapshot (qayta hisoblanmaydi).
+`calculationDetails` formati o'zgarmaydi ([payroll-v2.md §6](payroll-v2.md)): `lines[] {code, label, base, count, amount, status?}` + `items`. ~~`VERSION = 3`~~ — **2 qoldi** (§0.1 F5: yangi qatorlar va items qo'shimcha). v2 yozuvlari o'qishda o'zgarmaydi. APPROVED/PAID — muzlatilgan snapshot (qayta hisoblanmaydi).
 
 ### 3.1 `LEAVE_DEDUCTION` (D3) — barcha `SALARY_ROLES` (TEACHER, ADMIN, SALES_MANAGER)
 
 ```
-workdays(month)   = oydagi Du–Sha kunlari soni (bayramlar AYIRILMAYDI — §9 Q-E)
-unpaidDays(month) = Σ APPROVED, paid = false ta'tillarning shu oyga tushgan Du–Sha kunlari
+workdays(month)   = oydagi Du–Sha kunlari soni, bayramlar (holidays) ish kuni EMAS — §0.1 F1
+unpaidDays(month) = Σ APPROVED, paid = false ta'tillarning shu oyga tushgan Du–Sha, bayram bo'lmagan kunlari
 dailyRate         = fixedSalary / workdays(month)                      (rule.fixedSalary, payroll-v2 §7)
 LEAVE_DEDUCTION   = − Money.uzs(fixedSalary × unpaidDays / workdays)   (bitta yaxlitlash, Money da)
 ```
@@ -442,14 +467,14 @@ Uslub — mavjud: `AbstractBillingIT`, ikkala baza (`mvn test` va `-Dspring.prof
 
 | # | Savol | Taklif | Ta'sir |
 |---|---|---|---|
-| **Q-A** | O'rinbosar haqi formulasi: qat'iy summa yoki stavka ulushi? | **Qat'iy summa bir darsga** — `salary_rules.substitute_lesson_rate`; rol qoidasida umumiy, shaxsiy qoidada alohida. Sabab: o'qituvchi oyligi darsbay emas ("to'lagan o'quvchi" × stavka, payroll-v2 §2.1), ya'ni "asosiy o'qituvchining bir dars narxi" tabiiy mavjud emas. Uni `perPayingStudent × o'quvchilar / oydagi darslar` bilan hisoblash har oy o'zgaradi va tushuntirish qiyin. Muqobil (agar ulush kerak bo'lsa): `rate = round(guruhning shu oydagi o'qituvchi daromadi / oydagi rejadagi darslar)` — determinizm uchun `billing_periods.teacher_id` dan hisoblanadi | §3.2, §3.3 |
-| **Q-B** | O'rinbosar haqi asosiy o'qituvchidan ayiriladimi? | **Yo'q** (markaz xarajati). Asosiy o'qituvchi ta'tili haqsiz bo'lsa — `LEAVE_DEDUCTION` FIXED qismidan ayiradi. "To'lagan o'quvchi" qismi ayirilmaydi, chunki o'quvchilar shu oy uchun to'lagan va guruh uniki. Buyurtmachi ayirishni tanlasa: asosiy o'qituvchiga `SUBSTITUTED_LESSONS = −(o'rinbosarga to'langan summa)`, lekin FIXED + o'zgaruvchan qismdan oshmasin | §3.2 |
-| **Q-C** | Bank rekvizitlari (bank nomi, h/r, MFO) va direktor F.I.Sh. | Kelguncha PDF da `________` chiziq, javobda `missingRequisites`. SA keyin Sozlamalardan kiritadi, kod o'zgarmaydi | §5, §6.3 |
-| **Q-D** | Shartnoma manzili: shartnomada qaysi manzil va qaysi shahar ko'rsatiladi (yuridik manzil yoki o'quv binosi; "Toshkent sh." / tuman)? | `center.address` = yuridik manzil (Novza MFY, Ye mavzesi, 10-uy). Shartnoma tuzilgan joy — alohida `center.contractCity` (taklif: **"Toshkent shahri"**). Tuman — buyurtmachi tasdiqlasin (Novza MFY qaysi tumanda ekanini ular aniq aytadi) | §5.1 |
-| Q-E | Haqsiz ta'til ulushida bayramlar (`holidays`) ish kuni hisoblanadimi? | Buyurtmachi "Du–Sha" dedi — taklif: **bayramlar ayirilmaydi** (oddiy, oldindan ma'lum maxraj). Kerak bo'lsa keyin `workdays − holidays` | §3.1 |
+| **Q-A** (yopildi: qat'iy summa, F3) | O'rinbosar haqi formulasi: qat'iy summa yoki stavka ulushi? | **Qat'iy summa bir darsga** — `salary_rules.substitute_lesson_rate`; rol qoidasida umumiy, shaxsiy qoidada alohida. Sabab: o'qituvchi oyligi darsbay emas ("to'lagan o'quvchi" × stavka, payroll-v2 §2.1), ya'ni "asosiy o'qituvchining bir dars narxi" tabiiy mavjud emas. Uni `perPayingStudent × o'quvchilar / oydagi darslar` bilan hisoblash har oy o'zgaradi va tushuntirish qiyin. Muqobil (agar ulush kerak bo'lsa): `rate = round(guruhning shu oydagi o'qituvchi daromadi / oydagi rejadagi darslar)` — determinizm uchun `billing_periods.teacher_id` dan hisoblanadi | §3.2, §3.3 |
+| **Q-B** (yopildi: ayirilmaydi, F3) | O'rinbosar haqi asosiy o'qituvchidan ayiriladimi? | **Yo'q** (markaz xarajati). Asosiy o'qituvchi ta'tili haqsiz bo'lsa — `LEAVE_DEDUCTION` FIXED qismidan ayiradi. "To'lagan o'quvchi" qismi ayirilmaydi, chunki o'quvchilar shu oy uchun to'lagan va guruh uniki. Buyurtmachi ayirishni tanlasa: asosiy o'qituvchiga `SUBSTITUTED_LESSONS = −(o'rinbosarga to'langan summa)`, lekin FIXED + o'zgaruvchan qismdan oshmasin | §3.2 |
+| **Q-C** (yopildi, F8) | Bank rekvizitlari (bank nomi, h/r, MFO) va direktor F.I.Sh. | Kelguncha PDF da `________` chiziq, javobda `missingRequisites`. SA keyin Sozlamalardan kiritadi, kod o'zgarmaydi | §5, §6.3 |
+| **Q-D** (yopildi, F8) | Shartnoma manzili: shartnomada qaysi manzil va qaysi shahar ko'rsatiladi (yuridik manzil yoki o'quv binosi; "Toshkent sh." / tuman)? | `center.address` = yuridik manzil (Novza MFY, Ye mavzesi, 10-uy). Shartnoma tuzilgan joy — alohida `center.contractCity` (taklif: **"Toshkent shahri"**). Tuman — buyurtmachi tasdiqlasin (Novza MFY qaysi tumanda ekanini ular aniq aytadi) | §5.1 |
+| Q-E (yopildi: bayram ish kuni EMAS, F1) | Haqsiz ta'til ulushida bayramlar (`holidays`) ish kuni hisoblanadimi? | Buyurtmachi "Du–Sha" dedi — taklif: **bayramlar ayirilmaydi** (oddiy, oldindan ma'lum maxraj). Kerak bo'lsa keyin `workdays − holidays` | §3.1 |
 | Q-F | Yillik ta'til kvotasi (haqli kunlar) yuritiladimi? | Hozircha yo'q — faqat hisobot (`/api/leaves/summary`). `teachers.*_leaves` legacy ustunlari ishlatilmaydi (Q19) | §1.2 |
 | Q-G | ACCOUNTANT oyligi tizimda hisoblanmaydi (`SALARY_ROLES` da yo'q) — haqsiz ta'tili qanday? | Ta'til yoziladi, ayirma — qo'lda (bonus/jarima PENALTY). Buxgalter oyligi tizimga qo'shilsa — avtomatik | §3.1 |
-| Q-H | Pullik imtihon to'lovini o'qituvchi qabul qila oladimi? | **Yo'q** — pul faqat SA/A/ACC kassasiga. O'qituvchi bepul imtihonga yozadi | §4.2 |
+| Q-H (yopildi: yo'q, F6) | Pullik imtihon to'lovini o'qituvchi qabul qila oladimi? | **Yo'q** — pul faqat SA/A/ACC kassasiga. O'qituvchi bepul imtihonga yozadi | §4.2 |
 
 ---
 
@@ -465,3 +490,25 @@ Uslub — mavjud: `AbstractBillingIT`, ikkala baza (`mvn test` va `-Dspring.prof
 | 6 | Payroll: `LEAVE_DEDUCTION`, `SUBSTITUTE_LESSONS`, `VERSION 3` (§3) — **Q-A va Q-B qaroridan keyin** | 2–3 kun |
 
 1–3-bosqichlar ochiq savollarga bog'liq emas (Q-C, Q-D faqat ma'lumot). 6-bosqich Q-A va Q-B ni kutadi; 4–5 ularsiz boshlanishi mumkin.
+
+---
+
+## §11. Amalga oshirish (2026-10-02) — bosqichlar bo'yicha fayllar
+
+Yo'llar `src/main/java/com/crm/` ga nisbatan (resurslar — `src/main/resources/`). Testlar — `src/test/java/com/crm/`.
+
+| Bosqich | Asosiy fayllar | Testlar |
+|---|---|---|
+| 1. Sozlamalar + shartnoma snapshot/holatlar + V63 | `entity/Setting`, `repository/SettingRepository`, `service/CenterSettingsService`, `controller/SettingsController`, `dto/{request/CenterSettingsRequest, response/CenterSettingsDto}`; `entity/Contract` (+snapshot, holat izi, PDF), `entity/enums/ContractStatus` (+CANCELLED), `service/ContractService`, `service/ContractPlaceholders`, `util/ContractHtml` (tozalash), `controller/ContractController`, `dto/{request/ContractCreateDto, ContractCancelRequest; response/ContractDto}`; `config/SecurityConfig`; `db/migration/V63__settings_contract_snapshot.sql` | `lec/SettingsAndContractTest` (8) |
+| 2. PDF | `pom.xml` (`io.github.openhtmltopdf:openhtmltopdf-pdfbox:1.1.87`, PDFBox 3.0.7, LGPL-2.1+, Java 8 bytecode), `fonts/Noto{Sans,Serif}-*.ttf` + `fonts/OFL.txt` (SIL OFL 1.1), `templates/contract-layout.html`, `service/ContractPdfService`, `service/FileStorageService` (pastki katalog `/api/files` da yopiq); test `application.yml`: `app.contracts.pdf-dir` | `lec/ContractPdfTest` (3) |
+| 3. Imtihon to'lovi + V62 | `entity/{Exam (+fee), ExamRegistration, CashTransaction (+examRegistrationId)}`, `entity/enums/{ExamRegistrationStatus, ExamPaymentStatus}` + konverterlar, `repository/{ExamRegistrationRepository, CashTransactionRepository}`, `service/{ExamService, CashRegisterService, FinanceService}`, `controller/ExamController`, `dto/{request/ExamRegistrationRequest, ExamRegistrationCancelRequest, ExamRequest; response/ExamRegistrationResponse, ExamResponse, CashTransactionDto, FinanceReportResponse}`; `ExamPaymentCalculatorService` o'chirildi; `db/migration/V62__exam_fee.sql`, `V58` (qisman UNIQUE ni ham "bor" deb biladi) | `lec/ExamFeeTest` (6) |
+| 4. Ta'tillar + V61 (ta'til qismi) + ON_LEAVE job | `entity/Leave`, `entity/enums/{LeaveType, LeaveStatus}` + konverterlar, `repository/LeaveRepository`, `service/{LeaveService, LeaveStatusJob, WorkdayCalendar, PayrollPeriodGuard}`, `controller/LeaveController`, `dto/{request/LeaveSubmitRequest, LeaveDecisionRequest; response/LeaveResponse, LeaveSummaryDto, AffectedLessonDto}`; `db/migration/V61__leaves_substitutions.sql` | `lec/LeaveTest` (7) |
+| 5. "Darsni X o'tdi" + davomat ruxsati + dashboard | `entity/LessonSubstitution`, `entity/enums/SubstitutionStatus`, `repository/LessonSubstitutionRepository`, `service/{LessonSubstitutionService, AttendanceAccessService, AttendanceService, AttendanceUnlockRequestService, GroupScheduleService (slotOn), TeacherService (kabinet)}`, `dashboard/{AttendanceMetricsService, LessonCalendarService}`, `controller/SubstitutionController`, `dto/{request/SubstitutionRequest, SubstitutionBulkRequest; response/SubstitutionResponse}`; V61 (jadval qismi) | `lec/SubstitutionTest` (6) |
+| 6. Payroll | `entity/SalaryRule` (+substituteLessonRate), `dto/{request/SalaryRuleRequest, response/SalaryRuleResponse, response/SalaryCalculationDto, response/PayrollCalculationDetails}`, `service/{SalaryCalculationService, SalaryRuleService, PayrollService}`; V61 (`salary_rules.substitute_lesson_rate`) | `payroll/PayrollLeaveSubstituteTest` (8) |
+| Migratsiyalar | V61–V63 idempotent; `docs/ops/prod-schema-check.sql` ga qo'shildi; pgtest `schema-locations` ga ulandi; H2 da Hibernate yaratadi | `lec/MigrationV61ToV63Test` (faqat PostgreSQL) |
+
+Xabarlar — `messages{,_en,_ru}.properties` (uz/en/ru). Umumiy test yordamchisi — `lec/LecItBase`; `BillingFixtures.wipe` ga
+`lesson_substitutions`, `leave_requests`, `attendance_unlock_requests` qo'shildi.
+
+**Prod tartibi:** V61 → V62 → V63 (qo'lda, `psql -v ON_ERROR_STOP=1`), so'ng yangi jar; tekshiruv — `prod-schema-check.sql`.
+V61 `btree_gist` ni o'rnatishga urinadi (huquq bo'lmasa — NOTICE, kesishuv faqat ilovada tekshiriladi).

@@ -117,6 +117,18 @@ public class GroupScheduleService {
         return !removed && lessonWeekdays(groupId).contains(date.getDayOfWeek());
     }
 
+    /**
+     * Shu sanadagi dars vaqti: hafta kuni jadvali; EXTRA/MOVED kabi jadvaldan tashqari kunda — birinchi slot
+     * (vaqt odatda bir xil). Jadval bo'sh bo'lsa — bo'sh.
+     */
+    @Transactional(readOnly = true)
+    public java.util.Optional<LessonSlot> slotOn(Long groupId, LocalDate date) {
+        List<LessonSlot> slots = lessonSlots(groupId);
+        String day = date.getDayOfWeek().name();
+        return slots.stream().filter(s -> day.equals(s.dayOfWeek())).findFirst()
+            .or(() -> slots.stream().findFirst());
+    }
+
     private static String normalizeDay(String day) {
         if (day == null || day.isBlank()) {
             return null;

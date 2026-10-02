@@ -1,17 +1,26 @@
 package com.crm.service;
 
 import com.crm.audit.AuditAction;
+import com.crm.audit.AuditContext;
+import com.crm.billing.BillingLocks;
 import com.crm.billing.BillingStatusService;
 import com.crm.audit.Audited;
+import com.crm.billing.ReceiptNumberService;
+import com.crm.dto.request.ExamRegistrationRequest;
 import com.crm.dto.request.ExamRequest;
 import com.crm.dto.request.ExamResultRequest;
 import com.crm.dto.response.*;
 import com.crm.entity.*;
+import com.crm.entity.enums.ExamPaymentStatus;
+import com.crm.entity.enums.ExamRegistrationStatus;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.CodedException;
+import com.crm.exception.ConflictException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.security.core.Authentication;
@@ -20,17 +29,31 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Imtihonlar, natijalar va imtihonga yozilish.
+ *
+ * <p><b>Imtihon to'lovi</b> (leaves-exams-contracts §4): narx — {@code exams.fee} (0 = bepul).
+ * Pullik imtihonga yozilish — bitta tranzaksiyada kassaga kirim ({@code cash_transactions.exam_registration_id}),
+ * bekor qilish — kassaga REVERSAL. O'quvchi balansi (billing-v2 ledger) ishlatilmaydi: imtihon to'lovi
+ * o'qish uchun to'lov emas va qarzni yopmaydi. Qulf tartibi billing-v2 §7.2: Student → CashRegister.
+ */
 @Service
 @RequiredArgsConstructor
 public class ExamService {
 
     private static final int MIN_PRESENT_DAYS_FOR_EXAM = 8;
+    private static final int IDEMPOTENCY_KEY_MAX = 64;
+
+    /** {@code exam.notEligible} sababi ({@code data.reason}). */
+    public static final String REASON_ATTENDANCE = "ATTENDANCE";
+    public static final String REASON_NO_ENROLLMENT = "NO_ENROLLMENT";
+    public static final String REASON_OVERDUE = "OVERDUE";
 
     private final ExamRepository examRepository;
     private final ExamResultRepository examResultRepository;
@@ -39,13 +62,17 @@ public class ExamService {
     private final ClassRepository classRepository;
     private final GroupRepository groupRepository;
     private final SubjectRepository subjectRepository;
-    private final PaymentRepository paymentRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final AttendanceRepository attendanceRepository;
-    private final ExamPaymentCalculatorService examPaymentCalculatorService;
+    private final CashTransactionRepository cashTransactionRepository;
     private final TeacherAccessService teacherAccessService;
     private final UserRepository userRepository;
     private final BillingStatusService billingStatusService;
+    private final CashRegisterService cashRegisterService;
+    private final ReceiptNumberService receiptNumberService;
+    private final BillingLocks locks;
+    private final EntityManager entityManager;
+    private final Clock billingClock;
 
     @Transactional(readOnly = true)
     public PageResponse<ExamResponse> getAllExams(int page, int size) {
@@ -77,17 +104,22 @@ public class ExamService {
             teacherAccessService.assertOwnsGroup(request.getGroupId());
         }
         Exam exam = buildExam(new Exam(), request);
+        if (exam.getFee() == null) {
+            exam.setFee(BigDecimal.ZERO);
+        }
         if (teacherAccessService.isCurrentUserTeacher()) {
             exam.setTeacher(teacherAccessService.getCurrentTeacherOrThrow());
         }
         exam.setIsActive(true);
         Exam saved = examRepository.save(exam);
-        if (saved.getGroup() != null) {
+        // Pullik imtihonga to'lovsiz yozilib bo'lmaydi (D9) — avtomatik yozish faqat bepulda
+        if (saved.getGroup() != null && saved.getFee().signum() == 0) {
             autoRegisterGroupStudents(saved);
         }
         return toExamResponse(saved);
     }
 
+    /** {@code fee} REGISTERED yozilish bor imtihonda o'zgarmaydi — 409 {@code exam.feeLocked}. */
     @Transactional
     public ExamResponse updateExam(Long id, ExamRequest request) {
         Exam exam = findExamById(id);
@@ -95,14 +127,26 @@ public class ExamService {
         if (request.getGroupId() != null) {
             teacherAccessService.assertOwnsGroup(request.getGroupId());
         }
+        if (request.getFee() != null && nz(exam.getFee()).compareTo(request.getFee()) != 0
+                && examRegistrationRepository.existsByExamIdAndStatus(id, ExamRegistrationStatus.REGISTERED)) {
+            throw new ConflictException("exam.feeLocked");
+        }
         buildExam(exam, request);
         return toExamResponse(examRepository.save(exam));
     }
 
+    /**
+     * Soft delete. To'langan REGISTERED yozilish bo'lsa — 409 {@code exam.hasRegistrations}: avval
+     * yozilishlar bekor qilinadi (pul qaytishi aniq bo'lsin, §4.3).
+     */
     @Transactional
     public void deleteExam(Long id) {
         Exam exam = findExamById(id);
         assertExamAccess(exam);
+        if (examRegistrationRepository.existsByExamIdAndStatusAndFeeStatus(
+                id, ExamRegistrationStatus.REGISTERED, ExamPaymentStatus.PAID)) {
+            throw new ConflictException("exam.hasRegistrations");
+        }
         exam.setIsActive(false);
         examRepository.save(exam);
     }
@@ -119,8 +163,13 @@ public class ExamService {
         Set<Long> seen = new HashSet<>();
 
         for (ExamRegistration reg : examRegistrationRepository.findByExamId(examId)) {
+            if (reg.getStatus() == ExamRegistrationStatus.CANCELLED) {
+                continue;
+            }
             Long studentId = reg.getStudent().getId();
-            seen.add(studentId);
+            if (!seen.add(studentId)) {
+                continue;
+            }
             ExamResult existing = byStudent.get(studentId);
             if (existing != null) {
                 out.add(toResultResponse(existing));
@@ -222,11 +271,11 @@ public class ExamService {
     }
 
     /**
-     * Imtihon to'lovi preview'i. Hisob mantig'iga tegilmagan (phase5-audit Q7
-     * buyurtmachidan kutilmoqda) — faqat ruxsat: avval istalgan TEACHER istalgan
-     * o'quvchining to'lov ma'lumotini olardi (E-02). Endi o'qituvchi faqat o'z
-     * imtihoni va o'z guruhlaridagi o'quvchi uchun.
+     * @deprecated Eski preview (billing davrlaridan "to'lanmagan kunlar" hisobi, E-08) olib tashlandi —
+     * summa endi {@code exams.fee}. Endpoint bir bosqich qoladi: ruxsat tekshiruvi o'sha (TEACHER — faqat
+     * o'z imtihoni va o'z o'quvchisi), javobda imtihon narxi.
      */
+    @Deprecated
     @Transactional(readOnly = true)
     public Map<String, Object> calculateExamPaymentPreview(Long examId, Long studentId) {
         Exam exam = findExamById(examId);
@@ -235,48 +284,16 @@ public class ExamService {
             .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
         teacherAccessService.assertOwnsStudent(studentId);
 
+        BigDecimal fee = nz(exam.getFee());
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("examId", exam.getId());
         result.put("examDate", exam.getExamDate());
         result.put("examName", exam.getExamName());
-
-        Optional<Payment> lastPayment = paymentRepository
-            .findFirstByStudent_IdAndPeriodEndIsNotNullOrderByPeriodEndDesc(studentId);
-
-        if (lastPayment.isPresent() && lastPayment.get().getPeriodEnd() != null
-            && exam.getExamDate() != null) {
-            LocalDate periodEnd = lastPayment.get().getPeriodEnd();
-            result.put("lastPaidUntil", periodEnd);
-
-            if (periodEnd.isBefore(exam.getExamDate())) {
-                long days = ChronoUnit.DAYS.between(periodEnd, exam.getExamDate());
-                result.put("unpaidDays", days);
-
-                BigDecimal monthlyPrice = studentGroupRepository.findActiveByStudentId(studentId).stream()
-                    .findFirst()
-                    .map(sg -> sg.getMonthlyPriceOverride() != null
-                        ? sg.getMonthlyPriceOverride()
-                        : (sg.getGroup().getCourse() != null
-                            ? sg.getGroup().getCourse().getMonthlyPrice() : BigDecimal.ZERO))
-                    .orElse(BigDecimal.ZERO);
-
-                BigDecimal amountDue = examPaymentCalculatorService.calculateExamPayment(
-                    periodEnd, exam.getExamDate(), monthlyPrice);
-                double dailyRate = monthlyPrice.compareTo(BigDecimal.ZERO) > 0
-                    ? monthlyPrice.doubleValue() / 30.0 : 0.0;
-
-                result.put("monthlyPrice", monthlyPrice);
-                result.put("dailyRate", dailyRate);
-                result.put("amountDue", amountDue);
-                result.put("message", days + " kunlik to'lov: "
-                    + String.format(Locale.US, "%.0f", amountDue.doubleValue()) + " UZS");
-            } else {
-                result.put("amountDue", BigDecimal.ZERO);
-                result.put("message", "To'lov kerak emas");
-            }
-        } else {
-            result.put("message", "To'lov tarixi topilmadi");
-        }
-
+        result.put("fee", fee);
+        result.put("amountDue", fee);
+        result.put("free", fee.signum() == 0);
+        result.put("message", fee.signum() == 0 ? "Bepul imtihon"
+            : "Imtihon narxi: " + ContractService.formatAmount(fee) + " so'm (yozilishda kassaga)");
         return result;
     }
 
@@ -313,80 +330,236 @@ public class ExamService {
 
         boolean fullProfile = teacherScope.isEmpty();
         return candidates.stream()
-            .filter(s -> isEligibleForExam(exam, s.getId()))
+            .filter(s -> ineligibleReason(exam, s.getId()).isEmpty())
             .map(s -> fullProfile ? toStudentResponse(s) : toLimitedStudentResponse(s))
             .collect(Collectors.toList());
     }
 
     /**
-     * Imtihonga kirish sharti (E-01):
+     * Imtihonga kirish sharti (E-01); bajarilmasa — sabab ({@code exam.notEligible}, {@code data.reason}):
      * <ol>
-     *   <li>kamida {@value #MIN_PRESENT_DAYS_FOR_EXAM} marta PRESENT (o'zgarmagan);</li>
-     *   <li>hisob yuritiladigan faol yozilma bor (trial/muzlatilgan emas) — guruhli
-     *       imtihonda aynan shu guruhdagi;</li>
-     *   <li>bu yozilmalarning hech biri billing-v2 bo'yicha OVERDUE emas.</li>
+     *   <li>{@code ATTENDANCE} — kamida {@value #MIN_PRESENT_DAYS_FOR_EXAM} marta PRESENT emas;</li>
+     *   <li>{@code NO_ENROLLMENT} — hisob yuritiladigan faol yozilma yo'q (trial/muzlatilgan emas) —
+     *       guruhli imtihonda aynan shu guruhdagi;</li>
+     *   <li>{@code OVERDUE} — yozilmalardan biri billing-v2 bo'yicha OVERDUE (D8). Holat bugungi sana
+     *       bo'yicha ({@link BillingStatusService#isOverdue}) — saqlangan snapshot eskirgan bo'lsa ham to'g'ri.</li>
      * </ol>
-     * Avval {@code "PAID".equals(sg.getPaymentStatus())} edi — billing-v2 dan beri
-     * maydon enum, String bilan taqqoslash doim {@code false} bo'lib, hech kim
-     * ro'yxatdan o'tolmasdi. Endi holat enum bilan va bugungi sana bo'yicha
-     * ({@link BillingStatusService#isOverdue}) — saqlangan snapshot eskirgan
-     * bo'lsa ham to'g'ri. To'lov summasi (Q7) bu shartga kirmaydi.
      */
-    private boolean isEligibleForExam(Exam exam, Long studentId) {
+    Optional<String> ineligibleReason(Exam exam, Long studentId) {
         long presentDays = attendanceRepository.countPresentDaysForStudent(studentId);
         if (presentDays < MIN_PRESENT_DAYS_FOR_EXAM) {
-            return false;
+            return Optional.of(REASON_ATTENDANCE);
         }
+        List<StudentGroup> billed = billedEnrollments(exam, studentId);
+        if (billed.isEmpty()) {
+            return Optional.of(REASON_NO_ENROLLMENT);
+        }
+        return isOverdue(billed) ? Optional.of(REASON_OVERDUE) : Optional.empty();
+    }
+
+    private List<StudentGroup> billedEnrollments(Exam exam, Long studentId) {
         Long examGroupId = exam.getGroup() != null ? exam.getGroup().getId() : null;
-        List<StudentGroup> billed = studentGroupRepository.findActiveByStudentId(studentId).stream()
+        return studentGroupRepository.findActiveByStudentId(studentId).stream()
             .filter(BillingStatusService::isBillingOpen)
             .filter(sg -> examGroupId == null || examGroupId.equals(sg.getGroup().getId()))
             .toList();
-        if (billed.isEmpty()) {
-            return false;
-        }
+    }
+
+    private boolean isOverdue(List<StudentGroup> enrollments) {
         LocalDate today = billingStatusService.today();
-        return billed.stream().noneMatch(sg -> billingStatusService.isOverdue(sg, today));
+        return enrollments.stream().anyMatch(sg -> billingStatusService.isOverdue(sg, today));
+    }
+
+    // ── Yozilish (§4.2) ─────────────────────────────────────────────────
+
+    /**
+     * @deprecated {@code POST /api/exams/{id}/registrations}. Faqat bepul imtihonda ishlaydi — pullikda
+     * 400 {@code exam.paymentRequired} (to'lovni faqat kassa bilan yangi endpoint qabul qiladi).
+     */
+    @Deprecated
+    @Transactional
+    public ExamRegistrationResponse registerStudentForExam(Long examId, Long studentId) {
+        ExamRegistrationRequest request = new ExamRegistrationRequest();
+        request.setStudentId(studentId);
+        return register(examId, request, null);
     }
 
     /**
-     * O'quvchini imtihonga yozish (E-01, E-02). TEACHER faqat o'z imtihoniga va
-     * o'z guruhlaridagi o'quvchini yozadi; avval egalik umuman tekshirilmasdi.
+     * Yozilish — tekshiruvlar shu tartibda: imtihon ochiq (409 {@code exam.closed}) → TEACHER egaligi (403)
+     * → kirish sharti (400 {@code exam.notEligible}) → dublikat (409 {@code exam.alreadyRegistered}) →
+     * pullikda TEACHER (403 {@code exam.paymentRole}) → kassa va usul (400 {@code exam.paymentRequired}).
+     *
+     * <p>{@code fee > 0}: kassaga INCOME ({@code exam_registration_id}), chek raqami, {@code PAID}.
+     * {@code fee = 0}: {@code FREE}, kassa yozuvi yo'q. {@code Idempotency-Key} takrori — o'sha yozilish
+     * ({@code idempotentReplay = true}), ikkinchi kirim yo'q; boshqa imtihon/o'quvchi bilan — 409.
      */
     @Transactional
-    public ExamRegistrationResponse registerStudentForExam(Long examId, Long studentId) {
+    @Audited(action = AuditAction.PAYMENT, entity = "ExamRegistration",
+        summary = "'Imtihonga yozildi: ' + #result.studentName + ' — ' + #result.examName"
+            + " + ' (' + #result.paymentStatus + ', ' + #result.amountPaid + ')'",
+        entityId = "#result.id", label = "#result.studentName")
+    public ExamRegistrationResponse register(Long examId, ExamRegistrationRequest request, String idempotencyKey) {
+        String key = normalizeKey(idempotencyKey);
+        if (key != null) {
+            Optional<ExamRegistrationResponse> replay = replay(key, examId, request.getStudentId());
+            if (replay.isPresent()) {
+                return replay.get();
+            }
+        }
         Exam exam = findExamById(examId);
+        LocalDate today = LocalDate.now(billingClock);
+        if (!Boolean.TRUE.equals(exam.getIsActive())
+                || (exam.getExamDate() != null && exam.getExamDate().isBefore(today))) {
+            throw new ConflictException("exam.closed");
+        }
         assertExamAccess(exam);
+        Long studentId = request.getStudentId();
+        if (studentId == null) {
+            throw CodedException.badRequest("error.param.missing", "studentId");
+        }
         Student student = studentRepository.findById(studentId)
             .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
         teacherAccessService.assertOwnsStudent(studentId);
 
-        if (examRegistrationRepository.existsByExamIdAndStudentId(examId, studentId)) {
-            throw new DuplicateResourceException("Student already registered for this exam");
+        Optional<String> reason = ineligibleReason(exam, studentId);
+        if (reason.isPresent()) {
+            throw CodedException.badRequest("exam.notEligible", reason.get())
+                .withData(Map.of("reason", reason.get()));
+        }
+        if (examRegistrationRepository.existsActive(examId, studentId)) {
+            throw new ConflictException("exam.alreadyRegistered");
+        }
+        BigDecimal fee = nz(exam.getFee());
+        boolean paid = fee.signum() > 0;
+        if (paid && teacherAccessService.isCurrentUserTeacher()) {
+            throw CodedException.forbidden("exam.paymentRole");
+        }
+        if (paid && (request.getCashRegisterId() == null || request.getPaymentMethod() == null)) {
+            throw CodedException.badRequest("exam.paymentRequired", ContractService.formatAmount(fee));
         }
 
-        if (!isEligibleForExam(exam, studentId)) {
-            throw new BadRequestException(
-                "O'quvchi imtihon uchun mos emas (to'lov holati yoki davomat yetarli emas)");
+        // Qulf: Student → CashRegister (billing-v2 §7.2); qulf ostida takror va dublikat qayta tekshiriladi
+        locks.acquire(BillingLocks.Plan.of().student(studentId).cashRegister(paid ? request.getCashRegisterId() : null));
+        if (key != null) {
+            Optional<ExamRegistrationResponse> replay = replay(key, examId, studentId);
+            if (replay.isPresent()) {
+                return replay.get();
+            }
+        }
+        if (examRegistrationRepository.existsActive(examId, studentId)) {
+            throw new ConflictException("exam.alreadyRegistered");
         }
 
-        Map<String, Object> payPreview = calculateExamPaymentPreview(examId, studentId);
-        Object ad = payPreview.get("amountDue");
-        BigDecimal amountDue = ad instanceof BigDecimal ? (BigDecimal) ad : BigDecimal.ZERO;
-
-        String payStatus = BigDecimal.ZERO.compareTo(amountDue) >= 0 ? "PAID" : "PENDING";
-
-        ExamRegistration reg = ExamRegistration.builder()
+        ExamRegistration reg = examRegistrationRepository.save(ExamRegistration.builder()
             .exam(exam)
             .student(student)
-            .paymentStatus(payStatus)
-            .amountDue(amountDue)
-            .amountPaid(BigDecimal.ZERO.compareTo(amountDue) >= 0 ? amountDue : BigDecimal.ZERO)
-            .status("REGISTERED")
-            .build();
+            .status(ExamRegistrationStatus.REGISTERED)
+            .feeStatus(paid ? ExamPaymentStatus.PAID : ExamPaymentStatus.FREE)
+            .amountDue(fee)
+            .amountPaid(paid ? fee : BigDecimal.ZERO)
+            .registrationDate(today)
+            .idempotencyKey(key)
+            .notes(request.getNote())
+            .createdBy(currentUserOrNull())
+            .build());
+        if (paid) {
+            String receipt = receiptNumberService.next();
+            CashTransaction tx = cashRegisterService.recordIncome(
+                request.getCashRegisterId(), fee, request.getPaymentMethod(), student,
+                "Imtihon to'lovi: " + exam.getExamName(),
+                "Chek " + receipt + " · imtihon #" + exam.getId(),
+                today, request.getCashPart(), request.getCardPart(), null);
+            tx.setExamRegistrationId(reg.getId());
+            reg.setCashTransactionId(tx.getId());
+            reg.setReceiptNumber(receipt);
+        }
+        return toRegistrationResponse(reg);
+    }
 
-        ExamRegistration saved = examRegistrationRepository.save(reg);
-        return toRegistrationResponse(saved);
+    private Optional<ExamRegistrationResponse> replay(String key, Long examId, Long studentId) {
+        return examRegistrationRepository.findByIdempotencyKey(key).map(existing -> {
+            if (!existing.getExam().getId().equals(examId) || !existing.getStudent().getId().equals(studentId)) {
+                throw new ConflictException("exam.idempotency.mismatch");
+            }
+            AuditContext.skip();  // takror — yangi amal emas
+            ExamRegistrationResponse r = toRegistrationResponse(existing);
+            r.setIdempotentReplay(true);
+            return r;
+        });
+    }
+
+    private static String normalizeKey(String key) {
+        if (key == null || key.isBlank()) {
+            return null;
+        }
+        String k = key.trim();
+        if (k.length() > IDEMPOTENCY_KEY_MAX) {
+            throw CodedException.badRequest("payroll.idempotency.keyTooLong", IDEMPOTENCY_KEY_MAX);
+        }
+        return k;
+    }
+
+    /** {@code GET /api/exams/{id}/registrations} — barcha holatlar, yangilari avval (E-04). */
+    @Transactional(readOnly = true)
+    public PageResponse<ExamRegistrationResponse> getRegistrations(Long examId, int page, int size) {
+        Exam exam = findExamById(examId);
+        assertExamAccess(exam);
+        Page<ExamRegistration> p = examRegistrationRepository.findByExamId(examId,
+            PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "id")));
+        return PageResponse.<ExamRegistrationResponse>builder()
+            .content(p.getContent().stream().map(this::toRegistrationResponse).toList())
+            .pageNumber(page).pageSize(size)
+            .totalElements(p.getTotalElements()).totalPages(p.getTotalPages()).last(p.isLast())
+            .build();
+    }
+
+    // ── Bekor qilish (§4.3) ─────────────────────────────────────────────
+
+    /**
+     * REGISTERED → CANCELLED (SA, A, ACC; sabab 3–500). Natija bor bo'lsa — 409
+     * {@code exam.registration.hasResult}. PAID bo'lsa kassaga REVERSAL (asl yozuv o'chirilmaydi):
+     * {@code REFUNDED}; chelak manfiyga tushsa — {@code negativeCashBalance = true}, rad etilmaydi.
+     */
+    @Transactional
+    @Audited(action = AuditAction.PAYMENT_CANCEL, entity = "ExamRegistration",
+        summary = "'Imtihon yozilishi bekor qilindi: ' + #result.studentName + ' — ' + #result.cancelReason",
+        entityId = "#regId", label = "#result.studentName")
+    public ExamRegistrationResponse cancelRegistration(Long examId, Long regId, String reason) {
+        String why = reason != null ? reason.trim() : "";
+        if (why.length() < 3 || why.length() > 500) {
+            throw CodedException.badRequest("exam.registration.reasonRequired");
+        }
+        ExamRegistration reg = examRegistrationRepository.findById(regId)
+            .filter(r -> r.getExam().getId().equals(examId))
+            .orElseThrow(() -> CodedException.notFound("exam.registration.notFound", regId));
+        CashTransaction original = reg.getCashTransactionId() != null
+            ? cashTransactionRepository.findById(reg.getCashTransactionId()).orElse(null) : null;
+
+        locks.acquire(BillingLocks.Plan.of()
+            .student(reg.getStudent().getId())
+            .cashRegister(original != null ? original.getCashRegister().getId() : null));
+        entityManager.refresh(reg);
+        if (reg.getStatus() != ExamRegistrationStatus.REGISTERED) {
+            throw new ConflictException("exam.registration.notActive", reg.getStatus());
+        }
+        if (examResultRepository.findByExamIdAndStudentId(examId, reg.getStudent().getId()).isPresent()) {
+            throw new ConflictException("exam.registration.hasResult");
+        }
+        boolean negative = false;
+        if (reg.getFeeStatus() == ExamPaymentStatus.PAID && original != null) {
+            CashRegisterService.ReversalResult reversal = cashRegisterService.recordReversal(original,
+                "Imtihon yozilishi bekor qilindi — " + why);
+            reg.setRefundCashTransactionId(reversal.transaction().getId());
+            reg.setFeeStatus(ExamPaymentStatus.REFUNDED);
+            negative = reversal.negativeBalance();
+        }
+        reg.setStatus(ExamRegistrationStatus.CANCELLED);
+        reg.setCancelledAt(LocalDateTime.now(billingClock));
+        reg.setCancelledBy(currentUserOrNull());
+        reg.setCancelReason(why);
+        ExamRegistrationResponse response = toRegistrationResponse(examRegistrationRepository.save(reg));
+        response.setNegativeCashBalance(negative);
+        return response;
     }
 
     private StudentResponse toStudentResponse(Student s) {
@@ -427,13 +600,19 @@ public class ExamService {
         return ExamRegistrationResponse.builder()
             .id(r.getId())
             .examId(r.getExam().getId())
+            .examName(r.getExam().getExamName())
             .studentId(r.getStudent().getId())
             .studentName(r.getStudent().getFirstName() + " " + r.getStudent().getLastName())
-            .paymentStatus(r.getPaymentStatus())
+            .status(r.getStatus())
+            .paymentStatus(r.getFeeStatus())
             .amountDue(r.getAmountDue())
             .amountPaid(r.getAmountPaid())
+            .cashTransactionId(r.getCashTransactionId())
+            .refundCashTransactionId(r.getRefundCashTransactionId())
+            .receiptNumber(r.getReceiptNumber())
             .registrationDate(r.getRegistrationDate())
-            .status(r.getStatus())
+            .cancelledAt(r.getCancelledAt())
+            .cancelReason(r.getCancelReason())
             .notes(r.getNotes())
             .build();
     }
@@ -447,6 +626,9 @@ public class ExamService {
         e.setTotalMarks(req.getTotalMarks());
         e.setPassMarks(req.getPassMarks());
         e.setAcademicYear(req.getAcademicYear());
+        if (req.getFee() != null) {
+            e.setFee(req.getFee());
+        }
         if (req.getGroupId() != null) {
             groupRepository.findById(req.getGroupId()).ifPresent(group -> {
                 e.setGroup(group);
@@ -455,7 +637,7 @@ public class ExamService {
                 }
             });
         }
-        
+
         if (req.getClassId() != null && !req.getClassId().equals(req.getGroupId())) {
             classRepository.findById(req.getClassId()).ifPresent(e::setClassEntity);
         }
@@ -497,10 +679,16 @@ public class ExamService {
             .subjectName(e.getSubject() != null ? e.getSubject().getSubjectName() : null)
             .examDate(e.getExamDate()).startTime(e.getStartTime()).endTime(e.getEndTime())
             .totalMarks(e.getTotalMarks()).passMarks(e.getPassMarks())
-            .academicYear(e.getAcademicYear()).isActive(e.getIsActive())
+            .academicYear(e.getAcademicYear())
+            .fee(nz(e.getFee()))
+            .isActive(e.getIsActive())
             .createdAt(e.getCreatedAt()).build();
     }
 
+    /**
+     * Guruhli bepul imtihon yaratilganda guruhning faol o'quvchilari FREE bo'lib yoziladi.
+     * OVERDUE o'quvchi yozilmaydi (D8); davomat sharti bu yerda qo'llanmaydi (avvalgi xulq).
+     */
     private void autoRegisterGroupStudents(Exam exam) {
         Long groupId = exam.getGroup().getId();
         List<StudentGroup> enrollments = studentGroupRepository.findActiveByGroupId(groupId);
@@ -509,16 +697,20 @@ public class ExamService {
             if (student == null || student.getStatus() != StudentStatus.ACTIVE) {
                 continue;
             }
-            if (examRegistrationRepository.existsByExamIdAndStudentId(exam.getId(), student.getId())) {
+            if (examRegistrationRepository.existsActive(exam.getId(), student.getId())) {
+                continue;
+            }
+            if (isOverdue(billedEnrollments(exam, student.getId()))) {
                 continue;
             }
             ExamRegistration reg = ExamRegistration.builder()
                 .exam(exam)
                 .student(student)
-                .paymentStatus("PENDING")
+                .feeStatus(ExamPaymentStatus.FREE)
                 .amountDue(BigDecimal.ZERO)
                 .amountPaid(BigDecimal.ZERO)
-                .status("REGISTERED")
+                .status(ExamRegistrationStatus.REGISTERED)
+                .registrationDate(LocalDate.now(billingClock))
                 .notes("Guruhdan avtomatik ro'yxatga olindi")
                 .build();
             examRegistrationRepository.save(reg);
@@ -544,6 +736,10 @@ public class ExamService {
             return null;
         }
         return userRepository.findByUsername(auth.getName()).orElse(null);
+    }
+
+    private static BigDecimal nz(BigDecimal v) {
+        return v != null ? v : BigDecimal.ZERO;
     }
 
     private ExamResultResponse toEmptyResultResponse(Exam exam, Student student) {

@@ -23,4 +23,7 @@ public class ExamRequest {
     private BigDecimal totalMarks;
     private BigDecimal passMarks;
     private String academicYear;
+    /** 0 — bepul (leaves-exams-contracts §4.1); berilmasa — o'zgarmaydi (yangi imtihonda 0). */
+    @jakarta.validation.constraints.DecimalMin(value = "0", message = "{exam.fee.min}")
+    private BigDecimal fee;
 }

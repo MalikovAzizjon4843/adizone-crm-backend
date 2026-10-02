@@ -436,6 +436,7 @@ public class CashRegisterService {
         tx.setTeacher(original.getTeacher());
         tx.setPaymentId(original.getPaymentId());
         tx.setPayrollId(original.getPayrollId());
+        tx.setExamRegistrationId(original.getExamRegistrationId());
         tx.setRelatedTxId(original.getId());
         CashTransaction saved = cashTransactionRepository.save(tx);
 
@@ -882,7 +883,7 @@ public class CashRegisterService {
     /**
      * Pul yo'nalishi ({@link CashDirection}): INCOME → IN, EXPENSE → OUT; TRANSFER — kirim qatori IN
      * (yangi qatorlarda {@code relatedTxId} = chiqim qatori, eskilarida nom "(kirim)"), chiqim qatori OUT;
-     * REVERSAL — asl yozuvga ({@code relatedTxId}) teskari; asl topilmasa: to'lov teskarisi OUT,
+     * REVERSAL — asl yozuvga ({@code relatedTxId}) teskari; asl topilmasa: to'lov va imtihon to'lovi teskarisi OUT,
      * boshqasi (oylik/chiqim teskarisi) IN.
      */
     CashDirection direction(CashTransaction t) {
@@ -901,7 +902,7 @@ public class CashRegisterService {
                 if (original != null && original.getType() != CashTransactionType.REVERSAL) {
                     yield direction(original).opposite();
                 }
-                yield t.getPaymentId() != null ? CashDirection.OUT : CashDirection.IN;
+                yield t.getPaymentId() != null || t.getExamRegistrationId() != null ? CashDirection.OUT : CashDirection.IN;
             }
         };
     }
@@ -937,6 +938,7 @@ public class CashRegisterService {
         dto.setSignedAmount(signed(t.getAmount(), direction));
         dto.setPaymentId(t.getPaymentId());
         dto.setPayrollId(t.getPayrollId());
+        dto.setExamRegistrationId(t.getExamRegistrationId());
         dto.setRelatedTxId(t.getRelatedTxId());
         dto.setCashPart(t.getCashPart());
         dto.setCardPart(t.getCardPart());

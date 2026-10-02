@@ -1,0 +1,78 @@
+<html xmlns="http://www.w3.org/1999/xhtml" lang="uz">
+<!--
+  Shartnoma qobig'i (docs/design/leaves-exams-contracts.md §6.3). XHTML bo'lishi SHART:
+  OpenHTMLtoPDF uni XML sifatida o'qiydi (yopilmagan teg yoki nomli nbsp entity xato beradi,
+  raqamli #160 ishlating). Ikki "at" belgisi orasidagi nomlar o'rniga ContractPdfService escape
+  qilingan qiymatni qo'yadi; content — tozalangan shartnoma matni, priceBlock — narx jadvali.
+  Shriftlar faqat serverdagi Noto (OS shrifti ishlatilmaydi), PDF qayerda yaratilsa ham bir xil.
+-->
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+<title>@@contractNumber@@</title>
+<style>
+@page {
+  size: A4;
+  margin: 20mm 15mm 20mm 25mm;
+  @bottom-center {
+    content: counter(page) " / " counter(pages);
+    font-family: 'Noto Sans';
+    font-size: 8pt;
+    color: #666666;
+  }
+}
+body { font-family: 'Noto Serif'; font-size: 10.5pt; line-height: 1.45; color: #111111; }
+.org { text-align: center; font-family: 'Noto Sans'; font-size: 9pt; color: #444444; }
+h1 { text-align: center; font-size: 14pt; margin: 6mm 0 1mm 0; }
+.sub { text-align: center; font-size: 10pt; margin-bottom: 4mm; }
+table.meta { width: 100%; border-collapse: collapse; margin-bottom: 5mm; }
+table.meta td { padding: 0; }
+td.right { text-align: right; }
+.content p { margin: 0 0 2.5mm 0; text-align: justify; }
+.content h2, .content h3 { font-size: 11pt; margin: 4mm 0 2mm 0; }
+.content table { width: 100%; border-collapse: collapse; margin: 2mm 0; }
+.content td, .content th { border: 0.5pt solid #555555; padding: 1mm 2mm; vertical-align: top; }
+.price { margin: 4mm 0; }
+.price table { width: 100%; border-collapse: collapse; }
+.price td { border: 0.5pt solid #555555; padding: 1mm 2mm; }
+.parties { width: 100%; border-collapse: collapse; margin-top: 8mm; page-break-inside: avoid; }
+.parties td { width: 50%; vertical-align: top; padding: 0 3mm 0 0; font-size: 9.5pt; }
+.parties h3 { font-family: 'Noto Sans'; font-size: 10pt; margin: 0 0 2mm 0; }
+.sign { margin-top: 8mm; }
+@media print { body { margin: 0; } }
+</style>
+</head>
+<body>
+<div class="org">@@legalName@@ · STIR @@inn@@</div>
+<h1>SHARTNOMA № @@contractNumber@@</h1>
+<div class="sub">@@typeLabel@@</div>
+<table class="meta"><tr><td>@@contractCity@@</td><td class="right">@@contractDate@@</td></tr></table>
+<div class="content">@@content@@</div>
+@@priceBlock@@
+<table class="parties">
+<tr>
+<td>
+<h3>IJROCHI</h3>
+<div><b>@@legalName@@</b></div>
+<div>@@legalNameRu@@</div>
+<div>Manzil: @@address@@</div>
+<div>STIR: @@inn@@</div>
+<div>Bank: @@bankName@@</div>
+<div>MFO: @@bankMfo@@</div>
+<div>H/r: @@bankAccount@@</div>
+<div>Tel.: @@phone@@</div>
+<div>@@licenseInfo@@</div>
+<div class="sign">Direktor: ____________ @@directorName@@</div>
+</td>
+<td>
+<h3>BUYURTMACHI</h3>
+<div><b>@@studentName@@</b></div>
+<div>Tel.: @@studentPhone@@</div>
+<div>Ota-ona (vakil): @@parentName@@</div>
+<div>Tel.: @@parentPhone@@</div>
+<div>Pasport: ________________</div>
+<div class="sign">Imzo: ____________</div>
+</td>
+</tr>
+</table>
+</body>
+</html>
