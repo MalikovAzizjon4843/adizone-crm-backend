@@ -148,6 +148,33 @@
     <build>
         <finalName>crm-system</finalName>
         <plugins>
+            <!--
+              Build JDK 17–21 bo'lishi shart. Spring Boot 3.2.0 rasman Java 17–21 ni qo'llaydi; u boshqaradigan
+              byte-buddy 1.14.10 (Mockito 5.7.0) Java 23 ni tanimaydi — testlar yiqiladi. byte-buddy ni alohida
+              ko'tarish Boot BOM dagi sinalgan versiyalar to'plamini buzadi va faqat shu bitta alomatni yopadi
+              (Lombok 1.18.30 va boshqalar ham 17–21 bilan sinalgan) — shuning uchun JDK ni cheklaymiz.
+              Boot yangilanganda (3.4+) diapazonni kengaytiring.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce-java</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[17,22)</version>
+                                    <message>JDK 17-21 kerak (Spring Boot 3.2 + Mockito/byte-buddy). JAVA_HOME ni JDK 17 ga qo'ying.</message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

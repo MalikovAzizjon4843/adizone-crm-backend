@@ -44,6 +44,8 @@ public class SecurityConfig {
      */
     public static final List<String> ALLOWED_ORIGIN_PATTERNS = List.of(
             "https://admin.adizone.uz",
+            // Yangi admin panel (adizone-admin) pilot domeni — docs/ops/deploy-v2.md §5
+            "https://crm.adizone.uz",
             "https://app.adizone.uz",
             "https://adizone.uz",
             "https://www.adizone.uz",

@@ -52,3 +52,6 @@ Desktop.ini
 *.swp
 *.tmp
 *~
+
+# Staging repetitsiya natijalari (prod nusxasi bo'yicha, mahalliy) — docs/ops/deploy-v2.md §2.2
+docs/ops/rehearsal/
