@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/tasks")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','SALES_MANAGER')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','SALES_HEAD','SALES_MANAGER')")
 public class TaskController {
 
     private final TaskService taskService;

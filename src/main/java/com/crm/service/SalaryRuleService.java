@@ -26,7 +26,7 @@ import java.util.Set;
  * Oylik qoidalari (faqat SUPER_ADMIN) — docs/design/payroll-v2.md §7.
  *
  * <p>Maydonlar rolga bog'liq: TEACHER — {@code fixedSalary, perPayingStudent, substituteLessonRate};
- * SALES_MANAGER — {@code fixedSalary, perNewStudent}; ADMIN — {@code fixedSalary, perNewStudent,
+ * SALES_MANAGER, SALES_HEAD — {@code fixedSalary, perNewStudent}; ADMIN — {@code fixedSalary, perNewStudent,
  * kpiThreshold, kpiBonus}. Rolga tegishli bo'lmagan maydon nol emas bo'lsa 400 — hisobda
  * baribir ishlatilmaydi va "saqlandi, lekin ta'sir qilmadi" holati bo'lmasin.
  */
@@ -35,7 +35,7 @@ import java.util.Set;
 public class SalaryRuleService {
 
     public static final Set<UserRole> SALARY_ROLES =
-        EnumSet.of(UserRole.TEACHER, UserRole.ADMIN, UserRole.SALES_MANAGER);
+        EnumSet.of(UserRole.TEACHER, UserRole.ADMIN, UserRole.SALES_MANAGER, UserRole.SALES_HEAD);
 
     private static final Set<PayrollStatus> USED_STATUSES = EnumSet.of(PayrollStatus.APPROVED, PayrollStatus.PAID);
 

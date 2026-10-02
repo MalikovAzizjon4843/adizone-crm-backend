@@ -62,7 +62,7 @@ public class SecurityConfig {
      * hech bir endpoint ochilmasin. Yangi xodim roli qo'shilsa — shu yerga.
      */
     public static final String[] STAFF_ROLES =
-        {"SUPER_ADMIN", "ADMIN", "SALES_MANAGER", "ACCOUNTANT", "TEACHER"};
+        {"SUPER_ADMIN", "ADMIN", "SALES_HEAD", "SALES_MANAGER", "ACCOUNTANT", "TEACHER"};
 
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final CustomUserDetailsService userDetailsService;
@@ -134,9 +134,10 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
                 // ── Role-based access ──
-                // Direktor dashboardi: ACC moliya bo'limini ko'radi, bo'limlar servisda rol bo'yicha (§4)
+                // Direktor dashboardi: ACC moliya bo'limini, SALES_HEAD funnel/operators ni ko'radi —
+                // bo'limlar servisda rol bo'yicha (§4)
                 .requestMatchers("/api/dashboard/director", "/api/dashboard/director/**")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT", "SALES_HEAD")
                 .requestMatchers("/api/dashboard/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/analytics/**")
@@ -150,7 +151,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/salary-rules", "/api/salary-rules/**")
                     .hasRole("SUPER_ADMIN")
                 .requestMatchers("/api/payments/**")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER", "ACCOUNTANT")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_HEAD", "SALES_MANAGER", "ACCOUNTANT")
                 // Kassani o'chirish — faqat ma'muriyat. Umumiy kassa qoidasidan
                 // OLDIN: aks holda u pastdagi "DELETE /api/**" gacha yetmay
                 // ACCOUNTANT ga ham o'chirishni ochib qo'yardi.
@@ -164,9 +165,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/bonus-penalties", "/api/bonus-penalties/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
                 .requestMatchers("/api/leads/**")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_HEAD", "SALES_MANAGER")
                 .requestMatchers("/api/tasks/**")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_HEAD", "SALES_MANAGER")
                 // Webhook yuqorida permitAll qilingan va u shu qatordan
                 // OLDIN turibdi - Spring birinchi mos kelgan qoidani
                 // qo'llaydi, ya'ni tartibni buzmang.
@@ -220,9 +221,9 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
                 .requestMatchers(HttpMethod.GET, "/api/students", "/api/students/**")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER", "ACCOUNTANT", "TEACHER")
+                    .hasAnyRole(STAFF_ROLES)
                 .requestMatchers("/api/students/**")
-                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_MANAGER", "ACCOUNTANT")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_HEAD", "SALES_MANAGER", "ACCOUNTANT")
 
                 .requestMatchers("/api/attendance/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
@@ -238,7 +239,7 @@ public class SecurityConfig {
                     .hasRole("TEACHER")
                 // O'qituvchilar: /me/** yuqorida TEACHER ga ochilgan. KPI — faqat
                 // ma'muriyat; ro'yxat/detal/qidiruv — buxgalter ham (oylik,
-                // bonus/jarima sahifalari). STUDENT/PARENT/SALES_MANAGER — yo'q.
+                // bonus/jarima sahifalari). STUDENT/PARENT/SALES_MANAGER/SALES_HEAD — yo'q.
                 .requestMatchers(HttpMethod.GET,
                         "/api/teachers/kpi/**", "/api/teachers/*/kpi", "/api/teachers/*/kpi/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")

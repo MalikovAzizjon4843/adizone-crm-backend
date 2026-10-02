@@ -223,6 +223,31 @@ class PayrollLifecycleTest extends PayrollItBase {
         assertCode(() -> payroll.markAsPaid(id, dto, null), "payroll.alreadyPaid");
     }
 
+    /** Audit xulosalari: SpEL to'g'ri hisoblanadi (avval approve/pay/cancel da qo'shtirnoq yetishmasdi). */
+    @Test
+    void approvePayCancel_auditSummariesEvaluated() throws Exception {
+        Staff a = teacherWithPaidStudent();
+        Long id = draftFor(a.userId(), SEP).getId();
+        String name = payroll.getPayrollById(id).getUserName();
+        payroll.approve(id, null);
+        payroll.markAsPaid(id, null, null);
+        payroll.cancel(id, "Xato hisob");
+
+        assertThat(awaitAudits("PAYMENT_CANCEL")).isEqualTo(1);
+        assertThat(awaitAudits("STATUS_CHANGE")).isEqualTo(1);
+        assertThat(awaitAudits("PAYMENT")).isEqualTo(1);
+        assertThat(auditSummary("STATUS_CHANGE"))
+            .startsWith("Oylik tasdiqlandi: " + name + " 9/2026 = ").contains("3100000");
+        assertThat(auditSummary("PAYMENT"))
+            .startsWith("Oylik to'landi: " + name + " 9/2026 = ").contains("3100000");
+        assertThat(auditSummary("PAYMENT_CANCEL")).isEqualTo("Oylik bekor qilindi: " + name + " 9/2026 — Xato hisob");
+    }
+
+    private String auditSummary(String action) {
+        return jdbc.queryForObject(
+            "SELECT summary FROM audit_logs WHERE action = ? AND entity_type = 'Payroll'", String.class, action);
+    }
+
     private CashRegister register(Long id) {
         return inTx(() -> registerRepo.findById(id).orElseThrow());
     }

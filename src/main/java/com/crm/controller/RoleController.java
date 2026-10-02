@@ -35,6 +35,7 @@ public class RoleController {
             case SUPER_ADMIN -> "Super Admin";
             case ADMIN -> "Admin";
             case SALES_MANAGER -> "Sotuv menejeri";
+            case SALES_HEAD -> "Sotuv bo'limi rahbari";
             case TEACHER -> "O'qituvchi";
             case ACCOUNTANT -> "Buxgalter";
             case STUDENT -> "O'quvchi";

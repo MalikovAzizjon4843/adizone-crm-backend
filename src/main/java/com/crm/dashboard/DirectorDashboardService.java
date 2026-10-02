@@ -35,7 +35,7 @@ import java.util.TreeSet;
 /**
  * {@code GET /api/dashboard/director} xulosasi (director-dashboard §4.1). Bo'limlar rol bo'yicha
  * (§7 #15 qarori): SA — hammasi; ADMIN — funnel, attendance, trials, operators; ACCOUNTANT —
- * collections, debtors. Ruxsatsiz bo'lim — null va {@code meta.hiddenSections}.
+ * collections, debtors; SALES_HEAD — funnel, operators. Ruxsatsiz bo'lim — null va {@code meta.hiddenSections}.
  *
  * <p>O'tgan kun (DAY) — yakuniy snapshot bo'lsa undan ({@code SNAPSHOT}), aks holda jonli. Natija
  * {@code app.dashboard.cache-seconds} (60) soniya keshlanadi.
@@ -112,6 +112,10 @@ public class DirectorDashboardService {
         }
         if (BillingAuth.hasAnyRole("ACCOUNTANT")) {
             s.addAll(EnumSet.of(Section.COLLECTIONS, Section.DEBTORS));
+        }
+        if (BillingAuth.hasAnyRole("SALES_HEAD")) {
+            // Sotuv bo'limi rahbari — faqat sotuv bo'limlari (lid voronkasi va operatorlar)
+            s.addAll(EnumSet.of(Section.FUNNEL, Section.OPERATORS));
         }
         return s;
     }

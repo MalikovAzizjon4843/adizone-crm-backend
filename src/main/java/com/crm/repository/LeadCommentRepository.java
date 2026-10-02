@@ -26,11 +26,17 @@ public interface LeadCommentRepository extends JpaRepository<LeadComment, Long> 
     @Query("SELECT lc.lead.id, COUNT(lc) FROM LeadComment lc WHERE lc.lead.id IN :leadIds GROUP BY lc.lead.id")
     List<Object[]> countByLeadIds(@Param("leadIds") Collection<Long> leadIds);
 
+    /**
+     * Har lid uchun eng oxirgi izoh matni (created_at, teng bo'lsa id bo'yicha). Avval PostgreSQL ga xos
+     * {@code DISTINCT ON} edi — H2 testlarida {@code GET /api/leads} 500 berardi; NOT EXISTS ikkala bazada ishlaydi.
+     */
     @Query(value = """
-        SELECT DISTINCT ON (lead_id) lead_id, text
-        FROM lead_comments
-        WHERE lead_id IN (:leadIds)
-        ORDER BY lead_id, created_at DESC
+        SELECT c.lead_id, c.text
+        FROM lead_comments c
+        WHERE c.lead_id IN (:leadIds)
+          AND NOT EXISTS (SELECT 1 FROM lead_comments n
+                          WHERE n.lead_id = c.lead_id
+                            AND (n.created_at > c.created_at OR (n.created_at = c.created_at AND n.id > c.id)))
         """, nativeQuery = true)
     List<Object[]> findLatestTextByLeadIds(@Param("leadIds") Collection<Long> leadIds);
 }

@@ -45,7 +45,7 @@ public class StaffAnalyticsService {
 
     private static final Set<UserRole> STAFF_ROLES = EnumSet.of(
         UserRole.SUPER_ADMIN, UserRole.ADMIN,
-        UserRole.SALES_MANAGER, UserRole.TEACHER, UserRole.ACCOUNTANT);
+        UserRole.SALES_HEAD, UserRole.SALES_MANAGER, UserRole.TEACHER, UserRole.ACCOUNTANT);
     private static final DateTimeFormatter MONTH_LABEL = DateTimeFormatter.ofPattern("yyyy-MM");
     private static final DateTimeFormatter DAY_LABEL = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final int DEFAULT_TREND_MONTHS = 6;

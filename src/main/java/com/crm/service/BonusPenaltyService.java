@@ -299,7 +299,8 @@ public class BonusPenaltyService {
             }
             User user = userRepository.findById(dto.getUserId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", dto.getUserId()));
-            if (user.getRole() != UserRole.ADMIN && user.getRole() != UserRole.SALES_MANAGER) {
+            if (user.getRole() != UserRole.ADMIN && user.getRole() != UserRole.SALES_MANAGER
+                    && user.getRole() != UserRole.SALES_HEAD) {
                 throw CodedException.badRequest("bonus.staff.roleInvalid", user.getRole());
             }
             entity.setUser(user);

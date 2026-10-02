@@ -157,7 +157,7 @@ public class SalaryCalculationService {
             }
             return teacher(user, teacher, rule, month, year, from, to);
         }
-        if (role == UserRole.ADMIN || role == UserRole.SALES_MANAGER) {
+        if (role == UserRole.ADMIN || role == UserRole.SALES_MANAGER || role == UserRole.SALES_HEAD) {
             return staff(user, rule, month, year, from, to);
         }
         return notCalculable(user, month, year, "ROLE_NOT_CALCULATED", "Bu rol uchun oylik hisoblanmaydi");

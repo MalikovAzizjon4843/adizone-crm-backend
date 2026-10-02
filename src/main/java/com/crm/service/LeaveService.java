@@ -81,7 +81,8 @@ public class LeaveService {
 
     private static final Set<LeaveStatus> BLOCKING = EnumSet.of(LeaveStatus.PENDING, LeaveStatus.APPROVED);
     private static final Set<UserRole> STAFF = EnumSet.of(
-        UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.SALES_MANAGER, UserRole.ACCOUNTANT, UserRole.TEACHER);
+        UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.SALES_HEAD, UserRole.SALES_MANAGER, UserRole.ACCOUNTANT,
+        UserRole.TEACHER);
 
     private final LeaveRepository leaveRepository;
     private final TeacherRepository teacherRepository;

@@ -206,7 +206,7 @@ public class LeadService {
                 .orElseThrow(() -> new ResourceNotFoundException("User", requestedId));
         if (!LeadAccessService.canBeOperator(target.getRole())) {
             throw new BadRequestException(
-                "Faqat ADMIN, SUPER_ADMIN yoki SALES_MANAGER operator sifatida biriktiriladi");
+                "Faqat ADMIN, SUPER_ADMIN, SALES_HEAD yoki SALES_MANAGER operator sifatida biriktiriladi");
         }
         if (!Boolean.TRUE.equals(target.getIsActive())) {
             throw new BadRequestException("Faol bo'lmagan foydalanuvchiga lid biriktirilmaydi");
@@ -319,7 +319,7 @@ public class LeadService {
             // lid operatori bo'la olgan odam unga vazifa mas'uli ham bo'la olishi kerak.
             if (!LeadAccessService.canBeOperator(user.getRole())) {
                 throw new BadRequestException(
-                    "Faqat ADMIN, SUPER_ADMIN yoki SALES_MANAGER operator sifatida biriktiriladi");
+                    "Faqat ADMIN, SUPER_ADMIN, SALES_HEAD yoki SALES_MANAGER operator sifatida biriktiriladi");
             }
             lead.setAssignedUser(user);
             lead.setAssignedAt(leadFunnelTracker.now());

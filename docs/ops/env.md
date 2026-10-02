@@ -36,7 +36,7 @@ DB_PASSWORD=... mvn test -Dspring.profiles.active=pgtest
 `application-pgtest.yml`: baza `adizone_test` (`PGTEST_DB_URL` bilan o'zgartiriladi),
 foydalanuvchi `crm_user` (`PGTEST_DB_USER`), parol faqat `DB_PASSWORD`. Sxema
 `create-drop` — har ishga tushishda jadvallar qayta yaratiladi, so'ng
-`db/migration/V52…V60` (billing v2, dashboard, payroll v2, qarorlar, eski cheklovlar, qoida ustma-ustligi, phase5 xavfsizlik, shartnoma raqami, e'lon auditoriyasi) aynan o'zi bajariladi.
+`db/migration/V52…V63` (billing v2, dashboard, payroll v2, qarorlar, eski cheklovlar, qoida ustma-ustligi, phase5 xavfsizlik, shartnoma raqami, e'lon auditoriyasi, ta'til/o'rinbosar, imtihon to'lovi, rekvizitlar/shartnoma) aynan o'zi bajariladi. Prod deploy tartibi — [deploy-v2.md](deploy-v2.md).
 **Ishchi bazaga ulamang.**
 
 ## systemd bilan o'rnatish

@@ -27,7 +27,7 @@ import java.util.Map;
 public class LeaveController {
 
     private static final String STAFF =
-        "hasAnyRole('SUPER_ADMIN','ADMIN','SALES_MANAGER','ACCOUNTANT','TEACHER')";
+        "hasAnyRole('SUPER_ADMIN','ADMIN','SALES_HEAD','SALES_MANAGER','ACCOUNTANT','TEACHER')";
 
     private final LeaveService leaveService;
 

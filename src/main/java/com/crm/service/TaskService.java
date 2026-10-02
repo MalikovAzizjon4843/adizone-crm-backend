@@ -557,7 +557,7 @@ public class TaskService {
     private void assertCanBeAssignee(User target) {
         if (!LeadAccessService.canBeOperator(target.getRole())) {
             throw new BadRequestException(
-                "Vazifa faqat ADMIN, SUPER_ADMIN yoki SALES_MANAGER ga biriktiriladi");
+                "Vazifa faqat ADMIN, SUPER_ADMIN, SALES_HEAD yoki SALES_MANAGER ga biriktiriladi");
         }
         if (!Boolean.TRUE.equals(target.getIsActive())) {
             throw new BadRequestException("Faol bo'lmagan foydalanuvchiga vazifa berilmaydi");

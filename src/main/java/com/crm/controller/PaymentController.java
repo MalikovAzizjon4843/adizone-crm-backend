@@ -116,7 +116,7 @@ public class PaymentController {
     }
 
     @GetMapping("/student/{studentId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','SALES_HEAD','SALES_MANAGER')")
     public ResponseEntity<ApiResponse<List<PaymentResponse>>> getStudentPayments(@PathVariable Long studentId) {
         return ResponseEntity.ok(ApiResponse.success(paymentService.getStudentPayments(studentId)));
     }

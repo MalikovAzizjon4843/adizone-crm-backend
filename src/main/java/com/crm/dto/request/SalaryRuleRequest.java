@@ -37,7 +37,7 @@ public class SalaryRuleRequest {
     @DecimalMin(value = "0", message = "{salaryRule.amount.min}")
     private BigDecimal perPayingStudent;
 
-    /** ADMIN, SALES_MANAGER: har bir yangi o'quvchi uchun. */
+    /** ADMIN, SALES_MANAGER, SALES_HEAD: har bir yangi o'quvchi uchun. */
     @DecimalMin(value = "0", message = "{salaryRule.amount.min}")
     private BigDecimal perNewStudent;
 

@@ -87,7 +87,7 @@ public class OperatorMetricsService {
         Set<Long> userIds = new HashSet<>(byUser.keySet());
         List<User> users = queries.em().createQuery("""
                 SELECT u FROM User u WHERE u.isActive = true AND u.role IN :roles
-                """, User.class).setParameter("roles", List.of(UserRole.ADMIN, UserRole.SALES_MANAGER)).getResultList();
+                """, User.class).setParameter("roles", List.of(UserRole.ADMIN, UserRole.SALES_HEAD, UserRole.SALES_MANAGER)).getResultList();
         users.forEach(u -> userIds.add(u.getId()));
         Map<Long, User> userById = new HashMap<>();
         queries.em().createQuery("SELECT u FROM User u WHERE u.id IN :ids", User.class)

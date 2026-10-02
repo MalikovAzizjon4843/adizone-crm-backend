@@ -273,7 +273,7 @@ public class PayrollService {
     @Transactional
     @Audited(action = AuditAction.STATUS_CHANGE, entity = "Payroll",
         summary = "'Oylik tasdiqlandi: ' + #result.userName + ' ' + #result.month + '/' + #result.year"
-            + " = ' + #result.netSalary",
+            + " + ' = ' + #result.netSalary",
         entityId = "#id", label = "#result.userName")
     public PayrollResponse approve(Long id, BigDecimal expectedNetSalary) {
         Payroll candidate = findById(id);
@@ -330,7 +330,7 @@ public class PayrollService {
     @Transactional
     @Audited(action = AuditAction.PAYMENT, entity = "Payroll",
         summary = "'Oylik to''landi: ' + #result.userName + ' ' + #result.month + '/' + #result.year"
-            + " = ' + #result.netSalary",
+            + " + ' = ' + #result.netSalary",
         entityId = "#id", label = "#result.userName")
     public PayrollResponse markAsPaid(Long id, PayrollPayDto body, String idempotencyKeyHeader) {
         PayrollPayDto dto = body != null ? body : new PayrollPayDto();
@@ -399,7 +399,7 @@ public class PayrollService {
     @Transactional
     @Audited(action = AuditAction.PAYMENT_CANCEL, entity = "Payroll",
         summary = "'Oylik bekor qilindi: ' + #result.userName + ' ' + #result.month + '/' + #result.year"
-            + " — ' + #result.cancelReason",
+            + " + ' — ' + #result.cancelReason",
         entityId = "#id", label = "#result.userName")
     public PayrollResponse cancel(Long id, String reason) {
         if (!BillingAuth.hasAnyRole("SUPER_ADMIN")) {

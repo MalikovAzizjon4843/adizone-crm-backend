@@ -43,7 +43,7 @@ import java.util.Locale;
 @RestController
 @RequestMapping("/api/dashboard/director")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','SALES_HEAD')")
 public class DirectorDashboardController {
 
     public static final int MAX_PAGE_SIZE = 200;

@@ -57,9 +57,12 @@ BEGIN
         RAISE NOTICE 'leave_requests.status: noma''lum qiymatlar PENDING ga o''tkazildi: %', odd;
     END IF;
 END $$;
+-- paid shu UPDATE ning o'zida: qayta bajarilganda ck_leave_requests_paid allaqachon bor — 'approved' → 'APPROVED'
+-- paid NULL bilan qolsa CHECK buziladi (eski jar kichik harfli status yozgan bo'lishi mumkin)
 UPDATE leave_requests
    SET status = CASE WHEN UPPER(TRIM(status)) IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED')
-                     THEN UPPER(TRIM(status)) ELSE 'PENDING' END
+                     THEN UPPER(TRIM(status)) ELSE 'PENDING' END,
+       paid   = CASE WHEN UPPER(TRIM(status)) = 'APPROVED' THEN COALESCE(paid, TRUE) ELSE paid END
  WHERE status IS NULL OR status <> UPPER(TRIM(status))
     OR UPPER(TRIM(status)) NOT IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED');
 

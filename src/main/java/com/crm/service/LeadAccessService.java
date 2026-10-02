@@ -22,7 +22,8 @@ import java.util.Set;
  *
  * <p>Qoida ikkita:
  * <ul>
- *   <li>ADMIN, SUPER_ADMIN — hamma lidlar, cheklovsiz;</li>
+ *   <li>ADMIN, SUPER_ADMIN, SALES_HEAD — hamma lidlar va vazifalar, cheklovsiz; lidni istalgan
+ *       operatorga (qayta) tayinlaydi;</li>
  *   <li>SALES_MANAGER — faqat {@code assignedUser} o'zi bo'lgan lidlar.</li>
  * </ul>
  *
@@ -36,10 +37,11 @@ public class LeadAccessService {
 
     /** Vazifa mas'uli yoki lid operatori bo'la oladigan rollar. */
     private static final Set<UserRole> OPERATOR_ROLES =
-        EnumSet.of(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.SALES_MANAGER);
+        EnumSet.of(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.SALES_HEAD, UserRole.SALES_MANAGER);
 
+    /** Hamma lid va vazifa: ma'muriyat va sotuv bo'limi rahbari (SALES_HEAD). */
     private static final Set<UserRole> FULL_ACCESS_ROLES =
-        EnumSet.of(UserRole.SUPER_ADMIN, UserRole.ADMIN);
+        EnumSet.of(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.SALES_HEAD);
 
     private final UserRepository userRepository;
     private final LeadRepository leadRepository;

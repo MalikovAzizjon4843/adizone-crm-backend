@@ -40,9 +40,17 @@ class MigrationV61ToV63Test extends LecItBase {
 
     private void runScript(String path) {
         jdbc.execute((ConnectionCallback<Void>) c -> {
-            ScriptUtils.executeSqlScript(c, new EncodedResource(new ClassPathResource(path)),
-                false, false, ScriptUtils.DEFAULT_COMMENT_PREFIX, ScriptUtils.EOF_STATEMENT_SEPARATOR,
-                ScriptUtils.DEFAULT_BLOCK_COMMENT_START_DELIMITER, ScriptUtils.DEFAULT_BLOCK_COMMENT_END_DELIMITER);
+            try {
+                ScriptUtils.executeSqlScript(c, new EncodedResource(new ClassPathResource(path)),
+                    false, false, ScriptUtils.DEFAULT_COMMENT_PREFIX, ScriptUtils.EOF_STATEMENT_SEPARATOR,
+                    ScriptUtils.DEFAULT_BLOCK_COMMENT_START_DELIMITER, ScriptUtils.DEFAULT_BLOCK_COMMENT_END_DELIMITER);
+            } catch (RuntimeException e) {
+                // Skript o'z BEGIN i ichida yiqildi — ulanish "aborted" holatda pulga qaytmasin
+                try (var st = c.createStatement()) {
+                    st.execute("ROLLBACK");
+                }
+                throw e;
+            }
             return null;
         });
     }

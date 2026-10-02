@@ -50,7 +50,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/leads")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','SALES_MANAGER')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','SALES_HEAD','SALES_MANAGER')")
 public class LeadController {
 
     private final LeadService leadService;
@@ -113,7 +113,7 @@ public class LeadController {
     }
 
     @GetMapping("/stats")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','SALES_HEAD')")
     public ResponseEntity<ApiResponse<LeadStatsResponse>> getStats() {
         return ResponseEntity.ok(ApiResponse.success(leadService.getStats()));
     }
@@ -137,8 +137,9 @@ public class LeadController {
                 leadService.getKanbanStats(search, assignedUserId, unassigned, fromDate, toDate, source)));
     }
 
+    /** Tayinlash ro'yxati uchun — ma'muriyat va sotuv bo'limi rahbari. */
     @GetMapping("/operators")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','SALES_HEAD')")
     public ResponseEntity<ApiResponse<List<LeadOperatorResponse>>> getOperators() {
         return ResponseEntity.ok(ApiResponse.success(leadService.getOperators()));
     }
@@ -148,9 +149,12 @@ public class LeadController {
         return ResponseEntity.ok(ApiResponse.success(leadService.getById(id)));
     }
 
-    /** Operatorni almashtirish faqat adminda — operator o'zidan lidni olib tashlay olmaydi. */
+    /**
+     * Operatorni almashtirish — ma'muriyat va sotuv bo'limi rahbari (istalgan menejerga, qayta ham).
+     * SALES_MANAGER lidni o'zidan olib tashlay olmaydi va boshqaga bera olmaydi.
+     */
     @PatchMapping("/{id:\\d+}/assign")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','SALES_HEAD')")
     public ResponseEntity<ApiResponse<LeadResponse>> assignLead(
             @PathVariable Long id,
             @RequestBody LeadAssignRequest request) {
