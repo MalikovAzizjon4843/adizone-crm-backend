@@ -47,6 +47,7 @@ public class AttendanceService {
     private final AttendanceUnlockRequestService attendanceUnlockRequestService;
     private final TeacherAccessService teacherAccessService;
     private final LessonChargeService lessonChargeService;
+    private final com.crm.dashboard.AttendanceSignals attendanceSignals;
 
     @Transactional
     @Audited(action = AuditAction.UPDATE, entity = "Attendance",
@@ -139,6 +140,8 @@ public class AttendanceService {
 
             // Billing v2 (§6.9): PER_LESSON ledger — davomat holatidan idempotent
             lessonChargeService.sync(saved);
+            // Direktor dashboardi: sinov boshlanishi va lid tashrifi (§1.1, §1.5)
+            attendanceSignals.onAttendanceSaved(saved);
 
             if (previousStatus != saved.getStatus()) {
                 studentPaymentLifecycleService.onLessonAttended(

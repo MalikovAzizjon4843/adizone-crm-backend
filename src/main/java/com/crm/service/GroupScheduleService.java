@@ -2,6 +2,7 @@ package com.crm.service;
 
 import com.crm.entity.Classroom;
 import com.crm.entity.GroupScheduleDay;
+import com.crm.entity.LessonException;
 import com.crm.entity.Timetable;
 import com.crm.repository.GroupScheduleDayRepository;
 import com.crm.repository.TimetableRepository;
@@ -45,6 +46,8 @@ public class GroupScheduleService {
 
     private final GroupScheduleDayRepository groupScheduleDayRepository;
     private final TimetableRepository timetableRepository;
+    private final com.crm.repository.HolidayRepository holidayRepository;
+    private final com.crm.repository.LessonExceptionRepository lessonExceptionRepository;
 
     /** Bitta dars kuni: kun KATTA harfda (MONDAY…), vaqt "HH:mm" yoki null, xona yoki null. */
     public record LessonSlot(String dayOfWeek, String startTime, String endTime, Classroom room) {
@@ -89,10 +92,29 @@ public class GroupScheduleService {
         return days;
     }
 
-    /** Shu sanada guruhda dars bormi (hafta kuni bo'yicha). */
+    /**
+     * Shu sanada guruhda dars bormi: hafta kuni jadvali, dam olish kunlari va dars istisnolari
+     * (director-dashboard §3.5): bayram — yo'q; CANCELLED/MOVED (asl kun) — yo'q;
+     * EXTRA yoki MOVED (yangi kun) — bor.
+     */
     @Transactional(readOnly = true)
     public boolean hasLessonOn(Long groupId, LocalDate date) {
-        return date != null && lessonWeekdays(groupId).contains(date.getDayOfWeek());
+        if (date == null) {
+            return false;
+        }
+        if (holidayRepository.existsById(date)) {
+            return false;
+        }
+        boolean added = lessonExceptionRepository.findByGroupIdAndMovedTo(groupId, date).stream()
+            .anyMatch(e -> e.getKind() == LessonException.Kind.MOVED)
+            || lessonExceptionRepository.findByGroupIdAndLessonDate(groupId, date).stream()
+                .anyMatch(e -> e.getKind() == LessonException.Kind.EXTRA);
+        if (added) {
+            return true;
+        }
+        boolean removed = lessonExceptionRepository.findByGroupIdAndLessonDate(groupId, date).stream()
+            .anyMatch(e -> e.getKind() == LessonException.Kind.CANCELLED || e.getKind() == LessonException.Kind.MOVED);
+        return !removed && lessonWeekdays(groupId).contains(date.getDayOfWeek());
     }
 
     private static String normalizeDay(String day) {

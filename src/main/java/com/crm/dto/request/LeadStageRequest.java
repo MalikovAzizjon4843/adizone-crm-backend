@@ -41,4 +41,7 @@ public class LeadStageRequest {
     private Integer sortOrder;
 
     private Boolean isActive;
+
+    /** Direktor dashboardi voronka qadami (NONE / CONTACTED / VISITED); null — o'zgarmaydi. */
+    private com.crm.entity.enums.FunnelStep funnelStep;
 }

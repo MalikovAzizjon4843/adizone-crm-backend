@@ -46,7 +46,9 @@ public class BillingFixtures {
         "balance_transactions", "billing_periods", "income", "payments", "cash_transactions",
         "cash_registers", "bonus_penalties", "attendance", "student_status_history",
         "student_groups", "students", "group_schedule_days", "groups", "courses", "teachers",
-        "billing_job_runs", "billing_migration_runs", "audit_logs");
+        "billing_job_runs", "billing_migration_runs", "audit_logs",
+        "lead_assignments", "lead_status_history", "lead_comments", "lead_notes", "tasks", "leads",
+        "holidays", "lesson_exceptions", "director_daily_stats", "director_digest_log");
 
     private final CourseRepository courseRepository;
     private final GroupRepository groupRepository;

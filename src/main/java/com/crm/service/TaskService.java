@@ -73,6 +73,7 @@ public class TaskService {
     private final LeadAccessService leadAccessService;
     private final LeadStageService leadStageService;
     private final Messages messages;
+    private final com.crm.dashboard.LeadFunnelTracker leadFunnelTracker;
 
     // ── Yozish ───────────────────────────────────────────────────────────
 
@@ -190,9 +191,14 @@ public class TaskService {
 
         task.setStatus(TaskStatus.DONE);
         task.setResult(result);
-        task.setCompletedAt(LocalDateTime.now());
+        task.setCompletedAt(leadFunnelTracker.now());
         task.setCompletedBy(current);
         Task saved = taskRepository.save(task);
+        if (saved.getLead() != null) {
+            // Direktor dashboardi: bajarilgan vazifa — operatorning javobi (§1.7)
+            leadFunnelTracker.onOperatorAction(saved.getLead().getId(), current,
+                com.crm.entity.LeadAssignment.KIND_TASK, saved.getCompletedAt());
+        }
 
         AuditContext.change("status", TaskStatus.OPEN, TaskStatus.DONE);
         AuditContext.change("result", null, result);

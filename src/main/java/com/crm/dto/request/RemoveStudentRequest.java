@@ -8,4 +8,6 @@ public class RemoveStudentRequest {
     // GRADUATED, LEFT, TRANSFERRED, SUSPENDED, OTHER
     private String reason;
     private String notes;
+    /** Direktor dashboardi (§3.4, §7 #12): berilmasa {@code reason} matnidan, aks holda OTHER. */
+    private com.crm.entity.enums.ExitReasonCode reasonCode;
 }

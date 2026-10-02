@@ -1,6 +1,7 @@
 package com.crm.config;
 
 import com.crm.entity.LeadStage;
+import com.crm.entity.enums.FunnelStep;
 import com.crm.entity.enums.StageKind;
 import com.crm.repository.LeadStageRepository;
 import lombok.RequiredArgsConstructor;
@@ -67,29 +68,32 @@ public class LeadStageSeeder implements ApplicationRunner {
             stage(1, "NEW", "Yangi", "Новый", "New",
                 "secondary", StageKind.OPEN, false),
             stage(2, "CONTACTED", "Bog'lanildi", "Связались", "Contacted",
-                "info", StageKind.OPEN, false),
-            stage(3, "ONLINE_ENROLLED", "Online yozildi",
+                "info", StageKind.OPEN, false, FunnelStep.CONTACTED),
+            // Direktor dashboardi (§7 #1 qarori): "tashrif" voronka qadami
+            stage(3, "VISITED_TRIAL", "Sinovga keldi", "Пришёл на пробный", "Came to trial",
+                "info", StageKind.OPEN, false, FunnelStep.VISITED),
+            stage(4, "ONLINE_ENROLLED", "Online yozildi",
                 "Онлайн записан", "Enrolled online",
                 "warning", StageKind.OPEN, false),
-            stage(4, "OFFLINE_ENROLLED", "Offline yozildi",
+            stage(5, "OFFLINE_ENROLLED", "Offline yozildi",
                 "Офлайн записан", "Enrolled offline",
                 "warning", StageKind.OPEN, false),
-            stage(5, "ONLINE_PAID", "Online to'ladi",
+            stage(6, "ONLINE_PAID", "Online to'ladi",
                 "Онлайн оплатил", "Paid online",
-                "success", StageKind.OPEN, true),
-            stage(6, "OFFLINE_PAID", "Offline to'ladi",
+                "success", StageKind.OPEN, true, FunnelStep.VISITED),
+            stage(7, "OFFLINE_PAID", "Offline to'ladi",
                 "Офлайн оплатил", "Paid offline",
-                "success", StageKind.OPEN, true),
+                "success", StageKind.OPEN, true, FunnelStep.VISITED),
             // Ikkita konvert bosqichi: o'quvchi onlayn yoki oflayn o'qiydi va
             // kanbanda alohida ustunlarda turadi. Qaysi biriga tushishini
             // konvert so'rovidagi studyFormat hal qiladi.
-            stage(7, "CONVERTED_ONLINE", "Online o'quvchi",
+            stage(8, "CONVERTED_ONLINE", "Online o'quvchi",
                 "Онлайн ученик", "Online student",
                 "success", StageKind.CONVERTED, false),
-            stage(8, "CONVERTED_OFFLINE", "Offline o'quvchi",
+            stage(9, "CONVERTED_OFFLINE", "Offline o'quvchi",
                 "Офлайн ученик", "Offline student",
                 "success", StageKind.CONVERTED, false),
-            stage(9, "REJECTED", "Rad etildi",
+            stage(10, "REJECTED", "Rad etildi",
                 "Отклонён", "Rejected",
                 "danger", StageKind.REJECTED, false));
 
@@ -106,7 +110,15 @@ public class LeadStageSeeder implements ApplicationRunner {
                                    String nameUz, String nameRu, String nameEn,
                                    String color, StageKind kind,
                                    boolean requiresAmount) {
+        return stage(sortOrder, code, nameUz, nameRu, nameEn, color, kind, requiresAmount, FunnelStep.NONE);
+    }
+
+    private static LeadStage stage(int sortOrder, String code,
+                                   String nameUz, String nameRu, String nameEn,
+                                   String color, StageKind kind,
+                                   boolean requiresAmount, FunnelStep funnelStep) {
         return LeadStage.builder()
+            .funnelStep(funnelStep)
             .code(code)
             .nameUz(nameUz)
             .nameRu(nameRu)

@@ -87,6 +87,12 @@ public class LeadStage extends BaseEntity {
     @Builder.Default
     private Boolean isActive = true;
 
+    /** Direktor dashboardi voronkasi qadami (director-dashboard §1.1, G1) — sozlamalardan. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "funnel_step", nullable = false, length = 20)
+    @Builder.Default
+    private com.crm.entity.enums.FunnelStep funnelStep = com.crm.entity.enums.FunnelStep.NONE;
+
     @PrePersist
     protected void onCreate() {
         if (kind == null) {
@@ -97,6 +103,9 @@ public class LeadStage extends BaseEntity {
         }
         if (sortOrder == null) {
             sortOrder = 0;
+        }
+        if (funnelStep == null) {
+            funnelStep = com.crm.entity.enums.FunnelStep.NONE;
         }
     }
 }

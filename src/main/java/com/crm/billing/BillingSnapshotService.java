@@ -38,6 +38,7 @@ public class BillingSnapshotService {
     private final StudentGroupRepository studentGroupRepository;
     private final StudentRepository studentRepository;
     private final TransactionTemplate transactionTemplate;
+    private final PeriodCoverageService periodCoverageService;
 
     /** SG snapshot'i + o'quvchi agregati. Ledger amalidan keyin chaqiriladi. */
     @Transactional(propagation = Propagation.MANDATORY)
@@ -68,6 +69,8 @@ public class BillingSnapshotService {
         sg.setNextPaymentAmount(s.nextPaymentAmount());
         sg.setPaymentStatus(s.status());
         studentGroupRepository.save(sg);
+        // Direktor dashboardi (§3.2): davrlar qachon yopilgani — shu tranzaksiyada
+        periodCoverageService.refresh(sg);
         return s;
     }
 

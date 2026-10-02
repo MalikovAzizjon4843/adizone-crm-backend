@@ -116,7 +116,7 @@ public class GroupController {
             @RequestBody RemoveStudentRequest request) {
         groupService.removeStudentFromGroup(
             groupId, request.getStudentId(),
-            request.getReason(), request.getNotes());
+            request.getReason(), request.getNotes(), request.getReasonCode());
         return ResponseEntity.ok(
             ApiResponse.success("O'quvchi guruhdan chiqarildi", "OK"));
     }

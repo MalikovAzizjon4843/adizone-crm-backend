@@ -22,6 +22,7 @@ import com.crm.dto.response.LeadKanbanStatsResponse;
 import com.crm.dto.response.LeadStatsResponse;
 import com.crm.dto.response.LeadStatusHistoryResponse;
 import com.crm.dto.response.PageResponse;
+import com.crm.entity.LeadAssignment;
 import com.crm.entity.Lead;
 import com.crm.entity.LeadComment;
 import com.crm.entity.LeadNote;
@@ -110,6 +111,7 @@ public class LeadService {
     private final LeadStageService leadStageService;
     private final Messages messages;
     private final EntityManager entityManager;
+    private final com.crm.dashboard.LeadFunnelTracker leadFunnelTracker;
 
     @Transactional
     @Audited(action = AuditAction.CREATE, entity = "Lead",
@@ -173,11 +175,14 @@ public class LeadService {
                         ? leadStageService.requireActiveCode(request.getStatus())
                         : Lead.DEFAULT_STATUS)
                 .assignedUser(assignee)
-                .assignedAt(assignee != null ? LocalDateTime.now() : null)
+                .assignedAt(assignee != null ? leadFunnelTracker.now() : null)
                 .createdBy(current)
                 .converted(false)
                 .build();
-        return toResponse(leadRepository.save(lead));
+        Lead saved = leadRepository.save(lead);
+        // Direktor dashboardi: boshlang'ich bosqich sanasi va tayinlash tarixi
+        leadFunnelTracker.onCreated(saved, current);
+        return toResponse(saved);
     }
 
     /**
@@ -317,8 +322,10 @@ public class LeadService {
                     "Faqat ADMIN, SUPER_ADMIN yoki SALES_MANAGER operator sifatida biriktiriladi");
             }
             lead.setAssignedUser(user);
-            lead.setAssignedAt(LocalDateTime.now());
+            lead.setAssignedAt(leadFunnelTracker.now());
         }
+        // Direktor dashboardi: tayinlash tarixi (lead_assignments)
+        leadFunnelTracker.onAssigned(lead, lead.getAssignedUser(), getCurrentUser(), leadFunnelTracker.now());
         AuditContext.change("assignedUser", previousOperator,
                 lead.getAssignedUser() != null ? formatUserName(lead.getAssignedUser()) : null);
         return toResponse(leadRepository.save(lead));
@@ -485,7 +492,10 @@ public class LeadService {
                 .text(request.getText().trim())
                 .statusAtComment(lead.getStatus())
                 .build();
-        return toCommentResponse(leadCommentRepository.save(comment));
+        LeadComment saved = leadCommentRepository.save(comment);
+        // Direktor dashboardi: izoh ham operatorning javobi (§1.7)
+        leadFunnelTracker.onOperatorAction(lead.getId(), author, LeadAssignment.KIND_COMMENT, leadFunnelTracker.now());
+        return toCommentResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -693,12 +703,12 @@ public class LeadService {
         lead.setStudent(student);
         lead.setConverted(true);
         lead.setStatus(convertedCode);
-        leadRepository.save(lead);
 
         if (!convertedCode.equals(statusBeforeConvert)) {
             recordStatusChange(lead, statusBeforeConvert, convertedCode,
                 "O'quvchiga aylantirildi");
         }
+        leadRepository.save(lead);
 
         return LeadConvertResponse.builder()
             .id(student.getId())
@@ -993,13 +1003,19 @@ public class LeadService {
      * avtomatik o'tishlar uchun), chunki o'tish fakti muallifdan muhimroq.
      */
     private void recordStatusChange(Lead lead, String from, String to, String note) {
+        User actor = getCurrentUser();
+        LocalDateTime at = leadFunnelTracker.now();
         leadStatusHistoryRepository.save(LeadStatusHistory.builder()
                 .lead(lead)
                 .fromStatus(from)
                 .toStatus(to)
-                .changedBy(getCurrentUser())
+                .changedBy(actor)
+                .changedAt(at)
                 .note(note)
                 .build());
+        // Direktor dashboardi: voronka qadami sanalari va operatorning birinchi javobi
+        leadFunnelTracker.onStageEntered(lead, to, at);
+        leadFunnelTracker.onOperatorAction(lead.getId(), actor, LeadAssignment.KIND_STATUS, at);
     }
 
     private void addSystemComment(Lead lead, String text) {

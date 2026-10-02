@@ -152,6 +152,27 @@ public class StudentGroup {
     @Column(name = "billing_hold")
     private Boolean billingHold;
 
+    // ── Direktor dashboardi (director-dashboard §1.5, §3.3, §3.4) ──
+    /** Sinovda birinchi PRESENT/LATE davomat sanasi. */
+    @Column(name = "trial_started_at")
+    private LocalDate trialStartedAt;
+
+    /** Sinovdan to'lovliga o'tgan kun. */
+    @Column(name = "trial_converted_at")
+    private LocalDate trialConvertedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "trial_outcome", length = 20)
+    private com.crm.entity.enums.TrialOutcome trialOutcome;
+
+    /** LIVE | BACKFILL. */
+    @Column(name = "trial_source", length = 20)
+    private String trialSource;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "exit_reason_code", length = 30)
+    private com.crm.entity.enums.ExitReasonCode exitReasonCode;
+
     @Column(name = "exit_notes", columnDefinition = "TEXT")
     private String exitNotes;
 
@@ -169,6 +190,11 @@ public class StudentGroup {
         if (paymentStartDate == null) paymentStartDate = joinDate;
         if (nextPaymentDate == null) nextPaymentDate = paymentStartDate;
         if (isTrial == null) isTrial = false;
+        // Director dashboard (§3.3): har qanday yaratish yo'lida sinov natijasi boshlanadi
+        if (Boolean.TRUE.equals(isTrial) && trialOutcome == null) {
+            trialOutcome = com.crm.entity.enums.TrialOutcome.IN_TRIAL;
+            trialSource = "LIVE";
+        }
         if (paymentType == null) paymentType = PaymentType.MONTHLY;
         if (paymentStatus == null) paymentStatus = Boolean.TRUE.equals(isTrial) ? PaymentStatus.TRIAL : PaymentStatus.PAID;
         if (lessonsAttended == null) lessonsAttended = 0;

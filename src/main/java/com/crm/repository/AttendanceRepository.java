@@ -98,6 +98,10 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
         @Param("to") LocalDate to,
         @Param("presentStatuses") List<AttendanceStatus> presentStatuses);
 
+    /** Direktor dashboardi backfill: [studentId, groupId, attendanceDate] — entity yuklamasdan. */
+    @Query("SELECT a.student.id, a.group.id, a.attendanceDate FROM Attendance a WHERE a.status IN :statuses")
+    List<Object[]> findTriplesByStatuses(@Param("statuses") List<AttendanceStatus> statuses);
+
     /** Billing v2 (§13 #2): muzlatish sanasi oxirgi billable davomatdan oldin bo'lmasin. */
     @Query("SELECT MAX(a.attendanceDate) FROM Attendance a WHERE a.student.id = :studentId "
            + "AND a.group.id = :groupId AND a.status IN :statuses")

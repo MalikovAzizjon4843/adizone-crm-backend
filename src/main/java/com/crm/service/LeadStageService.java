@@ -65,7 +65,7 @@ public class LeadStageService {
     /** Keshdagi bitta bosqich — entity emas, sessiyaga bog'liq bo'lmasin. */
     private record Snapshot(String code, String nameUz, String nameRu, String nameEn,
                             StageKind kind, boolean active, int sortOrder,
-                            boolean requiresAmount) {
+                            boolean requiresAmount, com.crm.entity.enums.FunnelStep funnelStep) {
     }
 
     @Transactional(readOnly = true)
@@ -95,6 +95,8 @@ public class LeadStageService {
             .kind(StageKind.OPEN)
             .requiresAmount(Boolean.TRUE.equals(request.getRequiresAmount()))
             .isActive(request.getIsActive() == null || request.getIsActive())
+            .funnelStep(request.getFunnelStep() != null
+                ? request.getFunnelStep() : com.crm.entity.enums.FunnelStep.NONE)
             .build();
         LeadStage saved = leadStageRepository.save(stage);
         invalidateCache();
@@ -133,6 +135,10 @@ public class LeadStageService {
         }
         if (request.getIsActive() != null) {
             stage.setIsActive(request.getIsActive());
+        }
+        if (request.getFunnelStep() != null) {
+            AuditContext.change("funnelStep", stage.getFunnelStep(), request.getFunnelStep());
+            stage.setFunnelStep(request.getFunnelStep());
         }
         LeadStage saved = leadStageRepository.save(stage);
         invalidateCache();
@@ -285,6 +291,39 @@ public class LeadStageService {
         return stage != null && stage.requiresAmount();
     }
 
+    /**
+     * Voronka darajasi (director-dashboard §1.1): CONVERTED → 3, aks holda bosqichning
+     * {@code funnel_step} rank'i (NONE 0, CONTACTED 1, VISITED 2). Noma'lum kod — 0.
+     */
+    public int funnelRank(String code) {
+        Snapshot stage = cache().get(normalize(code));
+        if (stage == null) {
+            return 0;
+        }
+        if (stage.kind() == StageKind.CONVERTED) {
+            return 3;
+        }
+        return stage.funnelStep() != null ? stage.funnelStep().rank() : 0;
+    }
+
+    public boolean isRejected(String code) {
+        Snapshot stage = cache().get(normalize(code));
+        return stage != null && stage.kind() == StageKind.REJECTED;
+    }
+
+    /** Shu darajaga (va undan yuqoriga) olib boradigan bosqich kodlari — dashboard so'rovlari uchun. */
+    public java.util.Set<String> codesWithRankAtLeast(int rank) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        cache().forEach((code, st) -> {
+            int r = st.kind() == StageKind.CONVERTED ? 3
+                : (st.funnelStep() != null ? st.funnelStep().rank() : 0);
+            if (r >= rank) {
+                out.add(code);
+            }
+        });
+        return out;
+    }
+
     public boolean isClosed(String code) {
         Snapshot stage = cache().get(normalize(code));
         return stage != null && stage.kind().isFinal();
@@ -344,7 +383,8 @@ public class LeadStageService {
                 stage.getCode(), stage.getNameUz(), stage.getNameRu(), stage.getNameEn(),
                 stage.getKind(), Boolean.TRUE.equals(stage.getIsActive()),
                 stage.getSortOrder() != null ? stage.getSortOrder() : 0,
-                Boolean.TRUE.equals(stage.getRequiresAmount())));
+                Boolean.TRUE.equals(stage.getRequiresAmount()),
+                stage.getFunnelStep() != null ? stage.getFunnelStep() : com.crm.entity.enums.FunnelStep.NONE));
         }
         log.debug("lead_stages keshi yuklandi: {} ta bosqich", loaded.size());
         return loaded;
@@ -451,6 +491,7 @@ public class LeadStageService {
             .kind(stage.getKind())
             .requiresAmount(stage.getRequiresAmount())
             .isActive(stage.getIsActive())
+            .funnelStep(stage.getFunnelStep())
             .deletable(!stage.getKind().isFinal())
             .createdAt(stage.getCreatedAt())
             .updatedAt(stage.getUpdatedAt())

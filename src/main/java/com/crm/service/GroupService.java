@@ -578,8 +578,17 @@ public class GroupService {
         entityId = "#groupId")
     public void removeStudentFromGroup(Long groupId, Long studentId,
             String reason, String notes) {
+        removeStudentFromGroup(groupId, studentId, reason, notes, null);
+    }
+
+    @Transactional
+    @Audited(action = AuditAction.DELETE, entity = "StudentGroup",
+        summary = "'O''quvchi guruhdan chiqarildi: ' + #reason",
+        entityId = "#groupId")
+    public void removeStudentFromGroup(Long groupId, Long studentId,
+            String reason, String notes, com.crm.entity.enums.ExitReasonCode reasonCode) {
         // Billing v2 (§6.10): yopish ledger/accrual bilan — balans SG da qoladi
-        StudentGroup sg = enrollmentLifecycleService.leave(studentId, groupId, reason, notes);
+        StudentGroup sg = enrollmentLifecycleService.leave(studentId, groupId, reason, notes, reasonCode);
 
         // Update student status based on reason
         Student student = sg.getStudent();

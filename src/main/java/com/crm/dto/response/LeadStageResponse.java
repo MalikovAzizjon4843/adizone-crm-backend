@@ -27,6 +27,8 @@ public class LeadStageResponse {
     /** Shu bosqichga o'tishda summa majburiymi. */
     private Boolean requiresAmount;
     private Boolean isActive;
+    /** Direktor dashboardi voronka qadami (director-dashboard §1.1). */
+    private com.crm.entity.enums.FunnelStep funnelStep;
     /** CONVERTED va REJECTED o'chirilmaydi — frontend tugmani shunga qarab yashiradi. */
     private boolean deletable;
     private LocalDateTime createdAt;

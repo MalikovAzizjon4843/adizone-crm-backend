@@ -8,6 +8,7 @@ import com.crm.entity.Group;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
 import com.crm.entity.StudentStatusHistory;
+import com.crm.entity.enums.ExitReasonCode;
 import com.crm.entity.enums.AttendanceStatus;
 import com.crm.entity.enums.BalanceTransactionType;
 import com.crm.entity.enums.BillingPeriodStatus;
@@ -233,6 +234,8 @@ public class EnrollmentLifecycleService {
         sg.setIsActive(false);
         sg.setFrozenFrom(freezeDate);
         sg.setExitReason(EXIT_FROZEN);
+        // Direktor dashboardi (§3.4): avto-arxiv alohida sabab
+        sg.setExitReasonCode("AUTO_ARCHIVE".equals(reason) ? ExitReasonCode.AUTO_ARCHIVE : ExitReasonCode.FROZEN);
         sg.setExitDate(freezeDate);
         sg.setLeaveDate(freezeDate);
         sg.setExitNotes(note);
@@ -353,6 +356,7 @@ public class EnrollmentLifecycleService {
         sg.setIsActive(true);
         sg.setFrozenFrom(null);
         sg.setExitReason(null);
+        sg.setExitReasonCode(null);
         sg.setExitDate(null);
         sg.setLeaveDate(null);
         sg.setExitNotes(null);
@@ -406,6 +410,8 @@ public class EnrollmentLifecycleService {
             .discountPercentage(from.getDiscountPercentage())
             .lessonPrice(from.getLessonPrice())
             .isTrial(Boolean.TRUE.equals(from.getIsTrial()))
+            // Sinov davom etadi: birinchi kelgan kun ko'chadi (director-dashboard §1.5)
+            .trialStartedAt(Boolean.TRUE.equals(from.getIsTrial()) ? from.getTrialStartedAt() : null)
             .studyFormat(format != null ? format : from.getStudyFormat())
             .isActive(true)
             .balance(BigDecimal.ZERO)
@@ -442,6 +448,7 @@ public class EnrollmentLifecycleService {
         from.setLeaveDate(today);
         from.setExitDate(today);
         from.setExitReason(exitReason != null && !exitReason.isBlank() ? exitReason : EXIT_TRANSFERRED);
+        from.setExitReasonCode(ExitReasonCode.TRANSFERRED);
         from.setExitNotes(exitNote);
         studentGroupRepository.save(from);
 
@@ -481,6 +488,16 @@ public class EnrollmentLifecycleService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public StudentGroup leave(Long studentId, Long groupId, String exitReason, String exitNotes) {
+        return leave(studentId, groupId, exitReason, exitNotes, null);
+    }
+
+    /**
+     * @param reasonCode director-dashboard §3.4; null bo'lsa {@code exitReason} matnidan
+     *                   ({@link ExitReasonCode#fromLegacy}, §7 #12).
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public StudentGroup leave(Long studentId, Long groupId, String exitReason, String exitNotes,
+                              ExitReasonCode reasonCode) {
         gate.requireWritable();
         LocalDate today = statusService.today();
         StudentGroup candidate = studentGroupRepository
@@ -488,12 +505,14 @@ public class EnrollmentLifecycleService {
             .orElseThrow(() -> CodedException.notFound("error.studentGroup.notFound", groupId));
         StudentGroup sg = locks.lockEnrollmentWithStudent(studentId, candidate.getId());
         accrualService.accrueLocked(sg, today);
+        com.crm.dashboard.TrialTracking.markClosed(sg);
         sg.setIsActive(false);
         sg.setLeaveDate(today);
         sg.setExitDate(today);
         if (exitReason != null) {
             sg.setExitReason(exitReason);
         }
+        sg.setExitReasonCode(reasonCode != null ? reasonCode : ExitReasonCode.fromLegacy(exitReason));
         if (exitNotes != null) {
             sg.setExitNotes(exitNotes);
         }
@@ -543,7 +562,14 @@ public class EnrollmentLifecycleService {
         }
         sg.setPaymentStartDate(anchor);
         if (isTrial != null) {
+            boolean wasTrial = Boolean.TRUE.equals(sg.getIsTrial());
             sg.setIsTrial(isTrial);
+            // Direktor dashboardi (§3.3): sinov natijasi
+            if (wasTrial && !isTrial) {
+                com.crm.dashboard.TrialTracking.markConverted(sg, today);
+            } else if (!wasTrial && isTrial) {
+                com.crm.dashboard.TrialTracking.markTrialAgain(sg);
+            }
         }
         studentGroupRepository.save(sg);
         accrualService.accrueLocked(sg, today);

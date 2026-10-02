@@ -70,6 +70,30 @@ public class BillingPeriod {
     @Column(name = "migration_run_id")
     private Long migrationRunId;
 
+    // ── Direktor dashboardi (director-dashboard §1.2, §3.2, G5) ──
+    /** Muddat — billing kuni (= period_start). */
+    @Column(name = "due_date")
+    private LocalDate dueDate;
+
+    /** {@code due_date + grace} (yozilgan paytdagi grace). */
+    @Column(name = "grace_until")
+    private LocalDate graceUntil;
+
+    /** Davrni FIFO bo'yicha TO'LIQ yopgan kreditning effective_date si; null — yopilmagan. */
+    @Column(name = "paid_on")
+    private LocalDate paidOn;
+
+    /** Yopgan kredit yozilgan payt (kiritish kechikishi uchun). */
+    @Column(name = "paid_at")
+    private LocalDateTime paidAt;
+
+    @Column(name = "paid_tx_id")
+    private Long paidTxId;
+
+    /** FIFO | MIGRATION_REPLAY. */
+    @Column(name = "coverage_source", length = 20)
+    private String coverageSource;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

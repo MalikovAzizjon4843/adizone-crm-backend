@@ -33,6 +33,11 @@ public class MutableClock extends Clock {
         this.instant = date.atTime(LocalTime.NOON).atZone(zone).toInstant();
     }
 
+    /** Aniq payt (Toshkent) — daqiqalik ko'rsatkichlar (javob vaqti) testlari uchun. */
+    public void setDateTime(java.time.LocalDateTime dateTime) {
+        this.instant = dateTime.atZone(zone).toInstant();
+    }
+
     public LocalDate today() {
         return LocalDate.ofInstant(instant, zone);
     }

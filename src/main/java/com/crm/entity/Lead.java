@@ -127,6 +127,19 @@ public class Lead {
     @Column(name = "meta_raw_json", columnDefinition = "TEXT")
     private String metaRawJson;
 
+    // ── Direktor dashboardi voronkasi (director-dashboard §1.1, G2): birinchi kirish, write-once ──
+    @Column(name = "contacted_at")
+    private LocalDateTime contactedAt;
+
+    @Column(name = "visited_at")
+    private LocalDateTime visitedAt;
+
+    @Column(name = "converted_at")
+    private LocalDateTime convertedAt;
+
+    @Column(name = "rejected_at")
+    private LocalDateTime rejectedAt;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

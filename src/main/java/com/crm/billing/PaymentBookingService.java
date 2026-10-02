@@ -151,6 +151,7 @@ public class PaymentBookingService {
         if (plan.convertTrial()) {
             sg.setIsTrial(false);
             sg.setPaymentStartDate(plan.paymentDate());
+            com.crm.dashboard.TrialTracking.markConverted(sg, plan.paymentDate());
         }
         AccrualService.AccrualResult accrued = accrualService.accrueLocked(sg, today);
         accrued.created().forEach(p -> {

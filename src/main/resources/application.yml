@@ -63,6 +63,14 @@ app:
   attendance:
     # O'tgan kun davomatini ochish ruxsati (APPROVED) reviewedAt dan shuncha soat amal qiladi.
     unlock-valid-hours: 48
+  # Direktor dashboardi (docs/design/director-dashboard.md). Qolgan sozlamalar — DashboardProperties default'lari.
+  dashboard:
+    digest:
+      # Kunlik Telegram xulosasi (§5) — default O'CHIQ; chat id lar faqat env'dan
+      enabled: ${DIRECTOR_DIGEST_ENABLED:false}
+      cron: "0 0 20 * * *"
+      chat-ids: ${DIRECTOR_DIGEST_CHAT_IDS:}
+      dashboard-url: ${DIRECTOR_DASHBOARD_URL:}
 
 jwt:
   secret: ${JWT_SECRET}

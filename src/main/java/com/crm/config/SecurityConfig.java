@@ -116,6 +116,9 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
 
                 // ── Role-based access ──
+                // Direktor dashboardi: ACC moliya bo'limini ko'radi, bo'limlar servisda rol bo'yicha (§4)
+                .requestMatchers("/api/dashboard/director", "/api/dashboard/director/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
                 .requestMatchers("/api/dashboard/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/analytics/**")
