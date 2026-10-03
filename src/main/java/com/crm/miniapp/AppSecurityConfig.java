@@ -3,6 +3,7 @@ package com.crm.miniapp;
 import com.crm.config.Messages;
 import com.crm.exception.ErrorResponse;
 import com.crm.repository.AppIdentityRepository;
+import com.crm.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
@@ -42,6 +43,7 @@ public class AppSecurityConfig {
                                                       CorsConfigurationSource corsConfigurationSource,
                                                       AppJwtService jwtService,
                                                       AppIdentityRepository identityRepository,
+                                                      UserRepository userRepository,
                                                       ObjectMapper objectMapper,
                                                       Messages messages) throws Exception {
         http
@@ -50,7 +52,10 @@ public class AppSecurityConfig {
             .cors(cors -> cors.configurationSource(corsConfigurationSource))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/app/auth").permitAll()
+                // initData (HMAC) bilan himoyalangan — token hali yo'q
+                .requestMatchers(HttpMethod.POST, "/api/app/auth", "/api/app/link/manual").permitAll()
+                // O'qituvchi rejimi (telegram-platform §11.4) — rol bazadan, AppJwtFilter
+                .requestMatchers("/api/app/teacher/**").hasAuthority(AppJwtFilter.ROLE_TEACHER)
                 .anyRequest().hasAuthority(AppJwtFilter.ROLE))
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .exceptionHandling(ex -> ex
@@ -58,7 +63,7 @@ public class AppSecurityConfig {
                     write(res, HttpStatus.UNAUTHORIZED, "app.auth.unauthorized", objectMapper, messages))
                 .accessDeniedHandler((req, res, e) ->
                     write(res, HttpStatus.FORBIDDEN, "app.forbidden", objectMapper, messages)))
-            .addFilterBefore(new AppJwtFilter(jwtService, identityRepository),
+            .addFilterBefore(new AppJwtFilter(jwtService, identityRepository, userRepository),
                 UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

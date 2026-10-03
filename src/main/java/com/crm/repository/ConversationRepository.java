@@ -15,4 +15,10 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
      * yasalgan kalit kutiladi.
      */
     Optional<Conversation> findByDirectKey(String directKey);
+
+    /** EXTERNAL: bir identity + manzil uchun bitta suhbat (telegram-platform §11.3). */
+    Optional<Conversation> findByExternalKey(String externalKey);
+
+    /** Mini App foydalanuvchisining suhbatlari (app tomoni). */
+    java.util.List<Conversation> findByExternalIdentityIdOrderByLastMessageAtDescIdDesc(Long externalIdentityId);
 }

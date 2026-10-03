@@ -12,7 +12,12 @@ import java.util.Locale;
 public enum ConversationType {
 
     DIRECT,
-    GROUP;
+    GROUP,
+    /**
+     * Mini App foydalanuvchisi (o'quvchi/ota-ona) bilan suhbat (telegram-platform §11.3): ishtirokchilar — faqat
+     * xodimlar, app tomoni {@code Conversation.externalIdentityId}. {@code title} — app foydalanuvchisi nomi.
+     */
+    EXTERNAL;
 
     /** Matnni qiymatga o'giradi; tanilmasa null. */
     public static ConversationType parseOrNull(String raw) {

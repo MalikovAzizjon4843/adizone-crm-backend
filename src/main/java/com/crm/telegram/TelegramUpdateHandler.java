@@ -167,14 +167,21 @@ public class TelegramUpdateHandler {
             "Hisob uzildi. Qayta ulash uchun /start ni bosing.", removeKeyboard()));
     }
 
-    private static String studentsLine(MiniAppLinkService.LinkResult result) {
+    public static String studentsLine(MiniAppLinkService.LinkResult result) {
         String names = result.students().stream()
             .sorted(java.util.Comparator.comparing(Student::getId))
             .map(s -> escape(s.getFirstName() + " " + s.getLastName()))
             .collect(Collectors.joining(", "));
-        return result.identity().getKind() == AppIdentity.Kind.PARENT
-            ? "👨‍👩‍👧 Farzand(lar): " + names
-            : "👤 O'quvchi: " + names;
+        List<String> lines = new ArrayList<>();
+        if (!names.isEmpty()) {
+            lines.add(result.identity().getKind() == AppIdentity.Kind.PARENT
+                ? "👨‍👩‍👧 Farzand(lar): " + names
+                : "👤 O'quvchi: " + names);
+        }
+        if (result.identity().getStaffUserId() != null) {
+            lines.add("👩‍🏫 O'qituvchi rejimi: davomat va xabarlar");
+        }
+        return String.join("\n", lines);
     }
 
     private Map<String, Object> openAppMarkup() {
@@ -208,7 +215,7 @@ public class TelegramUpdateHandler {
     }
 
     /** {@code parse_mode=HTML} uchun. */
-    static String escape(String s) {
+    public static String escape(String s) {
         if (s == null) {
             return "";
         }

@@ -38,6 +38,7 @@ public class AppJwtService {
     static final String CLAIM_TYPE = "typ";
     static final String CLAIM_KIND = "kind";
     static final String CLAIM_VERSION = "iv";
+    static final String CLAIM_ROLES = "roles";
     private static final int MIN_SECRET_BYTES = 32;
 
     private final TelegramProperties properties;
@@ -56,13 +57,18 @@ public class AppJwtService {
         return properties.getApp().getTokenTtl().getSeconds();
     }
 
-    public String issue(AppIdentity identity) {
+    /**
+     * @param roles {@code STUDENT}/{@code PARENT}/{@code TEACHER} — ma'lumot uchun (frontend menyusi); huquq
+     *              tekshiruvi token'dan emas, bazadan ({@link AppJwtFilter})
+     */
+    public String issue(AppIdentity identity, java.util.List<String> roles) {
         Instant now = billingClock.instant();
         return Jwts.builder()
             .setSubject(String.valueOf(identity.getId()))
             .setAudience(AUDIENCE)
             .claim(CLAIM_TYPE, TYPE)
             .claim(CLAIM_KIND, identity.getKind().name())
+            .claim(CLAIM_ROLES, roles)
             .claim(CLAIM_VERSION, identity.getIdentityVersion())
             .setIssuedAt(Date.from(now))
             .setExpiration(Date.from(now.plus(properties.getApp().getTokenTtl())))

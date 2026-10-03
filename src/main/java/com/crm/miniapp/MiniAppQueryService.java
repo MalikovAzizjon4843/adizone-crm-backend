@@ -212,7 +212,7 @@ public class MiniAppQueryService {
     // ── Yordamchilar: yozilmalar, guruh kartasi ─────────────────────────
 
     /** Ochiq yozilmalar (faol yoki muzlatilgan — {@link BillingStatusService#isOpen}), yangilari oldin. */
-    private List<StudentGroup> openEnrollments(Long studentId) {
+    List<StudentGroup> openEnrollments(Long studentId) {
         return studentGroupRepository.findByStudentIdOrderByJoinDateDesc(studentId).stream()
             .filter(BillingStatusService::isOpen)
             .toList();
@@ -255,7 +255,21 @@ public class MiniAppQueryService {
      * {@code note} = bayram nomi); CANCELLED/MOVED istisnosi — asl kunda; EXTRA yoki MOVED (yangi kun) —
      * qo'shimcha dars. Faqat yozilma davri ({@code joinDate..leaveDate}) va guruh sanalari ichida.
      */
-    private List<AppDtos.Lesson> lessons(List<StudentGroup> sgs, LocalDate from, LocalDate to, LocalDateTime now) {
+    List<AppDtos.Lesson> lessons(List<StudentGroup> sgs, LocalDate from, LocalDate to, LocalDateTime now) {
+        return lessonsOf(sgs.stream()
+            .map(sg -> new GroupWindow(sg.getGroup(), sg.getJoinDate(), sg.getLeaveDate())).toList(), from, to, now);
+    }
+
+    /** Guruh darslari yozilmaga bog'lanmagan holda — o'qituvchi rejimi (§11.4). */
+    List<AppDtos.Lesson> groupLessons(Group group, LocalDate from, LocalDate to, LocalDateTime now) {
+        return lessonsOf(List.of(new GroupWindow(group, null, null)), from, to, now);
+    }
+
+    /** Guruh va (yozilma bo'lsa) uning sanalari: {@code joinDate..leaveDate}, null — chegarasiz. */
+    private record GroupWindow(Group group, LocalDate joinDate, LocalDate leaveDate) {
+    }
+
+    private List<AppDtos.Lesson> lessonsOf(List<GroupWindow> windows, LocalDate from, LocalDate to, LocalDateTime now) {
         Map<LocalDate, String> holidays = holidayRepository.findByHolidayDateBetweenOrderByHolidayDateAsc(from, to)
             .stream().collect(Collectors.toMap(Holiday::getHolidayDate, Holiday::getName, (a, b) -> a));
         Map<Long, LessonSubstitution> substitutions = new java.util.HashMap<>();
@@ -264,8 +278,8 @@ public class MiniAppQueryService {
         }
 
         List<AppDtos.Lesson> out = new ArrayList<>();
-        for (StudentGroup sg : sgs) {
-            Group g = sg.getGroup();
+        for (GroupWindow window : windows) {
+            Group g = window.group();
             List<GroupScheduleService.LessonSlot> slots = sortedSlots(g.getId());
             List<LessonException> exceptions = lessonExceptionRepository.findByGroupIdOrderByLessonDateDesc(g.getId());
             if (slots.isEmpty() && exceptions.isEmpty()) {
@@ -273,7 +287,7 @@ public class MiniAppQueryService {
             }
             String teacher = teacherName(g.getTeacher());
             for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
-                if (!inEnrollment(sg, g, d)) {
+                if (!inWindow(window, d)) {
                     continue;
                 }
                 LocalDate date = d;
@@ -335,11 +349,12 @@ public class MiniAppQueryService {
             .orElse(slots.isEmpty() ? null : slots.get(0));
     }
 
-    private static boolean inEnrollment(StudentGroup sg, Group g, LocalDate d) {
-        if (sg.getJoinDate() != null && d.isBefore(sg.getJoinDate())) {
+    private static boolean inWindow(GroupWindow w, LocalDate d) {
+        Group g = w.group();
+        if (w.joinDate() != null && d.isBefore(w.joinDate())) {
             return false;
         }
-        if (sg.getLeaveDate() != null && d.isAfter(sg.getLeaveDate())) {
+        if (w.leaveDate() != null && d.isAfter(w.leaveDate())) {
             return false;
         }
         if (g.getStartDate() != null && d.isBefore(g.getStartDate())) {
@@ -495,7 +510,7 @@ public class MiniAppQueryService {
         return new MonthAttendance(ym, present, late, absent, excused, rows, unmarked);
     }
 
-    /** Ochiq yozilmalar va chiqish sanasi ma'lum yopilganlari (o'tgan oylar uchun) — sanalar {@code inEnrollment} da. */
+    /** Ochiq yozilmalar va chiqish sanasi ma'lum yopilganlari (o'tgan oylar uchun) — sanalar {@code inWindow} da. */
     private List<StudentGroup> attendanceEnrollments(Long studentId) {
         return studentGroupRepository.findByStudentIdOrderByJoinDateDesc(studentId).stream()
             .filter(sg -> BillingStatusService.isOpen(sg) || sg.getLeaveDate() != null)
@@ -571,7 +586,7 @@ public class MiniAppQueryService {
     }
 
     /** O'quvchiga o'qituvchining faqat ismi (telefon, Telegram berilmaydi — §3.5). */
-    private static String teacherName(Teacher t) {
+    static String teacherName(Teacher t) {
         if (t == null) {
             return null;
         }
@@ -579,7 +594,7 @@ public class MiniAppQueryService {
             + (t.getLastName() != null ? t.getLastName() : "")).trim();
     }
 
-    private static String fullName(Student s) {
+    static String fullName(Student s) {
         return (s.getFirstName() + " " + s.getLastName()).trim();
     }
 

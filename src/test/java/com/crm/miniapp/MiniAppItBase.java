@@ -192,6 +192,49 @@ abstract class MiniAppItBase extends AbstractBillingIT {
         });
     }
 
+    // ── Bosqich 3 yordamchilari: xodimlar, o'qituvchi rejimi, outbox ─────
+
+    @Autowired
+    protected com.crm.repository.UserRepository userRepository;
+    @Autowired
+    protected com.crm.repository.TeacherRepository teacherRepository;
+    @Autowired
+    protected com.crm.repository.TelegramOutboxRepository outboxRepository;
+    @Autowired
+    protected com.crm.telegram.TelegramOutboxWorker outboxWorker;
+
+    private static final AtomicInteger USER_SEQ = new AtomicInteger();
+
+    /** Faol xodim (login noyob); {@code phone} — o'qituvchi rejimini moslash uchun (null bo'lishi mumkin). */
+    protected com.crm.entity.User staff(com.crm.entity.enums.UserRole role, String phone) {
+        String username = "ma-" + role.name().toLowerCase(java.util.Locale.ROOT) + "-" + USER_SEQ.incrementAndGet()
+            + "-" + System.nanoTime() % 100_000;
+        return inTx(() -> userRepository.save(com.crm.entity.User.builder()
+            .username(username).password("x").firstName("Xodim" + USER_SEQ.get()).lastName(role.name())
+            .phone(phone).role(role).isActive(true).build()));
+    }
+
+    /** TEACHER user + bog'langan o'qituvchi profili; o'qituvchi id si. */
+    protected Long teacherProfile(com.crm.entity.User user) {
+        return inTx(() -> {
+            com.crm.entity.Teacher t = teacherRepository.findById(fixtures.teacher()).orElseThrow();
+            t.setUser(userRepository.findById(user.getId()).orElseThrow());
+            t.setFirstName("Madina");
+            t.setLastName("Rahimova");
+            return teacherRepository.save(t).getId();
+        });
+    }
+
+    /** MockMvc so'rovi xodim nomidan (admin zanjiri, JWT filtrisiz). */
+    protected static org.springframework.test.web.servlet.request.RequestPostProcessor as(com.crm.entity.User u) {
+        return org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
+            .user(u.getUsername()).roles(u.getRole().name());
+    }
+
+    protected java.util.List<com.crm.entity.TelegramOutbox> outboxFor(long chatId) {
+        return inTx(() -> outboxRepository.findByChatIdOrderByIdAsc(chatId));
+    }
+
     protected static String json(String s) {
         return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }

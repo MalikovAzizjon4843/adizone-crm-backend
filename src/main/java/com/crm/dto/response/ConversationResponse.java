@@ -57,4 +57,14 @@ public class ConversationResponse {
 
     private Boolean isPinned;
     private Boolean isMuted;
+
+    /**
+     * Faqat {@code type = EXTERNAL} (Mini App bilan suhbat, telegram-platform §11.3): {@code TEACHER} | {@code SUPPORT}
+     * | {@code DIRECTOR} va holat {@code OPEN} | {@code CLOSED}; boshqa turlarda null.
+     */
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private String externalTarget;
+
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private String externalStatus;
 }

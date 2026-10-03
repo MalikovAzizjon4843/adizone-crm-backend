@@ -39,7 +39,7 @@ public class HttpTelegramBotApi implements TelegramBotApi {
     }
 
     @Override
-    public boolean sendMessage(long chatId, String html, Map<String, Object> replyMarkup) {
+    public boolean sendMessage(long chatId, String html, Map<String, Object> replyMarkup, boolean silent) {
         if (!properties.isEnabled() || !properties.hasBotToken()) {
             log.debug("Telegram o'chiq — bot javobi yuborilmadi");
             return false;
@@ -49,6 +49,9 @@ public class HttpTelegramBotApi implements TelegramBotApi {
         body.put("text", html);
         body.put("parse_mode", "HTML");
         body.put("disable_web_page_preview", true);
+        if (silent) {
+            body.put("disable_notification", true);
+        }
         if (replyMarkup != null) {
             body.put("reply_markup", replyMarkup);
         }

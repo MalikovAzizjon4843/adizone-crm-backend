@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 
 /**
  * Saqlash muddatlari (docs/design/telegram-platform.md §1, §6): {@code telegram_updates} — 7 kun,
- * {@code app_link_attempts} — 90 kun. Har kecha 03:45.
+ * {@code app_link_attempts} — 90 kun, {@code telegram_outbox} (yuborilgan/muvaffaqiyatsiz) — 30 kun. Har kecha 03:45.
  */
 @Component
 @RequiredArgsConstructor
@@ -22,6 +22,7 @@ public class TelegramCleanupJob {
 
     private final TelegramUpdateRepository updateRepository;
     private final AppLinkAttemptRepository attemptRepository;
+    private final com.crm.repository.TelegramOutboxRepository outboxRepository;
     private final Clock billingClock;
 
     @Scheduled(cron = "0 45 3 * * *", zone = "Asia/Tashkent")
@@ -30,8 +31,9 @@ public class TelegramCleanupJob {
         LocalDateTime now = LocalDateTime.now(billingClock);
         int updates = updateRepository.deleteOlderThan(now.minusDays(7));
         int attempts = attemptRepository.deleteOlderThan(now.minusDays(90));
-        if (updates > 0 || attempts > 0) {
-            log.info("Telegram tozalash: {} update, {} bog'lash urinishi", updates, attempts);
+        int outbox = outboxRepository.deleteFinishedOlderThan(now.minusDays(30));
+        if (updates > 0 || attempts > 0 || outbox > 0) {
+            log.info("Telegram tozalash: {} update, {} bog'lash urinishi, {} outbox", updates, attempts, outbox);
         }
     }
 }

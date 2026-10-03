@@ -1,6 +1,7 @@
 package com.crm.service;
 
 import com.crm.config.Messages;
+import com.crm.dto.request.ChatAttachmentRequest;
 import com.crm.dto.request.ChatDeleteRequest;
 import com.crm.dto.request.ChatEditRequest;
 import com.crm.dto.request.ChatReadRequest;
@@ -25,8 +26,10 @@ import com.crm.entity.enums.ConversationType;
 import com.crm.entity.enums.MessageType;
 import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.CodedException;
 import com.crm.exception.ForbiddenException;
 import com.crm.exception.ResourceNotFoundException;
+import org.springframework.http.HttpStatus;
 import com.crm.repository.ConversationParticipantRepository;
 import com.crm.repository.ConversationRepository;
 import com.crm.repository.MessageRepository;
@@ -108,6 +111,8 @@ public class ChatService {
     private final ChatAttachmentService chatAttachmentService;
     private final PlatformTransactionManager transactionManager;
     private final Messages messages;
+    /** EXTERNAL suhbatda xodim yozganda (Mini App push) — ixtiyoriy bean (telegram-platform §11.3). */
+    private final org.springframework.beans.factory.ObjectProvider<ExternalChatListener> externalChatListener;
 
     // ── Xabar yuborish ─────────────────────────────────────────────────
 
@@ -136,6 +141,9 @@ public class ChatService {
         ConversationParticipant participant =
             chatAccessService.requireParticipant(request.getConversationId(), sender.getId());
         Conversation conversation = participant.getConversation();
+        if (conversation.isExternal() && conversation.isClosed()) {
+            throw new CodedException(HttpStatus.CONFLICT, "chat.external.closed");
+        }
 
         Long replyToId = request.getReplyToId();
         if (replyToId != null
@@ -165,10 +173,53 @@ public class ChatService {
         // yuborgan zahoti o'ziga o'qilmagan bo'lib ko'rinardi.
         advanceReadCursor(participant, message.getId());
 
+        if (conversation.isExternal()) {
+            // Mini App foydalanuvchisiga bot push — shu tranzaksiyada outbox'ga (telegram-platform §11.3)
+            externalChatListener.ifAvailable(l -> l.onStaffMessage(conversation, sender, message));
+        }
+
         MessageContext context = new MessageContext(
             Map.of(message.getId(), attached.attachments()),
             replyPreviews(List.of(message)));
         return toMessageResponse(message, request.getClientId(), context);
+    }
+
+    /**
+     * Mini App foydalanuvchisining xabari (EXTERNAL suhbat, telegram-platform §11.3): {@code sender} yo'q,
+     * {@code senderAppIdentityId} bor. Kirish huquqini chaqiruvchi tekshiradi (identity = suhbat egasi, OPEN);
+     * bu yerda ham himoya uchun qayta tekshiriladi. Tarqatish — chaqiruvchida, commit'dan keyin.
+     */
+    @Transactional
+    public ChatMessageResponse appendAppMessage(Long conversationId, Long appIdentityId, String rawText,
+                                                List<ChatAttachmentRequest> attachments) {
+        Conversation conversation = conversationRepository.findById(conversationId)
+            .filter(c -> c.isExternal() && appIdentityId.equals(c.getExternalIdentityId()))
+            .orElseThrow(() -> new ForbiddenException(messages.get("chat.notParticipant")));
+        if (conversation.isClosed()) {
+            throw new CodedException(HttpStatus.CONFLICT, "chat.external.closed");
+        }
+        String text = rawText == null ? "" : rawText.trim();
+        boolean hasAttachments = attachments != null && !attachments.isEmpty();
+        if (text.isEmpty() && !hasAttachments) {
+            throw new BadRequestException(messages.get("chat.text.required"));
+        }
+        if (text.length() > Message.TEXT_MAX) {
+            throw new BadRequestException(messages.get("chat.text.size"));
+        }
+        Message message = messageRepository.save(Message.builder()
+            .conversation(conversation)
+            .senderAppIdentityId(appIdentityId)
+            .text(text.isEmpty() ? null : text)
+            .type(MessageType.TEXT)
+            .build());
+        ChatAttachmentService.Attached attached = chatAttachmentService.attach(message, attachments);
+        message.setType(attached.type());
+        conversation.setLastMessageAt(message.getCreatedAt());
+        // O'z xabari app tomoni uchun o'qilgan
+        conversation.setExternalLastReadMessageId(message.getId());
+
+        MessageContext context = new MessageContext(Map.of(message.getId(), attached.attachments()), Map.of());
+        return toMessageResponse(message, null, context);
     }
 
     // ── Tahrirlash va o'chirish ────────────────────────────────
@@ -189,7 +240,7 @@ public class ChatService {
         chatAccessService.requireParticipant(
             message.getConversation().getId(), user.getId());
 
-        if (!message.getSender().getId().equals(user.getId())) {
+        if (!isAuthor(message, user)) {
             throw new ForbiddenException(messages.get("chat.edit.notAuthor"));
         }
         if (message.getDeletedAt() != null) {
@@ -235,7 +286,7 @@ public class ChatService {
         chatAccessService.requireParticipant(
             message.getConversation().getId(), user.getId());
 
-        boolean isAuthor = message.getSender().getId().equals(user.getId());
+        boolean isAuthor = isAuthor(message, user);
         if (!isAuthor && !DELETE_ANY_ROLES.contains(user.getRole())) {
             throw new ForbiddenException(messages.get("chat.delete.notAllowed"));
         }
@@ -748,7 +799,7 @@ public class ChatService {
             .lastMessageAt(lastMessage != null
                 ? lastMessage.getCreatedAt()
                 : conversation.getLastMessageAt())
-            .lastMessageSenderId(lastMessage != null ? lastMessage.getSender().getId() : null)
+            .lastMessageSenderId(lastMessage != null && lastMessage.getSender() != null ? lastMessage.getSender().getId() : null)
             .lastMessageType(lastMessage != null ? lastMessage.getType() : null)
             .unreadCount(unread)
             .lastReadMessageId(me.getLastReadMessageId())
@@ -758,6 +809,8 @@ public class ChatService {
             .peerLastReadMessageId(peer != null ? peer.getLastReadMessageId() : null)
             .isPinned(me.getIsPinned())
             .isMuted(me.getIsMuted())
+            .externalTarget(conversation.isExternal() ? conversation.getExternalTarget() : null)
+            .externalStatus(conversation.isExternal() ? (conversation.isClosed() ? "CLOSED" : "OPEN") : null)
             .build();
     }
 
@@ -826,7 +879,7 @@ public class ChatService {
         for (Message target : messageRepository.findAllWithSender(targetIds)) {
             previews.put(target.getId(), ChatReplyPreviewResponse.builder()
                 .id(target.getId())
-                .senderName(fullName(target.getSender()))
+                .senderName(senderName(target))
                 .text(target.getDeletedAt() == null ? target.getText() : null)
                 .type(target.getType())
                 .build());
@@ -847,9 +900,11 @@ public class ChatService {
             .id(message.getId())
             .uuid(message.getUuid())
             .conversationId(message.getConversation().getId())
-            .senderId(sender.getId())
-            .senderName(fullName(sender))
-            .senderPhotoUrl(sender.getPhotoUrl())
+            .senderId(sender != null ? sender.getId() : null)
+            .senderName(senderName(message))
+            .senderPhotoUrl(sender != null ? sender.getPhotoUrl() : null)
+            .senderType(sender != null ? "STAFF" : "APP")
+            .senderAppIdentityId(sender != null ? null : message.getSenderAppIdentityId())
             .text(deleted ? null : message.getText())
             .messageType(message.getType())
             .replyToId(message.getReplyToId())
@@ -879,5 +934,14 @@ public class ChatService {
 
     private static String fullName(User user) {
         return (user.getFirstName() + " " + user.getLastName()).trim();
+    }
+
+    /** Xodim — ism-familiya; Mini App foydalanuvchisi (EXTERNAL) — suhbat sarlavhasi ("Ota-ona: …"). */
+    private static String senderName(Message message) {
+        return message.getSender() != null ? fullName(message.getSender()) : message.getConversation().getTitle();
+    }
+
+    private static boolean isAuthor(Message message, User user) {
+        return message.getSender() != null && message.getSender().getId().equals(user.getId());
     }
 }

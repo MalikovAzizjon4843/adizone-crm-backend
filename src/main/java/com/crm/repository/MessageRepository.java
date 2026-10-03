@@ -27,7 +27,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
      */
     @Query("""
         SELECT m FROM Message m
-        JOIN FETCH m.sender
+        LEFT JOIN FETCH m.sender
         WHERE m.conversation.id = :conversationId
         ORDER BY m.id DESC
         """)
@@ -36,7 +36,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     /** Keyingi sahifa: {@code before} dan eski xabarlar. */
     @Query("""
         SELECT m FROM Message m
-        JOIN FETCH m.sender
+        LEFT JOIN FETCH m.sender
         WHERE m.conversation.id = :conversationId
           AND m.id < :beforeId
         ORDER BY m.id DESC
@@ -52,7 +52,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
      */
     @Query("""
         SELECT m FROM Message m
-        JOIN FETCH m.sender
+        LEFT JOIN FETCH m.sender
         WHERE m.id IN (
             SELECT MAX(m2.id) FROM Message m2
             WHERE m2.conversation.id IN :conversationIds AND m2.deletedAt IS NULL
@@ -75,7 +75,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
         SELECT m.conversation.id, COUNT(m) FROM Message m
         WHERE m.conversation.id IN :conversationIds
           AND m.deletedAt IS NULL
-          AND m.sender.id <> :userId
+          AND (m.sender IS NULL OR m.sender.id <> :userId)
           AND m.id > COALESCE((
                 SELECT p.lastReadMessageId FROM ConversationParticipant p
                 WHERE p.conversation.id = m.conversation.id AND p.user.id = :userId
@@ -92,7 +92,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     @Query("""
         SELECT COUNT(m) FROM Message m
         WHERE m.deletedAt IS NULL
-          AND m.sender.id <> :userId
+          AND (m.sender IS NULL OR m.sender.id <> :userId)
           AND m.conversation.id IN (
                 SELECT p.conversation.id FROM ConversationParticipant p
                 WHERE p.user.id = :userId AND p.leftAt IS NULL
@@ -114,7 +114,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
      */
     @Query("""
         SELECT m FROM Message m
-        JOIN FETCH m.sender
+        LEFT JOIN FETCH m.sender
         WHERE m.conversation.id = :conversationId
           AND m.id >= :fromId
         ORDER BY m.id ASC
@@ -136,7 +136,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
      */
     @Query("""
         SELECT m FROM Message m
-        JOIN FETCH m.sender
+        LEFT JOIN FETCH m.sender
         JOIN FETCH m.conversation
         WHERE m.deletedAt IS NULL
           AND LOWER(m.text) LIKE :pattern ESCAPE '!'
@@ -153,7 +153,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     /** Bitta suhbat ichidagi qidiruv — a'zolik chaqiruvchida tekshirilgan. */
     @Query("""
         SELECT m FROM Message m
-        JOIN FETCH m.sender
+        LEFT JOIN FETCH m.sender
         WHERE m.conversation.id = :conversationId
           AND m.deletedAt IS NULL
           AND LOWER(m.text) LIKE :pattern ESCAPE '!'
@@ -172,11 +172,19 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
      */
     @Query("""
         SELECT m FROM Message m
-        JOIN FETCH m.sender
+        LEFT JOIN FETCH m.sender
         WHERE m.id IN :ids
         """)
     List<Message> findAllWithSender(@Param("ids") Collection<Long> ids);
 
     /** O'qilgan belgisini qo'yishdan oldin: xabar shu suhbatga tegishlimi. */
     boolean existsByIdAndConversationId(Long id, Long conversationId);
+
+    /** Mini App tomoni (EXTERNAL): kursordan keyingi xodim xabarlari soni. */
+    @Query("""
+        SELECT COUNT(m) FROM Message m
+        WHERE m.conversation.id = :conversationId AND m.deletedAt IS NULL
+          AND m.sender IS NOT NULL AND m.id > :afterId
+        """)
+    long countStaffMessagesAfter(@Param("conversationId") Long conversationId, @Param("afterId") Long afterId);
 }

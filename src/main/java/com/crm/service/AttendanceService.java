@@ -5,6 +5,7 @@ import com.crm.billing.LessonChargeService;
 import com.crm.audit.AuditAction;
 import com.crm.audit.Audited;
 import com.crm.dto.request.AttendanceRequest;
+import com.crm.dto.response.AbsenceNoticeResponse;
 import com.crm.dto.response.AttendanceResponse;
 import com.crm.dto.response.MissingAttendanceResponse;
 import com.crm.dto.response.TeacherMissingAttendanceResponse;
@@ -50,6 +51,7 @@ public class AttendanceService {
     private final com.crm.dashboard.AttendanceSignals attendanceSignals;
     private final AttendanceAccessService attendanceAccessService;
     private final LessonSubstitutionService lessonSubstitutionService;
+    private final AbsenceNoticeService absenceNoticeService;
 
     @Transactional
     @Audited(action = AuditAction.UPDATE, entity = "Attendance",
@@ -310,10 +312,13 @@ public class AttendanceService {
         LocalDate d = date != null ? date : LocalDate.now();
         attendanceAccessService.assertCanRead(groupId, d);
         List<Attendance> existing = attendanceRepository.findByGroup_IdAndAttendanceDate(groupId, d);
+        // O'quvchi yonida Mini App sabab bildirishi (telegram-platform §11.2)
+        Map<Long, AbsenceNoticeResponse> notices = absenceNoticeService.byStudent(groupId, d);
 
         if (!existing.isEmpty()) {
             return existing.stream()
                 .map(this::toResponse)
+                .peek(r -> r.setAbsenceNotice(notices.get(r.getStudentId())))
                 .collect(Collectors.toList());
         }
 
@@ -327,6 +332,7 @@ public class AttendanceService {
                 .attendanceDate(d)
                 .status(null)
                 .notes("")
+                .absenceNotice(notices.get(sg.getStudent().getId()))
                 .build())
             .collect(Collectors.toList());
     }

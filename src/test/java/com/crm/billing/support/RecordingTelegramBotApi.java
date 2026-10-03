@@ -15,7 +15,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public class RecordingTelegramBotApi implements TelegramBotApi {
 
-    public record Sent(long chatId, String html, Map<String, Object> replyMarkup) {
+    public record Sent(long chatId, String html, Map<String, Object> replyMarkup, boolean silent) {
     }
 
     public record WebhookCall(String url, String secretToken, List<String> allowedUpdates) {
@@ -25,17 +25,20 @@ public class RecordingTelegramBotApi implements TelegramBotApi {
     public final List<WebhookCall> webhookCalls = new CopyOnWriteArrayList<>();
     /** setWebhook javobi — test o'zgartirishi mumkin. */
     public volatile boolean webhookOk = true;
+    /** sendMessage javobi — false: Telegram xatosi (outbox qayta urinishi testi). */
+    public volatile boolean sendOk = true;
 
     public void reset() {
         sent.clear();
         webhookCalls.clear();
         webhookOk = true;
+        sendOk = true;
     }
 
     @Override
-    public boolean sendMessage(long chatId, String html, Map<String, Object> replyMarkup) {
-        sent.add(new Sent(chatId, html, replyMarkup));
-        return true;
+    public boolean sendMessage(long chatId, String html, Map<String, Object> replyMarkup, boolean silent) {
+        sent.add(new Sent(chatId, html, replyMarkup, silent));
+        return sendOk;
     }
 
     @Override

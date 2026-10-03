@@ -51,9 +51,16 @@ public class Message {
     @JoinColumn(name = "conversation_id", nullable = false)
     private Conversation conversation;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "sender_id", nullable = false)
+    /**
+     * Xodim yuboruvchi. Mini App foydalanuvchisi yozgan xabarda (EXTERNAL suhbat, telegram-platform §11.3) null —
+     * u holda {@link #senderAppIdentityId}. V70 da ustun NULLABLE.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sender_id")
     private User sender;
+
+    @Column(name = "sender_app_identity_id")
+    private Long senderAppIdentityId;
 
     @Column(name = "text", columnDefinition = "TEXT")
     private String text;

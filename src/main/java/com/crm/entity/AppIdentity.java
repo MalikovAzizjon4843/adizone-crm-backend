@@ -17,7 +17,11 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "app_identities",
-    uniqueConstraints = @UniqueConstraint(name = "ux_app_identities_telegram_user", columnNames = "telegram_user_id"),
+    uniqueConstraints = {
+        @UniqueConstraint(name = "ux_app_identities_telegram_user", columnNames = "telegram_user_id"),
+        // NULL lar takror hisoblanmaydi — faqat bog'langan xodim unikal (V68)
+        @UniqueConstraint(name = "ux_app_identities_staff_user", columnNames = "staff_user_id")
+    },
     indexes = @Index(name = "idx_app_identities_phone", columnList = "phone_canonical"))
 @Getter
 @Setter
@@ -26,8 +30,12 @@ import java.time.LocalDateTime;
 @Builder
 public class AppIdentity {
 
-    /** STUDENT — faqat o'zi; PARENT — farzand(lar)i (o'zi ham o'qisa — u ham, §3.4). */
-    public enum Kind { STUDENT, PARENT }
+    /**
+     * STUDENT — faqat o'zi; PARENT — farzand(lar)i (o'zi ham o'qisa — u ham, §3.4); TEACHER — o'quvchisi yo'q,
+     * faqat o'qituvchi rejimi (§11.4). O'qituvchi rejimi {@link #staffUserId} bilan beriladi va STUDENT/PARENT
+     * bilan birga bo'lishi mumkin.
+     */
+    public enum Kind { STUDENT, PARENT, TEACHER }
 
     public enum Status { ACTIVE, UNLINKED }
 
@@ -55,6 +63,13 @@ public class AppIdentity {
     /** {@code PhoneUtils.canonical} — {@code +998XXXXXXXXX}. Logga yozilmaydi. */
     @Column(name = "phone_canonical", nullable = false, length = 20)
     private String phoneCanonical;
+
+    /**
+     * O'qituvchi rejimi (telegram-platform §11.4): TEACHER rolidagi xodim useri; null — rejim yo'q.
+     * Bitta xodim — bitta identity (V68 unikal indeks; yangi ulanish eskisidan oladi).
+     */
+    @Column(name = "staff_user_id")
+    private Long staffUserId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

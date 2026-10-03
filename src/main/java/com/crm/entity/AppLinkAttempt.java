@@ -19,7 +19,8 @@ import java.time.LocalDateTime;
 @Builder
 public class AppLinkAttempt {
 
-    public enum Result { LINKED, NOT_FOUND, REJECTED, LIMITED }
+    /** MANUAL_* — qo'lda raqam kiritish (§11.1): so'rov yaratildi / raqam topilmadi. */
+    public enum Result { LINKED, NOT_FOUND, REJECTED, LIMITED, MANUAL_REQUEST, MANUAL_NOT_FOUND }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

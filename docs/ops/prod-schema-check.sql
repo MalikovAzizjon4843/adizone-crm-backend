@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V67 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V70 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V67 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V70 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
@@ -22,7 +22,7 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V67 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V70 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
@@ -315,7 +315,29 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V66', 'table', 'app_link_attempts', NULL),
     ('V66', 'index', 'app_link_attempts', 'idx_app_link_attempts_user'),
     ('V67', 'table', 'user_onboarding', NULL),
-    ('V67', 'constraint', 'user_onboarding', 'ck_user_onboarding_key')
+    ('V67', 'constraint', 'user_onboarding', 'ck_user_onboarding_key'),
+    ('V68', 'column', 'app_identities', 'staff_user_id'),
+    ('V68', 'index', 'app_identities', 'ux_app_identities_staff_user'),
+    ('V68', 'table', 'app_link_requests', NULL),
+    ('V68', 'index', 'app_link_requests', 'idx_app_link_requests_status'),
+    ('V68', 'index', 'app_link_requests', 'idx_app_link_requests_user'),
+    ('V69', 'table', 'absence_notices', NULL),
+    ('V69', 'index', 'absence_notices', 'idx_absence_notices_group_date'),
+    ('V69', 'index', 'absence_notices', 'idx_absence_notices_identity'),
+    ('V69', 'index', 'absence_notices', 'ux_absence_notices_active'),
+    ('V70', 'column', 'conversations', 'external_identity_id'),
+    ('V70', 'column', 'conversations', 'external_target'),
+    ('V70', 'column', 'conversations', 'external_staff_user_id'),
+    ('V70', 'column', 'conversations', 'external_key'),
+    ('V70', 'column', 'conversations', 'external_last_read_message_id'),
+    ('V70', 'column', 'conversations', 'status'),
+    ('V70', 'index', 'conversations', 'ux_conversations_external_key'),
+    ('V70', 'index', 'conversations', 'idx_conversations_external_identity'),
+    ('V70', 'column', 'messages', 'sender_app_identity_id'),
+    ('V70', 'constraint', 'messages', 'ck_messages_sender'),
+    ('V70', 'table', 'telegram_outbox', NULL),
+    ('V70', 'index', 'telegram_outbox', 'ux_telegram_outbox_dedupe'),
+    ('V70', 'index', 'telegram_outbox', 'idx_telegram_outbox_due')
 ), checked AS (
     SELECT w.*,
            CASE w.kind
@@ -465,6 +487,21 @@ SELECT 'V67 user_onboarding PK(user_id, tour_key)',
                 WHERE i.indrelid = to_regclass('public.user_onboarding') AND i.indisprimary
                   AND (SELECT array_agg(a.attname::text ORDER BY a.attname) FROM pg_attribute a
                         WHERE a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)) = ARRAY['tour_key','user_id'])
+UNION ALL
+SELECT 'V70 messages.sender_id NULLABLE (Mini App xabarlari)',
+       EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'messages'
+                  AND column_name = 'sender_id' AND is_nullable = 'YES')
+UNION ALL
+SELECT 'V69 absence_notices UNIQUE(student_id, group_id, lesson_date) qisman (ACTIVE)',
+       EXISTS (SELECT 1 FROM phase5_uniq WHERE tbl = 'absence_notices'
+                 AND cols = ARRAY['group_id','lesson_date','student_id'] AND partial)
+UNION ALL
+SELECT 'V68 app_identities.staff_user_id → users FK SET NULL',
+       EXISTS (SELECT 1 FROM pg_constraint c
+                 JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+                WHERE c.conrelid = to_regclass('public.app_identities') AND c.contype = 'f'
+                  AND a.attname = 'staff_user_id' AND c.confdeltype = 'n')
 UNION ALL
 SELECT 'V67 user_onboarding.user_id → users FK CASCADE',
        EXISTS (SELECT 1 FROM pg_constraint c

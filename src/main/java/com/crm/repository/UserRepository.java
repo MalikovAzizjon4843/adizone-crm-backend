@@ -46,4 +46,16 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
     @Query("UPDATE User u SET u.lastSeenAt = :lastSeenAt WHERE u.id = :userId")
     int touchLastSeenAt(@Param("userId") Long userId,
                         @Param("lastSeenAt") LocalDateTime lastSeenAt);
+
+    /**
+     * Mini App o'qituvchi rejimi (telegram-platform §11.4): telefon (users.phone yoki bog'langan o'qituvchi
+     * profili telefoni) bo'yicha faol, berilgan roldagi xodimlar.
+     */
+    @Query("""
+        SELECT DISTINCT u FROM User u
+        WHERE u.role = :role AND u.isActive = true
+          AND (u.phone IN :phones
+               OR EXISTS (SELECT 1 FROM Teacher t WHERE t.user = u AND t.phone IN :phones))
+        """)
+    List<User> findActiveByRoleAndPhoneIn(@Param("role") UserRole role, @Param("phones") Collection<String> phones);
 }

@@ -5,7 +5,10 @@ import com.crm.entity.AppIdentityStudent;
 import com.crm.entity.AppLinkAttempt;
 import com.crm.entity.Parent;
 import com.crm.entity.Student;
+import com.crm.entity.User;
 import com.crm.entity.enums.StudentStatus;
+import com.crm.entity.enums.UserRole;
+import com.crm.repository.UserRepository;
 import com.crm.repository.AppIdentityRepository;
 import com.crm.repository.AppIdentityStudentRepository;
 import com.crm.repository.AppLinkAttemptRepository;
@@ -62,14 +65,18 @@ public class MiniAppLinkService {
     private final StudentRepository studentRepository;
     private final ParentRepository parentRepository;
     private final StudentParentRepository studentParentRepository;
+    private final UserRepository userRepository;
     private final Clock billingClock;
 
     public enum Outcome { LINKED, NOT_FOUND, LIMITED }
 
-    /** O'quvchi va unga bog'lanish turi (tartib: barqaror, id bo'yicha). */
-    public record Match(AppIdentity.Kind kind, Map<Long, AppIdentityStudent.Relation> students) {
-        boolean isEmpty() {
-            return students.isEmpty();
+    /**
+     * O'quvchilar va bog'lanish turi (tartib: barqaror, id bo'yicha) hamda o'qituvchi rejimi uchun xodim useri
+     * (§11.4; null — yo'q).
+     */
+    public record Match(AppIdentity.Kind kind, Map<Long, AppIdentityStudent.Relation> students, Long staffUserId) {
+        public boolean isEmpty() {
+            return students.isEmpty() && staffUserId == null;
         }
     }
 
@@ -81,7 +88,7 @@ public class MiniAppLinkService {
     public Match match(String canonicalPhone) {
         Map<Long, AppIdentityStudent.Relation> result = new java.util.TreeMap<>();
         if (canonicalPhone == null) {
-            return new Match(AppIdentity.Kind.STUDENT, result);
+            return new Match(AppIdentity.Kind.STUDENT, result, null);
         }
         List<String> variants = variants(canonicalPhone);
 
@@ -101,9 +108,24 @@ public class MiniAppLinkService {
         for (Student s : self) {
             result.putIfAbsent(s.getId(), selfRelation);
         }
-        AppIdentity.Kind kind = result.containsValue(AppIdentityStudent.Relation.PARENT)
-            ? AppIdentity.Kind.PARENT : AppIdentity.Kind.STUDENT;
-        return new Match(kind, result);
+        Long staffUserId = teacherUserId(variants);
+        AppIdentity.Kind kind = result.containsValue(AppIdentityStudent.Relation.PARENT) ? AppIdentity.Kind.PARENT
+            : !result.isEmpty() ? AppIdentity.Kind.STUDENT
+            : AppIdentity.Kind.TEACHER;
+        return new Match(kind, result, staffUserId);
+    }
+
+    /**
+     * O'qituvchi rejimi (§11.4, D8–D9): faqat TEACHER rolidagi faol xodim, aynan bitta. Bir nechta bo'lsa —
+     * rejim berilmaydi (qaysi biri ekanini telefon aniqlamaydi).
+     */
+    private Long teacherUserId(List<String> variants) {
+        List<User> users = userRepository.findActiveByRoleAndPhoneIn(UserRole.TEACHER, variants);
+        if (users.size() > 1) {
+            log.warn("Mini App: telefon {} ta o'qituvchi useriga mos — o'qituvchi rejimi berilmadi", users.size());
+            return null;
+        }
+        return users.isEmpty() ? null : users.get(0).getId();
     }
 
     /**
@@ -131,7 +153,20 @@ public class MiniAppLinkService {
             log.info("Mini App bog'lash: moslik yo'q (telegramUserId={})", telegramUserId);
             return new LinkResult(Outcome.NOT_FOUND, null, List.of());
         }
+        LinkResult result = linkVerified(telegramUserId, chatId, username, firstName, canonical, match);
+        recordAttempt(telegramUserId, phoneHash, AppLinkAttempt.Result.LINKED, now);
+        return result;
+    }
 
+    /**
+     * Telefoni tasdiqlangan bog'lash: bot kontakti ({@code contact.user_id == from.id}) yoki xodim tasdiqlagan
+     * qo'lda so'rov (§11.1). Qayta ulash shu Telegram hisobining qatorini yangilaydi; telefon o'zgarsa yoki avval
+     * uzilgan bo'lsa {@code identityVersion} oshadi. {@code match} bo'sh bo'lmasligi kerak.
+     */
+    @Transactional
+    public LinkResult linkVerified(long telegramUserId, Long chatId, String username, String firstName,
+                                   String canonical, Match match) {
+        LocalDateTime now = LocalDateTime.now(billingClock);
         AppIdentity identity = identityRepository.findByTelegramUserId(telegramUserId).orElse(null);
         if (identity == null) {
             identity = AppIdentity.builder()
@@ -151,13 +186,31 @@ public class MiniAppLinkService {
         identity.setLinkedAt(now);
         identity.setUnlinkedAt(null);
         identity.setUnlinkReason(null);
+        claimStaffUser(identity, telegramUserId, match.staffUserId());
         identity = identityRepository.save(identity);
 
         replaceStudents(identity.getId(), match, now);
-        recordAttempt(telegramUserId, phoneHash, AppLinkAttempt.Result.LINKED, now);
-        log.info("Mini App bog'landi: identity={}, kind={}, o'quvchilar={}",
-            identity.getId(), match.kind(), match.students().size());
+        log.info("Mini App bog'landi: identity={}, kind={}, o'quvchilar={}, o'qituvchi={}",
+            identity.getId(), match.kind(), match.students().size(), match.staffUserId() != null);
         return new LinkResult(Outcome.LINKED, identity, studentRepository.findAllById(match.students().keySet()));
+    }
+
+    /**
+     * Bitta xodim — bitta identity: boshqa Telegram hisobidagi shu xodim bog'lanishi olib qo'yiladi (V68 unikal
+     * indeks). Eskisining versiyasi oshadi — o'qituvchi rejimidagi tokeni darhol yaroqsiz.
+     */
+    private void claimStaffUser(AppIdentity identity, long telegramUserId, Long staffUserId) {
+        if (staffUserId != null) {
+            for (AppIdentity other : identityRepository.findByStaffUserId(staffUserId)) {
+                if (!other.getTelegramUserId().equals(telegramUserId)) {
+                    other.setStaffUserId(null);
+                    other.setIdentityVersion(other.getIdentityVersion() + 1);
+                    identityRepository.saveAndFlush(other);
+                    log.info("Mini App: o'qituvchi rejimi identity {} dan olib qo'yildi (yangi ulanish)", other.getId());
+                }
+            }
+        }
+        identity.setStaffUserId(staffUserId);
     }
 
     /** {@code contact.user_id != from.id} (birovning kontakti) — faqat qayd qilinadi. */
@@ -167,15 +220,15 @@ public class MiniAppLinkService {
     }
 
     /**
-     * Qayta tekshiruv ({@code POST /api/app/auth} da): telefon bo'yicha ro'yxat qayta quriladi.
-     * Birorta o'quvchi qolmasa identity uziladi ({@code NO_STUDENTS}) va bo'sh ro'yxat qaytadi.
+     * Qayta tekshiruv ({@code POST /api/app/auth} da): telefon bo'yicha o'quvchilar ro'yxati va o'qituvchi
+     * rejimi qayta quriladi. Hech narsa qolmasa identity uziladi ({@code NO_STUDENTS}) va {@code false} qaytadi.
      */
     @Transactional
-    public List<AppIdentityStudent> resync(AppIdentity identity) {
+    public boolean resync(AppIdentity identity) {
         Match match = match(identity.getPhoneCanonical());
         if (match.isEmpty()) {
             unlink(identity, "NO_STUDENTS");
-            return List.of();
+            return false;
         }
         List<AppIdentityStudent> current = identityStudentRepository.findByIdentityIdOrderByIdAsc(identity.getId());
         Map<Long, AppIdentityStudent.Relation> existing = new java.util.TreeMap<>();
@@ -183,10 +236,13 @@ public class MiniAppLinkService {
         if (!existing.equals(match.students())) {
             replaceStudents(identity.getId(), match, LocalDateTime.now(billingClock));
         }
+        if (!Objects.equals(identity.getStaffUserId(), match.staffUserId())) {
+            claimStaffUser(identity, identity.getTelegramUserId(), match.staffUserId());
+        }
         identity.setKind(match.kind());
         identity.setLastSeenAt(LocalDateTime.now(billingClock));
         identityRepository.save(identity);
-        return identityStudentRepository.findByIdentityIdOrderByIdAsc(identity.getId());
+        return true;
     }
 
     /** Uzish: o'quvchi ro'yxati o'chadi, versiya oshadi — berilgan JWT lar darhol yaroqsiz. */
@@ -194,6 +250,7 @@ public class MiniAppLinkService {
     public void unlink(AppIdentity identity, String reason) {
         identityStudentRepository.deleteByIdentityId(identity.getId());
         identity.setStatus(AppIdentity.Status.UNLINKED);
+        identity.setStaffUserId(null);
         identity.setIdentityVersion(identity.getIdentityVersion() + 1);
         identity.setUnlinkedAt(LocalDateTime.now(billingClock));
         identity.setUnlinkReason(reason);

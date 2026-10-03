@@ -33,6 +33,7 @@
 - §8 Testlar strategiyasi
 - §9 Bosqichlar
 - §10 Ochiq savollar (taklif bilan)
+- §11 Bosqich 3 — qo'lda ulash, sabab bildirish, chat ko'prigi, o'qituvchi rejimi (qarorlar, 2026-10-03)
 
 ---
 
@@ -588,3 +589,108 @@ Maketdagi brend ranglari (aksent, karta foni) faqat themeParams'da bo'lmagan joy
 | Q-9 | Chat: o'qituvchilardan tashqari kim yoza oladi (SM, ACC)? Maketdagi "Menejerga yozish" — Telegram'dagi `@adizone_manager` ga havolami yoki CRM ichidagi suhbatmi? | SA, A, TEACHER (o'z o'quvchisi), ACC (qarzdorlar). "Menejerga yozish" MVP'da — Sozlamalardagi `support.telegram` ga oddiy havola. Keyin — CRM'dagi umumiy "Menejer" navbatiga EXTERNAL suhbat (o'quvchi boshlaydi, istalgan SA/A javob beradi) |
 | Q-10 | Mini App tillari: faqat o'zbek (lotin) yoki rus ham? | uz + ru (Telegram `language_code` bo'yicha, profilda almashtirish) |
 | Q-11 | Maketdagi 3–5 variantlar (Qizil, Liquid Glass, Ochiq glass) kerakmi? | Yo'q — faqat Telegram mavzusi bo'yicha 1 (dark) / 2 (light) |
+
+---
+
+## §11. Bosqich 3 — qo'lda ulash, sabab bildirish, chat ko'prigi, o'qituvchi rejimi
+
+> **Holat:** qarorlar buyurtmachidan (2026-10-03). Bu bo'lim §9 dagi 3–4-bosqichlar rejasini **aniqlashtiradi va o'rnini bosadi**; amaldagi shartnoma — [miniapp-api.md](miniapp-api.md). Migratsiyalar **V68–V70**.
+
+### 11.0 Qarorlar
+
+| # | Qaror | Oqibat |
+|---|---|---|
+| D1 | Kontakt orqali ulash **o'zgarmaydi** (§3.4) | Qo'lda ulash — qo'shimcha yo'l, markaz tasdiqlaydi |
+| D2 | Qo'lda raqam: initData + telefon → bazada bo'lsa **so'rov** (PENDING), bo'lmasa 404 `app.phoneNotFound`; 24 soatda 5 urinish | CRM'da SA, A, SALES_HEAD tasdiqlaydi / rad etadi; natija — bot xabari |
+| D3 | Sabab bildirish: o'quvchi/ota-ona dars kuniga "kelmayman / kechikaman / boshqa" yozadi | Faqat o'quvchining guruhi, bugun … +14 kun ichidagi **dars bor** kun. O'qituvchi (va shu kungi o'rinbosar) ga bot xabari; CRM davomatida o'quvchi yonida ko'rinadi |
+| D4 | Chat: app foydalanuvchisi **o'zi boshlay oladi** (§4.1 dagi "faqat xodim boshlaydi" o'rniga) — o'z o'qituvchilari, "Menejer", direktor | §11.3 |
+| D5 | "Menejer" — umumiy navbat: barcha faol ADMIN + SALES_HEAD + SALES_MANAGER; direktor — barcha faol SUPER_ADMIN | Ular suhbatning oddiy ishtirokchilari — CRM chat (STOMP) va CH-01 a'zolik tekshiruvi o'zgarmaydi |
+| D6 | App tomoni MVP'da STOMP'ga ulanmaydi — REST + polling; xodim yozsa bot push | §4.3 dagi "app STOMP" keyingi bosqich; CH-01 ga APP principal qo'shilmaydi |
+| D7 | Sokin soatlar **21:00–08:00** (Asia/Tashkent): chat va ulash xabarlari navbatda turadi (08:00 da ketadi); sabab bildirish o'qituvchiga darhol, lekin ovozsiz | `telegram_outbox` (§2.3 ning minimal varianti, §11.5) |
+| D8 | O'qituvchi rejimi: telefon **TEACHER rolidagi faol xodim** (`users.phone` yoki o'qituvchi profili telefoni) ga mos kelsa, identity shu xodimga bog'lanadi | App JWT da rol; davomat **mavjud** `AttendanceService` / `AttendanceAccessService` / `AttendanceUnlockRequestService` orqali, xodim nomidan (run-as) |
+| D9 | Boshqa xodim rollari (A, SA, ACC, SM, SH) app'da xodim rejimini **olmaydi** | Admin huquqlarini telefon orqali Telegram'ga o'tkazib bo'lmaydi |
+| D10 | Faqat o'zbekcha; onlayn to'lov yo'q (o'zgarmaydi) | — |
+
+### 11.1 Qo'lda ulash (D2)
+
+```
+Mini App "Hisobni ulash" → "Raqamni qo'lda kiritish"
+  POST /api/app/link/manual { initData, phone }          (ochiq, initData HMAC)
+    ├─ identity allaqachon ulangan                → 409 app.link.alreadyLinked
+    ├─ 24 soatda ≥ 5 qo'lda urinish               → 429 app.link.rateLimited
+    ├─ PhoneUtils.canonical = null / moslik yo'q  → 404 app.phoneNotFound   (urinish sanaladi)
+    └─ moslik bor (o'quvchi / ota-ona / o'qituvchi) → app_link_requests PENDING → 200 { requestId, status }
+         avvalgi PENDING so'rov: o'sha raqam — o'shasi qaytadi; boshqa raqam — eskisi CANCELLED
+CRM: GET  /api/app-link-requests?status        (SA, A, SH) → ro'yxat + topilganlar ("O'quvchi: Ali Karimov; O'qituvchi: …")
+     POST /api/app-link-requests/{id}/approve  → telefon bo'yicha QAYTA moslash, identity ulanadi (kontakt bilan bir xil),
+                                                bot: "✅ So'rovingiz tasdiqlandi"
+     POST /api/app-link-requests/{id}/reject { reason } → bot: "❌ So'rov rad etildi: {sabab}"
+```
+- Qo'lda ulangan identity kontakt bilan ulangandan farq qilmaydi; telefon tasdig'i — xodim qarori (`decided_by` saqlanadi).
+- Topilganlar javobda **oshkor qilinmaydi** (faqat "so'rov yuborildi"); 404 raqam yo'qligini bildiradi — shuning uchun urinish limiti.
+
+### 11.2 Sabab bildirish (D3)
+
+| Qoida | Qiymat |
+|---|---|
+| Kim | identity'ning bog'langan o'quvchisi (`studentId` — IDOR) |
+| Guruh | o'quvchining **ochiq** yozilmasi, sana yozilma davri ichida; begona guruh → 403 `app.group.forbidden` |
+| Sana | `bugun ≤ lessonDate ≤ bugun + 14`; o'sha kuni dars bor (jadval + bayram + istisno, `PLANNED` / `EXTRA`); bugungi dars tugagan bo'lsa — rad |
+| Tur | `ABSENT` (kelmaydi), `LATE` (kechikadi), `OTHER` (izoh majburiy) |
+| Takror | bitta o'quvchi + guruh + sana uchun bitta faol bildirish → 409 `app.absence.duplicate` |
+| Bekor qilish | o'z yozuvi va dars kuni hali o'tmagan |
+| Xabar | guruh o'qituvchisi (yoki shu kungi o'rinbosar) app'da o'qituvchi rejimida ulangan bo'lsa — bot (HIGH: darhol, sokin soatda ovozsiz) |
+| CRM | `GET /api/absence-notices?groupId&date` (SA, A — hammasi; TEACHER — `AttendanceAccessService.assertCanRead`); `GET /api/attendance/group/{id}` javobida `absenceNotice` |
+
+Bildirish davomatni **o'zgartirmaydi** — o'qituvchi o'zi belgilaydi (sababli / sababsiz).
+
+### 11.3 Chat ko'prigi (D4–D6)
+
+| Jadval | O'zgarish (§4.2 dan soddalashtirilgan) |
+|---|---|
+| `conversations` | `type` += `EXTERNAL`; + `external_identity_id`, `external_target` (`TEACHER` / `SUPPORT` / `DIRECTOR`), `external_staff_user_id` (TEACHER uchun), `external_key` UNIQUE (`ext:{identity}:{target}:{user}`), `external_last_read_message_id` (app kursori), `status` (`OPEN` / `CLOSED`) |
+| `conversation_participants` | **o'zgarmaydi** — faqat xodimlar. TEACHER — o'qituvchi; SUPPORT — faol A + SH + SM; DIRECTOR — faol SA. Har app xabarida sinxronlanadi (yangi xodim qo'shiladi; nofaol yoki rol o'zgargan — `left_at`) |
+| `messages` | `sender_id` → NULLABLE; + `sender_app_identity_id`. Xodim xabari — `sender_id`, app xabari — `sender_app_identity_id` |
+
+- **App kimga yoza oladi:** o'z o'qituvchilari (identity o'quvchilarining ochiq guruhlari o'qituvchi useri), `SUPPORT`, `DIRECTOR`. Boshqa o'qituvchi → 403 `app.chat.forbidden`.
+- Bir identity + target + xodim — bitta suhbat (`external_key`); qayta ochilsa o'shasi.
+- **Xodim tomoni:** CRM chat ro'yxatida `type: EXTERNAL`, sarlavha "Ota-ona: Ali Karimov" / "O'quvchi: …"; xabarlar mavjud `/app/chat.send` (STOMP) orqali, a'zolik — CH-01. App xabari `/topic/conversation.{id}` ga commit'dan keyin (`senderType: APP`).
+- **App tomoni:** `GET /api/app/chats`, `…/{id}/messages?before&size`, `POST …/{id}/messages` (matn ≤ 4000 va/yoki bitta rasm ≤ 4MB, CH-02), `POST …/{id}/read`. Xodimning faqat ismi va "ustoz / menejer / direktor" yorlig'i.
+- **Push:** xodim yozsa — identity chatiga bot xabari (outbox, NORMAL): 5 daqiqalik oynada bitta, sokin soatlarda 08:00 ga bitta. App foydalanuvchisi o'qituvchiga yozsa va o'qituvchi app'da ulangan bo'lsa — o'qituvchiga ham.
+- O'qituvchi rejimidagi identity `/api/app/chats` da o'zi ishtirokchi bo'lgan EXTERNAL suhbatlarni ham ko'radi (`side: STAFF`) va xodim sifatida javob yozadi (`ChatService.send`). Ichki (DIRECT / GROUP) chatlar app'da ko'rinmaydi.
+- `CLOSED` suhbatga app yozolmaydi (409 `app.chat.closed`); yopish endpointi — keyingi bosqich.
+
+### 11.4 O'qituvchi rejimi (D8–D9)
+
+- **Moslash:** `role = TEACHER`, faol user, telefon (`users.phone` yoki shu userga bog'langan `teachers.phone`) — aynan **bitta** xodim; bir nechta → rejim berilmaydi. Telefon ham o'quvchi/ota-ona, ham o'qituvchi bo'lsa — ikkalasi (`roles: ["PARENT","TEACHER"]`).
+- `app_identities.staff_user_id` (FK users, ON DELETE SET NULL; bitta xodim — bitta identity, yangi ulanish eskisidan oladi). Faqat o'qituvchi bo'lsa `kind = TEACHER`.
+- **Huquq har so'rovda bazadan:** identity ACTIVE, `staff_user_id` bor, user faol va TEACHER → `ROLE_APP_TEACHER`. Qayta moslash har `POST /api/app/auth` da.
+- **Endpointlar** (`/api/app/teacher/**`):
+
+| Endpoint | Mantiq |
+|---|---|
+| `GET /today?date` | o'z guruhlari + shu kungi o'rinbosarliklar; `role: ORIGINAL / SUBSTITUTE`, holat, belgilangan / jami, bildirishlar, `canMark` |
+| `GET /attendance/{groupId}?date` | `AttendanceAccessService.assertCanRead` (xodim nomidan) → o'quvchilar + holat + sabab bildirish; `editable`, `lockReason`, ochish so'rovi |
+| `PUT /attendance/{groupId}?date` | sana > bugun → 400; sana < bugun va amaldagi ochish ruxsati yo'q → **403 `attendance.locked`**; guruhda yo'q o'quvchi → 403; so'ng `AttendanceService.markAttendance` (o'rinbosar qoidalari, audit, billing, ota-ona xabari — o'zgarmaydi) |
+| `POST /unlock-requests`, `GET /unlock-requests` | `AttendanceUnlockRequestService.createRequest` / `getMyRequests` |
+
+- "Bugun" — Asia/Tashkent, 23:59 gacha (mavjud qoida).
+
+### 11.5 Outbox (minimal)
+
+`telegram_outbox (id, chat_id, text, reply_markup, silent, priority, status, attempts, not_before, dedupe_key UNIQUE, event_code, last_error, created_at, sent_at)`:
+- biznes amali bilan **bir tranzaksiyada** yoziladi (`INSERT … ON CONFLICT DO NOTHING` — dedupe);
+- `TelegramOutboxWorker` (5 s): `PENDING` va `not_before ≤ now` → `TelegramBotApi.sendMessage`; muvaffaqiyat — `SENT`; xato — 1 / 5 / 30 / 120 daqiqa, 5-urinishda `FAILED`;
+- NORMAL: sokin soatda `not_before` = keyingi 08:00; HIGH: darhol, sokin soatda `silent = true`.
+- §2 dagi to'liq outbox (429 / 403 tasnifi, global limit) — 1-bosqich bilan birga.
+
+### 11.6 Migratsiyalar
+
+| Skript | Mazmuni |
+|---|---|
+| `V68__app_link_requests_teacher.sql` | `app_identities.staff_user_id` (+ FK, unikal indeks), `app_link_requests` |
+| `V69__absence_notices.sql` | `absence_notices` (+ qisman UNIQUE faol bildirish) |
+| `V70__chat_external_outbox.sql` | `conversations` EXTERNAL ustunlari, `messages.sender_id` NULLABLE + `sender_app_identity_id`, `telegram_outbox` |
+
+### 11.7 Testlar
+IDOR: begona o'quvchi / guruh / suhbat / bildirish / o'qituvchi guruhi → 403. Qo'lda ulash: 404, limit, tasdiq → identity va bot xabari, rad. Sabab: sana oynasi, dars yo'q kun, takror, bekor qilish, o'qituvchiga push. Chat: kontaktlar, yaratish (takror — o'sha), matn / rasm, xodim javobi → push (sokin soatda 08:00), CRM ro'yxatida EXTERNAL. O'qituvchi: today, davomat o'qish / yozish, o'tgan kun → 403 `attendance.locked`, ochish so'rovi.

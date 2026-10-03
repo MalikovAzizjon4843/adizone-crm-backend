@@ -11,11 +11,17 @@ import java.util.Map;
  */
 public interface TelegramBotApi {
 
+    /** Ovozli xabar — {@link #sendMessage(long, String, Map, boolean)} ning {@code silent = false} varianti. */
+    default boolean sendMessage(long chatId, String html, Map<String, Object> replyMarkup) {
+        return sendMessage(chatId, html, replyMarkup, false);
+    }
+
     /**
-     * {@code sendMessage} ({@code parse_mode=HTML}). Xatoni yutadi va {@code false} qaytaradi — bot
-     * javobi yetmasa ham webhook 200 qaytishi kerak (aks holda Telegram update'ni qayta yuboradi).
+     * {@code sendMessage} ({@code parse_mode=HTML}); {@code silent} — {@code disable_notification}
+     * (sokin soatlar, §11.5). Xatoni yutadi va {@code false} qaytaradi — bot javobi yetmasa ham webhook
+     * 200 qaytishi kerak (aks holda Telegram update'ni qayta yuboradi).
      */
-    boolean sendMessage(long chatId, String html, Map<String, Object> replyMarkup);
+    boolean sendMessage(long chatId, String html, Map<String, Object> replyMarkup, boolean silent);
 
     /**
      * {@code setWebhook}. Telegram javobi ({@code {"ok":..,"description":..}}) qaytadi; tarmoq xatosi —

@@ -60,6 +60,19 @@ public interface ConversationParticipantRepository
 
     boolean existsByConversationIdAndUserIdAndLeftAtIsNull(Long conversationId, Long userId);
 
+    /** Barcha a'zoliklar (chiqqanlari ham) — EXTERNAL suhbat ishtirokchilarini sinxronlash (telegram-platform §11.3). */
+    List<ConversationParticipant> findByConversationId(Long conversationId);
+
+    /** Xodim ishtirokchi bo'lgan faol EXTERNAL suhbatlar — o'qituvchi rejimidagi Mini App ro'yxati. */
+    @Query("""
+        SELECT p FROM ConversationParticipant p
+        JOIN FETCH p.conversation c
+        WHERE p.user.id = :userId AND p.leftAt IS NULL AND c.type = :type
+        ORDER BY CASE WHEN c.lastMessageAt IS NULL THEN 1 ELSE 0 END, c.lastMessageAt DESC, c.id DESC
+        """)
+    List<ConversationParticipant> findActiveForUserByType(@Param("userId") Long userId,
+                                                          @Param("type") ConversationType type);
+
     /**
      * Foydalanuvchining suhbatdoshlari: u bilan bitta suhbatda turgan
      * hamma, o'zidan tashqari. Onlayn holatning boshlang'ich suratini

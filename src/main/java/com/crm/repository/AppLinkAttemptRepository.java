@@ -13,6 +13,10 @@ public interface AppLinkAttemptRepository extends JpaRepository<AppLinkAttempt, 
     long countByTelegramUserIdAndResultAndCreatedAtAfter(Long telegramUserId, AppLinkAttempt.Result result,
                                                         LocalDateTime after);
 
+    long countByTelegramUserIdAndResultInAndCreatedAtAfter(Long telegramUserId,
+                                                           java.util.Collection<AppLinkAttempt.Result> results,
+                                                           LocalDateTime after);
+
     @Modifying
     @Query("DELETE FROM AppLinkAttempt a WHERE a.createdAt < :before")
     int deleteOlderThan(@Param("before") LocalDateTime before);

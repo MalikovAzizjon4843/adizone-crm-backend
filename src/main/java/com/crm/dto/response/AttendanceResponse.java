@@ -16,4 +16,6 @@ public class AttendanceResponse {
     private Boolean excused;
     private String excuseReason;
     private LocalDateTime createdAt;
+    /** O'quvchi / ota-onaning shu darsga sabab bildirishi (Mini App, telegram-platform §11.2); yo'q — null. */
+    private AbsenceNoticeResponse absenceNotice;
 }

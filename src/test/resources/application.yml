@@ -34,6 +34,9 @@ telegram:
   enabled: false
   # Faqat testlar uchun (MiniApp*Test initData ni shu token bilan imzolaydi) — haqiqiy botga aloqasi yo'q
   bot-token: "123456:TEST-ONLY-bot-token-not-real"
+  # Testlar outbox ni o'zi yuboradi (TelegramOutboxWorker.runOnce) — fon aylanishi aralashmasin
+  outbox:
+    enabled: false
   webhook-secret: test-webhook-secret-0123456789abcdef
   webhook-url: https://api.example.test/api/telegram/webhook
   webapp-url: https://webapp.example.test

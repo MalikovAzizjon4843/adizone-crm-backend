@@ -4,6 +4,11 @@ import com.crm.entity.AppIdentity;
 import com.crm.entity.AppIdentityStudent;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
+import com.crm.entity.Teacher;
+import com.crm.entity.User;
+import com.crm.entity.enums.UserRole;
+import com.crm.repository.TeacherRepository;
+import com.crm.repository.UserRepository;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.billing.BillingStatusService;
 import com.crm.exception.CodedException;
@@ -21,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -47,6 +53,8 @@ public class MiniAppAuthService {
     private final StudentRepository studentRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final CenterSettingsService centerSettingsService;
+    private final UserRepository userRepository;
+    private final TeacherRepository teacherRepository;
 
     /** {@code noRollbackFor}: qayta tekshiruvda o'quvchi qolmasa uzish saqlanadi, keyin 403 qaytadi. */
     @Transactional(noRollbackFor = CodedException.class)
@@ -58,8 +66,7 @@ public class MiniAppAuthService {
         AppIdentity identity = identityRepository.findByTelegramUserId(user.id())
             .filter(AppIdentity::isActive)
             .orElseThrow(this::notLinked);
-        List<AppIdentityStudent> links = linkService.resync(identity);
-        if (links.isEmpty()) {
+        if (!linkService.resync(identity)) {
             throw notLinked();
         }
         if (user.firstName() != null) {
@@ -68,14 +75,28 @@ public class MiniAppAuthService {
         if (user.username() != null) {
             identity.setTelegramUsername(user.username());
         }
-        String token = jwtService.issue(identity);
-        return new AppDtos.AuthResponse(token, "Bearer", jwtService.ttlSeconds(), profile(identity, links));
+        AppDtos.Profile profile = profile(identity, links(identity.getId()));
+        String token = jwtService.issue(identity, profile.roles());
+        return new AppDtos.AuthResponse(token, "Bearer", jwtService.ttlSeconds(), profile);
     }
 
     @Transactional(readOnly = true)
     public AppDtos.Profile me(AppPrincipal principal) {
         AppIdentity identity = identity(principal);
         return profile(identity, links(identity.getId()));
+    }
+
+    /**
+     * O'qituvchi rejimidagi xodim useri: faqat hozir ham faol TEACHER bo'lsa (§11.4, D9); aks holda
+     * 403 {@code app.forbidden}.
+     */
+    @Transactional(readOnly = true)
+    public User requireTeacher(AppPrincipal principal) {
+        AppIdentity identity = identity(principal);
+        return Optional.ofNullable(identity.getStaffUserId())
+            .flatMap(userRepository::findById)
+            .filter(u -> Boolean.TRUE.equals(u.getIsActive()) && u.getRole() == UserRole.TEACHER)
+            .orElseThrow(() -> CodedException.forbidden("app.forbidden"));
     }
 
     /** Mini App profilidan uzish — token darhol yaroqsiz, qayta ulash botda. */
@@ -93,7 +114,9 @@ public class MiniAppAuthService {
         List<AppIdentityStudent> links = links(principal.identityId());
         Long id = studentId;
         if (id == null) {
-            id = links.stream().findFirst().map(AppIdentityStudent::getStudentId).orElseThrow(this::notLinked);
+            // O'quvchisi yo'q (faqat o'qituvchi rejimi) identity — notLinked emas: u ulangan
+            id = links.stream().findFirst().map(AppIdentityStudent::getStudentId)
+                .orElseThrow(() -> CodedException.forbidden("app.student.forbidden"));
         }
         Long wanted = id;
         if (links.stream().noneMatch(l -> l.getStudentId().equals(wanted))) {
@@ -139,10 +162,25 @@ public class MiniAppAuthService {
             briefs.add(new AppDtos.StudentBrief(s.getId(), s.getFirstName(), s.getLastName(),
                 link.getRelation().name(), groups));
         }
-        return new AppDtos.Profile(identity.getId(), identity.getKind().name(), identity.getFirstName(),
+
+        AppDtos.TeacherMode teacher = Optional.ofNullable(identity.getStaffUserId())
+            .flatMap(userRepository::findById)
+            .filter(u -> Boolean.TRUE.equals(u.getIsActive()) && u.getRole() == UserRole.TEACHER)
+            .map(u -> new AppDtos.TeacherMode(u.getId(),
+                teacherRepository.findByUser_Id(u.getId()).map(Teacher::getId).orElse(null),
+                (u.getFirstName() + " " + u.getLastName()).trim()))
+            .orElse(null);
+        List<String> roles = new ArrayList<>();
+        if (!briefs.isEmpty()) {
+            roles.add(briefs.stream().anyMatch(b -> "PARENT".equals(b.relation())) ? "PARENT" : "STUDENT");
+        }
+        if (teacher != null) {
+            roles.add("TEACHER");
+        }
+        return new AppDtos.Profile(identity.getId(), identity.getKind().name(), roles, identity.getFirstName(),
             maskPhone(identity.getPhoneCanonical()),
             briefs.isEmpty() ? null : briefs.get(0).id(),
-            briefs, support());
+            briefs, teacher, support());
     }
 
     AppDtos.Support support() {

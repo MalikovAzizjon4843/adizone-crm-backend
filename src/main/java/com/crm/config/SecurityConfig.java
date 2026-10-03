@@ -195,6 +195,11 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/parents/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                // Telegram Mini App: qo'lda ulash so'rovlari (telegram-platform §11.1) va sabab bildirishlar (§11.2)
+                .requestMatchers("/api/app-link-requests", "/api/app-link-requests/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_HEAD")
+                .requestMatchers(HttpMethod.GET, "/api/absence-notices", "/api/absence-notices/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
                 // O'z onboarding holati (ko'rilgan turlar) — har qanday xodim, faqat o'z yozuvlari
                 // (UserOnboardingController). "/api/users/**" va "DELETE /api/**" dan OLDIN.
                 .requestMatchers("/api/users/me/onboarding", "/api/users/me/onboarding/**")
