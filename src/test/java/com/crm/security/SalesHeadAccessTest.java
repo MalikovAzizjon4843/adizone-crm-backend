@@ -18,13 +18,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -182,10 +187,129 @@ class SalesHeadAccessTest extends Phase5ItBase {
             .andExpect(jsonPath("$.data.attendance").doesNotExist());
         mvc.perform(get("/api/dashboard/director/operators").with(as(head)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data[*].userId", hasItem(managerA.getId().intValue())));
+            .andExpect(jsonPath("$.data[*].userId", hasItem(managerA.getId().intValue())))
+            .andExpect(jsonPath("$.data[*].userId", hasItem(head.getId().intValue())));
         mvc.perform(get("/api/dashboard/director/collections/periods").with(as(head)))
             .andExpect(status().isForbidden());
         mvc.perform(get("/api/dashboard/director").with(as(managerA))).andExpect(status().isForbidden());
+    }
+
+    private long id(ResultActions r) throws Exception {
+        return objectMapper.readTree(r.andReturn().getResponse().getContentAsString()).get("data").get("id").asLong();
+    }
+
+    @Test
+    void head_convertsAnyLead_managerOnlyOwn() throws Exception {
+        String body = "{\"studyFormat\":\"OFFLINE\"}";
+        mvc.perform(post("/api/leads/" + leadB + "/convert").with(as(managerA))
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isForbidden());
+        mvc.perform(post("/api/leads/" + leadB + "/convert").with(as(head))
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.data.leadId").value(leadB.intValue()));
+        assertThat(inTx(() -> leadRepository.findById(leadB).orElseThrow().getConverted())).isTrue();
+    }
+
+    @Test
+    void head_writesAndReassignsTasks_butDeletesOnlyOwnTasksAndNotes() throws Exception {
+        User admin = newUser(UserRole.ADMIN);
+        // Rahbar menejerga vazifa yozadi va boshqasiga o'tkazadi
+        long headTask = id(mvc.perform(post("/api/tasks").with(as(head)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"Qayta qo'ng'iroq\",\"dueAt\":\"2030-01-10T10:00:00\",\"assignedTo\":"
+                    + managerA.getId() + ",\"leadId\":" + leadA + "}"))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.data.assignedToId").value(managerA.getId().intValue())));
+        mvc.perform(patch("/api/tasks/" + headTask + "/reassign").with(as(head)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"userId\":" + managerB.getId() + "}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.assignedToId").value(managerB.getId().intValue()));
+
+        // Menejerning o'z vazifasi — rahbar o'chira olmaydi, admin o'chiradi
+        long managerTask = id(mvc.perform(post("/api/tasks").with(as(managerA)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"O'zim\",\"dueAt\":\"2030-01-11T10:00:00\"}"))
+            .andExpect(status().isCreated()));
+        mvc.perform(delete("/api/tasks/" + managerTask)
+                .with(as(head)))
+            .andExpect(status().isForbidden());
+        mvc.perform(delete("/api/tasks/" + headTask)
+                .with(as(head)))
+            .andExpect(status().isOk());
+        mvc.perform(delete("/api/tasks/" + managerTask)
+                .with(as(admin)))
+            .andExpect(status().isOk());
+
+        // Lid izohlari: begona — faqat SA/A, o'ziniki — rahbar ham
+        long managerNote = id(mvc.perform(post("/api/leads/" + leadA + "/notes").with(as(managerA))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"text\":\"Menejer izohi\"}"))
+            .andExpect(status().isCreated()));
+        long headNote = id(mvc.perform(post("/api/leads/" + leadA + "/notes").with(as(head))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"text\":\"Rahbar izohi\"}"))
+            .andExpect(status().isCreated()));
+        mvc.perform(delete("/api/leads/notes/" + managerNote)
+                .with(as(head)))
+            .andExpect(status().isForbidden());
+        mvc.perform(delete("/api/leads/notes/" + headNote)
+                .with(as(head)))
+            .andExpect(status().isOk());
+        mvc.perform(delete("/api/leads/notes/" + managerNote)
+                .with(as(admin)))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void head_cannotImportLeads_orEditLeadStages() throws Exception {
+        var file = new MockMultipartFile("file", "lidlar.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", new byte[]{1, 2, 3});
+        mvc.perform(multipart("/api/leads/import/preview").file(file).with(as(head)))
+            .andExpect(status().isForbidden());
+        mvc.perform(get("/api/leads/import/batch-1").with(as(head))).andExpect(status().isForbidden());
+        mvc.perform(multipart("/api/import/students").file(file).with(as(head)))
+            .andExpect(status().isForbidden());
+
+        mvc.perform(get("/api/lead-stages").with(as(head))).andExpect(status().isOk());
+        mvc.perform(patch("/api/lead-stages/reorder").with(as(head)).contentType(MediaType.APPLICATION_JSON)
+                .content("[]"))
+            .andExpect(status().isForbidden());
+        mvc.perform(delete("/api/lead-stages/1")
+                .with(as(head)))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void notice_targetRolesAcceptSalesHead_visibleOnlyToThatRole() throws Exception {
+        User sa = newUser(UserRole.SUPER_ADMIN);
+        long notice = id(mvc.perform(post("/api/notices").with(as(sa)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"Oylik reja\",\"content\":\"Sotuv rejasi\",\"targetRoles\":[\"SALES_HEAD\"],"
+                    + "\"isPublished\":true,\"isActive\":true}"))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.data.targetRoles[0]").value("SALES_HEAD")));
+
+        mvc.perform(get("/api/notices/active").with(as(head)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[*].id", hasItem((int) notice)));
+        mvc.perform(get("/api/notices/" + notice).with(as(head))).andExpect(status().isOk());
+        mvc.perform(get("/api/notices/active").with(as(managerA)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data[*].id", not(hasItem((int) notice))));
+    }
+
+    @Test
+    void staffBonus_acceptsSalesHead() throws Exception {
+        User sa = newUser(UserRole.SUPER_ADMIN);
+        mvc.perform(post("/api/bonus-penalties").with(as(sa)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"kind\":\"BONUS\",\"targetType\":\"STAFF\",\"userId\":" + head.getId()
+                    + ",\"amount\":300000,\"effectiveDate\":\"2026-09-10\",\"reason\":\"Reja bajarildi\"}"))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.data.userId").value(head.getId().intValue()));
+        User accountant = newUser(UserRole.ACCOUNTANT);
+        mvc.perform(post("/api/bonus-penalties").with(as(sa)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"kind\":\"BONUS\",\"targetType\":\"STAFF\",\"userId\":" + accountant.getId()
+                    + ",\"amount\":300000,\"effectiveDate\":\"2026-09-10\",\"reason\":\"Reja\"}"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("bonus.staff.roleInvalid"));
+        // Bonus moduli — SALES_HEAD ga yopiq
+        mvc.perform(get("/api/bonus-penalties").with(as(head))).andExpect(status().isForbidden());
     }
 
     @Test

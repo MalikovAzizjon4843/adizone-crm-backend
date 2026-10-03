@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V63 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V64 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -12,6 +12,7 @@
 --
 -- Bo'limlar:
 --   1. V25–V63 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
 --   4. CHECK cheklovlari (enum CHECK lar EnumCheckConstraintCleaner tomonidan o'chiriladi)
@@ -416,7 +417,15 @@ SELECT 'V63 center.* rekvizitlari (13 kalit)',
        CASE WHEN to_regclass('public.settings') IS NULL THEN FALSE
             ELSE (xpath('/row/n/text()', query_to_xml(
                      'SELECT COUNT(*) AS n FROM settings WHERE setting_key LIKE ''center.%''', false, true, '')))[1]::text::int = 13
-       END;
+       END
+UNION ALL
+-- V64: teachers.user_id → users da aynan bitta FK — fk_teachers_user, NO ACTION (SET NULL dublikati yo'q)
+SELECT 'V64 teachers.user_id: yagona FK fk_teachers_user [NO ACTION]',
+       (SELECT COUNT(*) = 1 AND bool_and(c.conname = 'fk_teachers_user' AND c.confdeltype = 'a')
+          FROM pg_constraint c
+          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+         WHERE c.conrelid = to_regclass('public.teachers') AND c.contype = 'f'
+           AND a.attname = 'user_id');
 
 -- V58: sequence mavjud CTR-YYYY-NNNNN raqamlaridan oldindami (sequence bo'lsa)
 SELECT 'contract_number_seq' AS sequence,

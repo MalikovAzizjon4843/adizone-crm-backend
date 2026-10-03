@@ -50,9 +50,9 @@ import java.util.stream.Collectors;
 /**
  * Operator vazifalari — amoCRM "Задачи" bo'limining backend qismi.
  *
- * <p><b>Ko'rish doirasi</b> {@link LeadAccessService} orqali: ADMIN/SUPER_ADMIN
+ * <p><b>Ko'rish doirasi</b> {@link LeadAccessService} orqali: ADMIN/SUPER_ADMIN/SALES_HEAD
  * hammasini, SALES_MANAGER faqat o'ziga biriktirilgan yoki o'zi yaratgan
- * vazifalarni ko'radi.
+ * vazifalarni ko'radi. Begona vazifani o'chirish — faqat ADMIN/SUPER_ADMIN.
  *
  * <p><b>Muddat bilan ishlash.</b> "Kun davomida" vazifa {@code dueAt = 23:59}
  * bo'lib saqlanadi ({@link #normalizeDueAt}), shuning uchun na so'rovlarda,
@@ -313,7 +313,7 @@ public class TaskService {
         Task task = taskRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Task", id));
 
-        if (!leadAccessService.hasFullAccess()) {
+        if (!leadAccessService.canDeleteOthers()) {
             User current = leadAccessService.getCurrentUserOrThrow();
             Long authorId = task.getCreatedBy() != null ? task.getCreatedBy().getId() : null;
             if (authorId == null || !authorId.equals(current.getId())) {

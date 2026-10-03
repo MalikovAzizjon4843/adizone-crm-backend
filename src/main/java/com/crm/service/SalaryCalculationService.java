@@ -365,11 +365,53 @@ public class SalaryCalculationService {
         if (unpaid == 0 || monthWorkdays == 0) {
             return new LeaveCalc(null, BigDecimal.ZERO, 0, items);
         }
-        BigDecimal amount = unpaid >= monthWorkdays ? fixed : Money.proportion(fixed, unpaid, monthWorkdays).min(fixed);
+        BigDecimal amount = leaveDeductionAmount(fixed, unpaid, monthWorkdays);
         BigDecimal dailyRate = Money.uzs(Money.divide(fixed, BigDecimal.valueOf(monthWorkdays)));
         Line line = new Line(PayrollCalculationDetails.LEAVE_DEDUCTION, "Haqsiz ta'til", dailyRate,
             BigDecimal.valueOf(unpaid), amount.negate(), null);
         return new LeaveCalc(line, amount, unpaid, items);
+    }
+
+    /**
+     * §3.1 formulasi (payroll va ta'til preview uchun yagona): {@code uzs(fixed × unpaid / monthWorkdays)},
+     * {@code ≤ fixed}; butun oy — aynan fixed. Musbat son (ayirma).
+     */
+    static BigDecimal leaveDeductionAmount(BigDecimal fixed, int unpaid, int monthWorkdays) {
+        if (unpaid <= 0 || monthWorkdays <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return unpaid >= monthWorkdays ? fixed : Money.proportion(fixed, unpaid, monthWorkdays).min(fixed);
+    }
+
+    /** Ta'til ayirmasi preview'ining bir oyi ({@code GET /api/leaves/{id}/deduction-preview}). */
+    public record LeaveDeductionMonth(int month, int year, int workDays, int unpaidDays,
+                                      BigDecimal fixedSalary, BigDecimal amount) {
+    }
+
+    /**
+     * {@code [from, to]} ta'til haqsiz bo'lsa — oylar bo'yicha ayirma ({@link #leaveDeduction} bilan bir xil:
+     * oy ish kunlari, bayram ish kuni emas, qoida — oy oxiridagi). Faqat shu oraliq hisobga olinadi (shu oydagi
+     * boshqa ta'tillar qo'shilmaydi). Oylik qoidasi topilmasa yoki rol oylik olmaydigan bo'lsa —
+     * {@code fixedSalary} va {@code amount} null.
+     */
+    @Transactional(readOnly = true)
+    public List<LeaveDeductionMonth> leaveDeductionPreview(User user, LocalDate from, LocalDate to) {
+        List<LeaveDeductionMonth> out = new ArrayList<>();
+        boolean salaried = user.getRole() != null && SalaryRuleService.SALARY_ROLES.contains(user.getRole());
+        for (YearMonth ym = YearMonth.from(from); !ym.isAfter(YearMonth.from(to)); ym = ym.plusMonths(1)) {
+            LocalDate monthStart = ym.atDay(1);
+            LocalDate monthEnd = ym.atEndOfMonth();
+            Set<LocalDate> holidays = workdayCalendar.holidays(monthStart, monthEnd);
+            int monthWorkdays = WorkdayCalendar.count(monthStart, monthEnd, holidays);
+            int unpaid = WorkdayCalendar.count(from.isBefore(monthStart) ? monthStart : from,
+                to.isAfter(monthEnd) ? monthEnd : to, holidays);
+            BigDecimal fixed = salaried
+                ? salaryRuleRepository.resolveRule(user, monthEnd).map(r -> nz(r.getFixedSalary())).orElse(null)
+                : null;
+            out.add(new LeaveDeductionMonth(ym.getMonthValue(), ym.getYear(), monthWorkdays, unpaid, fixed,
+                fixed == null ? null : leaveDeductionAmount(fixed, unpaid, monthWorkdays)));
+        }
+        return out;
     }
 
     /** O'rinbosar dars stavkasi: shaxsiy qoida → rol qoidasi (§3.3); ikkalasida ham yo'q — null. */

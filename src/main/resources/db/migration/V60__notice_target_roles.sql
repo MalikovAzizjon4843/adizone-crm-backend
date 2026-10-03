@@ -14,12 +14,13 @@ CREATE TABLE IF NOT EXISTS notice_target_roles (
 );
 CREATE INDEX IF NOT EXISTS idx_notice_target_roles_role ON notice_target_roles (role);
 
--- Eski target_role (bitta rol) — rollar jadvaliga, faqat ma'lum rol nomlari.
+-- Eski target_role (bitta rol) — rollar jadvaliga, faqat ma'lum rol nomlari (SALES_HEAD 2026-10-02 da qo'shildi;
+-- ro'yxat qayta bajarishda ham xavfsiz — ON CONFLICT/NOT EXISTS).
 INSERT INTO notice_target_roles (notice_id, role)
 SELECT n.id, UPPER(TRIM(n.target_role))
   FROM notices n
  WHERE n.target_role IS NOT NULL
-   AND UPPER(TRIM(n.target_role)) IN ('SUPER_ADMIN','ADMIN','SALES_MANAGER','TEACHER','ACCOUNTANT','STUDENT','PARENT')
+   AND UPPER(TRIM(n.target_role)) IN ('SUPER_ADMIN','ADMIN','SALES_HEAD','SALES_MANAGER','TEACHER','ACCOUNTANT','STUDENT','PARENT')
    AND NOT EXISTS (SELECT 1 FROM notice_target_roles r WHERE r.notice_id = n.id)
 ON CONFLICT DO NOTHING;
 

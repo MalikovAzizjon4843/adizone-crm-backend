@@ -128,6 +128,10 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT", "TEACHER")
                 .requestMatchers(HttpMethod.POST, "/api/exams/*/registrations/*/cancel")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                // Ro'yxat, bitta imtihon, yozilishga mos o'quvchilar — buxgalter ham (faqat o'qish);
+                // natijalar (/results) va boshqalar — yo'q
+                .requestMatchers(HttpMethod.GET, "/api/exams", "/api/exams/*", "/api/exams/*/eligible-students")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT", "TEACHER")
                 .requestMatchers(HttpMethod.GET, "/api/exams/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
                 .requestMatchers(HttpMethod.GET, "/api/notices/**").hasAnyRole(STAFF_ROLES)

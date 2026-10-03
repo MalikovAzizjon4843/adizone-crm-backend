@@ -8,10 +8,12 @@ import com.crm.dto.response.*;
 import com.crm.service.ExamService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -22,12 +24,21 @@ public class ExamController {
 
     private final ExamService examService;
 
+    /**
+     * Ro'yxat: TEACHER — faqat o'z imtihonlari; ACCOUNTANT — faqat o'qish (to'lov — yozilish orqali).
+     * {@code status}: ACTIVE (standart) | UPCOMING | PAST | INACTIVE; {@code from}/{@code to} — imtihon sanasi.
+     */
     @GetMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','TEACHER')")
     public ResponseEntity<ApiResponse<PageResponse<ExamResponse>>> getAllExams(
+            @RequestParam(required = false) Long groupId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.success(examService.getAllExams(page, size)));
+        return ResponseEntity.ok(ApiResponse.success(examService.getAllExams(
+            new ExamService.ExamFilter(groupId, from, to, ExamService.ListStatus.parse(status)), page, size)));
     }
 
     /** Yozilishlar ro'yxati (E-04): TEACHER — faqat o'z imtihoni. */
@@ -82,8 +93,9 @@ public class ExamController {
                 examService.registerStudentForExam(id, studentId)));
     }
 
+    /** Yozilish dialogi uchun — ACCOUNTANT ham (pullik imtihonda to'lovni u qabul qiladi). */
     @GetMapping("/{id}/eligible-students")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','TEACHER')")
     public ResponseEntity<ApiResponse<List<StudentResponse>>> getEligibleStudents(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(examService.getEligibleStudents(id)));
     }
@@ -100,7 +112,7 @@ public class ExamController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','TEACHER')")
     public ResponseEntity<ApiResponse<ExamResponse>> getExamById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(examService.getExamById(id)));
     }

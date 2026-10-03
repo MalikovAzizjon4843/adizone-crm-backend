@@ -67,11 +67,16 @@ public class SubstitutionController {
             new LessonSubstitutionService.Filter(teacherId, substituteTeacherId, groupId, from, to, st), page, size)));
     }
 
-    /** O'qituvchi: o'rinbosar sifatidagi bugungi va kelgusi darslari. */
+    /**
+     * O'qituvchi: o'zi asosiy yoki o'rinbosar bo'lgan darslar, {@code role}: ORIGINAL | SUBSTITUTE.
+     * Standart oraliq — bugundan 1 yil; ko'pi bilan 366 kun.
+     */
     @GetMapping("/my")
     @PreAuthorize("hasRole('TEACHER')")
-    public ResponseEntity<ApiResponse<List<SubstitutionResponse>>> my() {
-        return ResponseEntity.ok(ApiResponse.success(substitutionService.my()));
+    public ResponseEntity<ApiResponse<List<SubstitutionResponse>>> my(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ResponseEntity.ok(ApiResponse.success(substitutionService.my(from, to)));
     }
 
     @PostMapping("/{id}/cancel")

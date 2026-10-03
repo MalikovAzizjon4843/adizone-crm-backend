@@ -20,9 +20,9 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * Vazifalar API. Rol tekshiruvi bir joyda — sinf darajasidagi
- * {@link PreAuthorize}: ADMIN va SUPER_ADMIN hamma vazifani, SALES_MANAGER
- * faqat o'ziga tegishlisini ko'radi (doira {@code TaskService} ichida,
- * {@code LeadAccessService} orqali).
+ * {@link PreAuthorize}: ADMIN, SUPER_ADMIN va SALES_HEAD hamma vazifani ko'radi va qayta
+ * tayinlaydi, SALES_MANAGER faqat o'ziga tegishlisini (doira {@code TaskService} ichida,
+ * {@code LeadAccessService} orqali). Begona vazifani o'chirish — faqat SUPER_ADMIN/ADMIN.
  */
 @RestController
 @RequestMapping("/api/tasks")

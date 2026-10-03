@@ -117,13 +117,30 @@ public class LessonSubstitutionService {
             .build();
     }
 
-    /** O'qituvchi: o'rinbosar sifatidagi bugungi va kelgusi darslari. */
+    /**
+     * O'qituvchi: o'zi asosiy (guruh o'qituvchisi — darsini boshqasi o'tadi) yoki o'rinbosar bo'lgan faol
+     * belgilar; har yozuvda {@code role}. {@code from} berilmasa — bugun, {@code to} — {@code from + 1 yil}
+     * (eng uzun oraliq ham shu).
+     */
     @Transactional(readOnly = true)
-    public List<SubstitutionResponse> my() {
+    public List<SubstitutionResponse> my(LocalDate from, LocalDate to) {
+        LocalDate f = from != null ? from : LocalDate.now(billingClock);
+        LocalDate t = to != null ? to : f.plusYears(1);
+        if (t.isBefore(f)) {
+            throw CodedException.badRequest("substitution.range.invalid");
+        }
+        if (t.isAfter(f.plusYears(1))) {
+            throw CodedException.badRequest("substitution.range.tooLong");
+        }
         Teacher me = teacherAccessService.getCurrentTeacherOrThrow();
-        LocalDate today = LocalDate.now(billingClock);
-        return substitutionRepository.findBySubstitute(me.getId(), today, today.plusYears(1), SubstitutionStatus.CANCELLED)
-            .stream().map(this::toResponse).toList();
+        return substitutionRepository.findByTeacher(me.getId(), f, t, SubstitutionStatus.CANCELLED).stream()
+            .map(s -> {
+                SubstitutionResponse r = toResponse(s);
+                r.setRole(me.getId().equals(s.getSubstituteTeacher().getId())
+                    ? SubstitutionResponse.Role.SUBSTITUTE : SubstitutionResponse.Role.ORIGINAL);
+                return r;
+            })
+            .toList();
     }
 
     // ── Amallar ─────────────────────────────────────────────────────────

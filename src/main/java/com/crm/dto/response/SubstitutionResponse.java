@@ -1,6 +1,7 @@
 package com.crm.dto.response;
 
 import com.crm.entity.enums.SubstitutionStatus;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -34,4 +35,14 @@ public class SubstitutionResponse {
     private LocalDateTime cancelledAt;
     private String cancelledByName;
     private String cancelReason;
+    /** Faqat {@code GET /api/substitutions/my}: joriy o'qituvchi bu darsda kim. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Role role;
+
+    public enum Role {
+        /** Guruh o'qituvchisi — darsini boshqa o'qituvchi o'tadi. */
+        ORIGINAL,
+        /** Darsni o'tuvchi (o'rinbosar). */
+        SUBSTITUTE
+    }
 }

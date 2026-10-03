@@ -8,7 +8,7 @@
 
 | Mavzu | Qoida |
 |---|---|
-| Rollar | SA = SUPER_ADMIN, A = ADMIN, ACC = ACCOUNTANT. Jadvaldagi roldan boshqasi → **403**. |
+| Rollar | SA = SUPER_ADMIN, A = ADMIN, ACC = ACCOUNTANT. Jadvaldagi roldan boshqasi → **403**. "SALES" = `SALES_MANAGER` va `SALES_HEAD` (oylik qoidasi, hisob va STAFF bonusi bo'yicha bir xil). |
 | Holatlar | `status` ∈ `DRAFT`, `APPROVED`, `PAID`, `CANCELLED` (eski `PENDING` yo'q — bazada DRAFT ga o'tkazilgan). |
 | Holat qanday o'zgaradi | Faqat amal endpointlari orqali (`approve`, `pay`, `cancel`, `DELETE`). **`PUT /api/payroll/{id}` va `POST /api/payroll` olib tashlandi → 405.** |
 | Summalar | UZS. `netSalary = grossSalary + bonusPenaltyAdjustment`. |
@@ -62,7 +62,7 @@ Query: `page` (0), `size` (20), `status` (`DRAFT|APPROVED|PAID|CANCELLED`, noma'
 | Maydon | Tur | Izoh |
 |---|---|---|
 | `id`, `uuid` | number, string | |
-| `userId`, `userName`, `role` | | xodim (`TEACHER` / `ADMIN` / `SALES_MANAGER`) |
+| `userId`, `userName`, `role` | | xodim (`TEACHER` / `ADMIN` / `SALES_MANAGER` / `SALES_HEAD`) |
 | `teacherId`, `teacherName` | | o'qituvchi bo'lsa — Teacher profili; `teacherName` boshqalarda ham xodim ismi |
 | `month`, `year` | number | |
 | `status` | string | §0 |
@@ -264,11 +264,11 @@ Faqat DRAFT (bonuslar baribir PENDING — hech narsa yo'qolmaydi). Boshqa holat 
 
 | Maydon | Tur | Kim uchun | Izoh |
 |---|---|---|---|
-| `role` | string, majburiy | | `TEACHER` \| `ADMIN` \| `SALES_MANAGER` (boshqasi → 400 `salaryRule.role.invalid`) |
+| `role` | string, majburiy | | `TEACHER`, `ADMIN`, `SALES_MANAGER`, `SALES_HEAD` (boshqasi → 400 `salaryRule.role.invalid`). SALES_HEAD — SALES_MANAGER kabi: `fixedSalary`, `perNewStudent` |
 | `userId` | number \| null | | null — rol uchun umumiy qoida; berilsa xodim roli = `role` (aks holda 400 `salaryRule.userRoleMismatch`) |
 | `fixedSalary` | number ≥ 0 | hammasi | belgilangan oylik |
 | `perPayingStudent` | number ≥ 0 | TEACHER | har to'lagan o'quvchi (davr) uchun |
-| `perNewStudent` | number ≥ 0 | ADMIN, SALES | har yangi o'quvchi uchun |
+| `perNewStudent` | number ≥ 0 | ADMIN, SALES_MANAGER, SALES_HEAD | har yangi o'quvchi uchun |
 | `kpiThreshold` | integer ≥ 0 | ADMIN | oy oxirida faol o'quvchilar chegarasi |
 | `kpiBonus` | number ≥ 0 | ADMIN | chegaraga yetsa |
 | `effectiveFrom` | date \| null | | shu sanadan kuchga kiradi |
@@ -296,11 +296,11 @@ POST /api/salary-rules
 
 ## 5. Bonus/jarima — `/api/bonus-penalties`
 
-- **`targetType: "STAFF"` (yangi)** — ADMIN yoki SALES_MANAGER xodim oyligiga bonus/jarima:
+- **`targetType: "STAFF"` (yangi)** — ADMIN, SALES_MANAGER yoki SALES_HEAD xodim oyligiga bonus/jarima:
   ```json
   { "kind": "BONUS", "targetType": "STAFF", "userId": 15, "amount": 300000, "reason": "Reja bajarildi", "effectiveDate": "2026-09-10" }
   ```
-  `userId` majburiy (400 `bonus.staff.userRequired`); xodim roli ADMIN/SALES_MANAGER bo'lmasa → 400 `bonus.staff.roleInvalid`
+  `userId` majburiy (400 `bonus.staff.userRequired`); xodim roli ADMIN/SALES_MANAGER/SALES_HEAD bo'lmasa → 400 `bonus.staff.roleInvalid`
   (o'qituvchi uchun `TEACHER` + `teacherId`). Oqim TEACHER bilan bir xil: oylik DRAFT da "kutilmoqda", tasdiqlanganda
   APPLIED, oylik bekor qilinsa PENDING ga qaytadi.
 - `BonusPenaltyDto` ga **`userId`, `userName`** (STAFF; `targetName` = xodim ismi) va **`appliedToPayrollId`** qo'shildi.
@@ -319,7 +319,7 @@ Query: `from`, `to` (ISO sana; default — oy boshi … bugun). Javob `FinanceRe
 | `totalIncome` | Σ PAID to'lovlar naqd qismi, `paymentDate ∈ [from, to]` (o'zgarmagan) |
 | `totalExpenses` | Σ `Expense` (xarajatlar jadvali), `expenseDate ∈ [from, to]` (o'zgarmagan) |
 | `payrollPaid` | **yangi:** Σ `netSalary` — `status = PAID`, `paidAt ∈ [from, to]` (oylik oyi emas, to'langan kuni); CANCELLED kirmaydi |
-| `payrollByRole` | **yangi:** `{ "TEACHER": …, "ADMIN": …, "SALES_MANAGER": … }` (faqat summasi bor rollar; xodimi aniqlanmagan eski yozuv — `OTHER`) |
+| `payrollByRole` | **yangi:** `{ "TEACHER": …, "ADMIN": …, "SALES_MANAGER": …, "SALES_HEAD": … }` (faqat summasi bor rollar; xodimi aniqlanmagan eski yozuv — `OTHER`) |
 | `netProfit` | **o'zgardi:** `totalIncome − totalExpenses − payrollPaid` |
 | `incomeByCategory`, `expenseByCategory`, `period` | o'zgarmagan |
 
@@ -353,7 +353,7 @@ kiritilsa, ikki marta hisoblanadi.)
 | Oylik oyi tanlovi | cutover oyidan oldingi oylar → 400 `payroll.beforeCutover` (xabarni ko'rsatish); `calculationDetails.estimated` → "taxminiy" belgisi |
 | `paidStudentUnits` | kasr bo'lishi mumkin — formatlash (`1.6667`) |
 | `salary-rules.vue` | `effectiveTo` ustuni/maydoni; tahrirda 409 `salaryRule.inUse` → "yangi qoida yaratish" taklifi; yaratishda 409 `salaryRule.overlapsUsed` → keyinroq `effectiveFrom` so'rash |
-| Bonus/jarima formasi | `targetType: STAFF` + xodim tanlash (`userId`, ADMIN/SALES) |
+| Bonus/jarima formasi | `targetType: STAFF` + xodim tanlash (`userId`, ADMIN/SALES_MANAGER/SALES_HEAD) |
 | Moliya hisoboti | `payrollPaid`, `payrollByRole` kartochkalari; `netProfit` endi oylikni ayirgan |
 | Generate natijasi | `skipped[].code` bo'yicha xabar/havola: `TEACHER_PROFILE_MISSING` → "Profil yaratish" (repair), `ERROR` → xodim qatorida xato belgisi |
 | Kassa tranzaksiyalari | `direction` / `signedAmount` bo'yicha rang va ishora; `paymentId` → to'lov kartasi, `payrollId` → oylik, `relatedTxId` → asl yozuv havolasi (billing-v2-api §5) |

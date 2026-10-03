@@ -6,6 +6,7 @@ import com.crm.dto.response.*;
 import com.crm.entity.enums.LeaveStatus;
 import com.crm.exception.CodedException;
 import com.crm.service.LeaveService;
+import com.crm.service.SalaryCalculationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -120,6 +121,17 @@ public class LeaveController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<List<AffectedLessonDto>>> affectedLessons(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(leaveService.affectedLessons(id)));
+    }
+
+    /**
+     * Haqsiz deb hisoblanganda ayirma (PENDING ham), oylar bo'yicha:
+     * {@code [{month, year, workDays, unpaidDays, fixedSalary, amount}]}.
+     */
+    @GetMapping("/{id}/deduction-preview")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<List<SalaryCalculationService.LeaveDeductionMonth>>> deductionPreview(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(leaveService.deductionPreview(id)));
     }
 
     /** Xodim — o'zi uchun; SA/A — {@code userId} (yoki eski {@code teacherId}) bilan istalgan xodim uchun. */

@@ -94,6 +94,7 @@ public class LeaveService {
     private final PayrollPeriodGuard payrollGuard;
     private final LeaveStatusJob leaveStatusJob;
     private final LessonSubstitutionService substitutionService;
+    private final SalaryCalculationService salaryCalculationService;
     private final EntityManager entityManager;
     private final Clock billingClock;
 
@@ -167,6 +168,19 @@ public class LeaveService {
     @Transactional(readOnly = true)
     public List<AffectedLessonDto> affectedLessons(Long id) {
         return affectedLessons(find(id));
+    }
+
+    /**
+     * Ta'til haqsiz deb tasdiqlansa oylikdan qancha ayiriladi — holatidan qat'i nazar (PENDING ham), oylar
+     * bo'yicha. Formula — payroll ({@link SalaryCalculationService#leaveDeductionPreview}).
+     */
+    @Transactional(readOnly = true)
+    public List<SalaryCalculationService.LeaveDeductionMonth> deductionPreview(Long id) {
+        Leave leave = find(id);
+        if (leave.getUser() == null) {
+            throw CodedException.badRequest("leave.userMissing", id);
+        }
+        return salaryCalculationService.leaveDeductionPreview(leave.getUser(), leave.getFromDate(), leave.getToDate());
     }
 
     /** Yil bo'yicha APPROVED ta'tillar: haqli/haqsiz kalendar va ish kunlari, tur bo'yicha. */

@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -25,6 +26,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -76,12 +78,15 @@ public class ContractController {
     public ResponseEntity<ApiResponse<PageResponse<ContractDto>>> getAllContracts(
             @RequestParam(required = false) Long studentId,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         Pageable pageable = PageRequest.of(page, size,
             Sort.by(Sort.Direction.DESC, "contractDate", "createdAt"));
-        return ResponseEntity.ok(ApiResponse.success(
-            contractService.getAll(studentId, status, pageable)));
+        return ResponseEntity.ok(ApiResponse.success(contractService.getAll(
+            new ContractService.ContractFilter(studentId, status, q, from, to), pageable)));
     }
 
     @GetMapping("/contracts/student/{studentId}")

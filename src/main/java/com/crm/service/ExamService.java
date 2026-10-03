@@ -21,8 +21,13 @@ import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -74,16 +79,45 @@ public class ExamService {
     private final EntityManager entityManager;
     private final Clock billingClock;
 
-    @Transactional(readOnly = true)
-    public PageResponse<ExamResponse> getAllExams(int page, int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        Page<Exam> p;
-        var teacherScope = teacherAccessService.resolveTeacherScope();
-        if (teacherScope.isPresent()) {
-            p = examRepository.findActiveByTeacherId(teacherScope.get().getId(), pageable);
-        } else {
-            p = examRepository.findByIsActiveTrue(pageable);
+    /**
+     * {@code GET /api/exams} holati (hisoblanadi — ustun emas). Sana chegarasi {@code exam.closed} bilan bir xil:
+     * bugungi va sanasiz imtihon — UPCOMING (yozilish ochiq).
+     */
+    public enum ListStatus {
+        /** Faol (standart). */
+        ACTIVE,
+        /** Faol, sanasi bugun yoki keyin, yoki sanasiz. */
+        UPCOMING,
+        /** Faol, sanasi o'tgan. */
+        PAST,
+        /** O'chirilgan (soft delete). */
+        INACTIVE;
+
+        public static ListStatus parse(String s) {
+            if (s == null || s.isBlank()) {
+                return ACTIVE;
+            }
+            try {
+                return valueOf(s.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                throw CodedException.badRequest("exam.status.invalid", s);
+            }
         }
+    }
+
+    /** {@code GET /api/exams} filtri — {@code from}/{@code to} imtihon sanasi bo'yicha (ikkalasi kiritilgan). */
+    public record ExamFilter(Long groupId, LocalDate from, LocalDate to, ListStatus status) {
+    }
+
+    /** TEACHER — faqat o'z imtihonlari (o'zi yoki guruhi orqali); SA/A/ACC — hammasi. */
+    @Transactional(readOnly = true)
+    public PageResponse<ExamResponse> getAllExams(ExamFilter filter, int page, int size) {
+        if (filter.from() != null && filter.to() != null && filter.to().isBefore(filter.from())) {
+            throw CodedException.badRequest("exam.dates.invalid");
+        }
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Long teacherId = teacherAccessService.resolveTeacherScope().map(Teacher::getId).orElse(null);
+        Page<Exam> p = examRepository.findAll(examSpec(filter, teacherId, LocalDate.now(billingClock)), pageable);
         return PageResponse.<ExamResponse>builder()
             .content(p.getContent().stream().map(this::toExamResponse).collect(Collectors.toList()))
             .pageNumber(page).pageSize(size)
@@ -646,6 +680,41 @@ public class ExamService {
                 .orElseThrow(() -> new ResourceNotFoundException("Subject", req.getSubjectId())));
         }
         return e;
+    }
+
+    private static Specification<Exam> examSpec(ExamFilter f, Long teacherId, LocalDate today) {
+        ListStatus status = f.status() != null ? f.status() : ListStatus.ACTIVE;
+        return (root, query, cb) -> {
+            List<Predicate> and = new ArrayList<>();
+            Path<LocalDate> date = root.get("examDate");
+            if (status == ListStatus.INACTIVE) {
+                and.add(cb.or(cb.isFalse(root.get("isActive")), cb.isNull(root.get("isActive"))));
+            } else {
+                and.add(cb.isTrue(root.get("isActive")));
+            }
+            if (status == ListStatus.UPCOMING) {
+                and.add(cb.or(cb.isNull(date), cb.greaterThanOrEqualTo(date, today)));
+            } else if (status == ListStatus.PAST) {
+                and.add(cb.lessThan(date, today));
+            }
+            if (f.groupId() != null) {
+                and.add(cb.equal(root.get("group").get("id"), f.groupId()));
+            }
+            if (f.from() != null) {
+                and.add(cb.greaterThanOrEqualTo(date, f.from()));
+            }
+            if (f.to() != null) {
+                and.add(cb.lessThanOrEqualTo(date, f.to()));
+            }
+            if (teacherId != null) {
+                // Guruhsiz imtihon ham (o'zi biriktirilgan) — LEFT JOIN
+                Join<Exam, Group> group = root.join("group", JoinType.LEFT);
+                and.add(cb.or(
+                    cb.equal(root.get("teacher").get("id"), teacherId),
+                    cb.equal(group.get("teacher").get("id"), teacherId)));
+            }
+            return cb.and(and.toArray(Predicate[]::new));
+        };
     }
 
     public Exam findExamById(Long id) {

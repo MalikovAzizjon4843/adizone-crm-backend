@@ -34,7 +34,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Operator faoliyati (director-dashboard §1.7, §7 #13/#14). Operator — ADMIN, SALES_MANAGER
+ * Operator faoliyati (director-dashboard §1.7, §7 #13/#14). Operator — ADMIN, SALES_HEAD, SALES_MANAGER
  * (SA faqat davrda lid tayinlangan bo'lsa). Javob vaqti — ish soatlarida; import lidlari
  * chiqariladi.
  */

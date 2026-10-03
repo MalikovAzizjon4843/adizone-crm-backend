@@ -569,11 +569,11 @@ public class LeadService {
         return toNoteResponse(leadNoteRepository.save(note));
     }
 
-    /** O'chirish — muallif yoki to'liq huquqli foydalanuvchi (SUPER_ADMIN/ADMIN). */
+    /** O'chirish — muallif yoki SUPER_ADMIN/ADMIN (SALES_HEAD — faqat o'zinikini). */
     @Transactional
     public void deleteNote(Long id) {
         LeadNote note = loadNoteOrThrow(id);
-        if (!leadAccessService.hasFullAccess()
+        if (!leadAccessService.canDeleteOthers()
                 && !isNoteAuthor(note, leadAccessService.getCurrentUserOrThrow())) {
             throw new ForbiddenException("Izohni o'chirishga ruxsat yo'q");
         }

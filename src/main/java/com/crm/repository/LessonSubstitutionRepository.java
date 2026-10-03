@@ -37,6 +37,17 @@ public interface LessonSubstitutionRepository extends JpaRepository<LessonSubsti
     List<LessonSubstitution> findBySubstitute(@Param("teacherId") Long teacherId, @Param("from") LocalDate from,
                                               @Param("to") LocalDate to, @Param("cancelled") SubstitutionStatus cancelled);
 
+    /** O'qituvchi asosiy yoki o'rinbosar bo'lgan faol belgilar (sana oralig'ida) — {@code GET /my}. */
+    @Query("""
+        SELECT s FROM LessonSubstitution s
+          JOIN FETCH s.group JOIN FETCH s.originalTeacher JOIN FETCH s.substituteTeacher
+        WHERE (s.originalTeacher.id = :teacherId OR s.substituteTeacher.id = :teacherId)
+          AND s.lessonDate BETWEEN :from AND :to AND s.status <> :cancelled
+        ORDER BY s.lessonDate, s.id
+        """)
+    List<LessonSubstitution> findByTeacher(@Param("teacherId") Long teacherId, @Param("from") LocalDate from,
+                                           @Param("to") LocalDate to, @Param("cancelled") SubstitutionStatus cancelled);
+
     /** Payroll: o'tilgan (CONDUCTED) darslar. */
     @Query("""
         SELECT s FROM LessonSubstitution s JOIN FETCH s.group JOIN FETCH s.originalTeacher

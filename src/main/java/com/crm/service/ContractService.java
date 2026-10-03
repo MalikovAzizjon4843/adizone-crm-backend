@@ -19,6 +19,9 @@ import com.crm.exception.ConflictException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
 import com.crm.util.ContractHtml;
+import com.crm.util.SearchSpecs;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Join;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -122,10 +125,21 @@ public class ContractService {
 
     // ── Shartnomalar: o'qish ────────────────────────────────────────────
 
+    /**
+     * {@code GET /api/contracts} filtri. {@code q} — o'quvchi ismi/familiyasi ("Ism Familiya" ham), telefoni
+     * (o'quvchi yoki ota-ona) yoki shartnoma raqami bo'yicha; {@code %} va {@code _} oddiy belgi.
+     * {@code from}/{@code to} — shartnoma sanasi (ikkalasi kiritilgan).
+     */
+    public record ContractFilter(Long studentId, String status, String q, LocalDate from, LocalDate to) {
+    }
+
     @Transactional(readOnly = true)
-    public PageResponse<ContractDto> getAll(Long studentId, String status, Pageable pageable) {
-        ContractStatus statusFilter = parseStatus(status);
-        Specification<Contract> spec = buildContractSpec(studentId, statusFilter);
+    public PageResponse<ContractDto> getAll(ContractFilter filter, Pageable pageable) {
+        if (filter.from() != null && filter.to() != null && filter.to().isBefore(filter.from())) {
+            throw CodedException.badRequest("contract.dates.invalid");
+        }
+        ContractStatus statusFilter = parseStatus(filter.status());
+        Specification<Contract> spec = buildContractSpec(filter, statusFilter);
         Page<Contract> page = contractRepository.findAll(spec, pageable);
 
         return PageResponse.<ContractDto>builder()
@@ -470,14 +484,33 @@ public class ContractService {
         });
     }
 
-    private static Specification<Contract> buildContractSpec(Long studentId, ContractStatus status) {
+    private static Specification<Contract> buildContractSpec(ContractFilter f, ContractStatus status) {
         Specification<Contract> spec = Specification.where(null);
-        if (studentId != null) {
+        if (f.studentId() != null) {
             spec = spec.and((root, query, cb) ->
-                cb.equal(root.get("student").get("id"), studentId));
+                cb.equal(root.get("student").get("id"), f.studentId()));
         }
         if (status != null) {
             spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), status));
+        }
+        String q = SearchSpecs.normalize(f.q());
+        if (q != null) {
+            String pattern = SearchSpecs.containsPattern(q);
+            spec = spec.and((root, query, cb) -> {
+                Join<Contract, Student> s = root.join("student");
+                Expression<String> fullName = cb.concat(cb.concat(s.get("firstName"), " "), s.get("lastName"));
+                return cb.or(
+                    SearchSpecs.containsIgnoreCase(cb, root.get("contractNumber"), pattern),
+                    SearchSpecs.containsIgnoreCase(cb, fullName, pattern),
+                    SearchSpecs.containsIgnoreCase(cb, s.get("phone"), pattern),
+                    SearchSpecs.containsIgnoreCase(cb, s.get("parentPhone"), pattern));
+            });
+        }
+        if (f.from() != null) {
+            spec = spec.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("contractDate"), f.from()));
+        }
+        if (f.to() != null) {
+            spec = spec.and((root, query, cb) -> cb.lessThanOrEqualTo(root.get("contractDate"), f.to()));
         }
         return spec;
     }

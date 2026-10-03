@@ -69,6 +69,15 @@ public class LeadAccessService {
         return user != null && FULL_ACCESS_ROLES.contains(user.getRole());
     }
 
+    /**
+     * Boshqa xodimning vazifasi yoki lid izohini o'chirish — faqat ma'muriyat (SUPER_ADMIN, ADMIN).
+     * SALES_HEAD hammasini ko'radi va qayta tayinlaydi, lekin begona yozuvni o'chirmaydi.
+     */
+    public boolean canDeleteOthers() {
+        User user = currentUserOrNull();
+        return user != null && (user.getRole() == UserRole.SUPER_ADMIN || user.getRole() == UserRole.ADMIN);
+    }
+
     public static boolean canBeOperator(UserRole role) {
         return role != null && OPERATOR_ROLES.contains(role);
     }

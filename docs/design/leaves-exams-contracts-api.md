@@ -1,7 +1,7 @@
 # Ta'tillar, "darsni X o'tdi", imtihon to'lovi, shartnoma, rekvizitlar — API (frontend uchun)
 
 > Dizayn va yakuniy qarorlar: [`leaves-exams-contracts.md`](leaves-exams-contracts.md) (§0.1 — ustun). Bu hujjat —
-> **amalda qurilgan** holat (branch `billing-v2`, V61–V63).
+> **amalda qurilgan** holat (branch `billing-v2`, V61–V64).
 > Javoblar `ApiResponse {success, message, data}` ichida; xatolar `ErrorResponse {status, error, message, code, data?}`.
 > `message` `Accept-Language` (uz/ru/en) bo'yicha; frontend mantiqi uchun **`code`** ga tayaning.
 
@@ -45,6 +45,7 @@ Haqli/haqsiz **tasdiqlashda** tanlanadi. Hard delete yo'q (`DELETE` → 405) —
 | `GET /api/leaves/my` | STAFF | O'zi haqidagi va o'zi bergan arizalar (sahifali) |
 | `GET /api/leaves/{id}` | STAFF | SA/A — har qanday; boshqalar — faqat o'zi haqidagi/o'zi bergan (aks holda 403 `leave.forbidden`) |
 | `GET /api/leaves/{id}/affected-lessons` | SA, A | O'qituvchining shu davrdagi rejadagi darslari (+ "darsni X o'tdi" belgisi) |
+| `GET /api/leaves/{id}/deduction-preview` | SA, A | Haqsiz deb hisoblanganda oylikdan ayirma, oylar bo'yicha (holatidan qat'i nazar — PENDING ham) — §1.8 |
 | `GET /api/leaves/summary?userId&year` | STAFF | Yil bo'yicha APPROVED: haqli/haqsiz kunlar. `userId` berilmasa — o'zi; boshqaniki — faqat SA/A |
 | `GET /api/leaves/pending/count` | SA, A | `{count}` — menyu belgisi uchun |
 | `POST /api/leaves` | STAFF | Ariza → 201 |
@@ -109,6 +110,21 @@ Belgi yo'q bo'lsa `substitution*` maydonlari `null`.
 ```
 Yil chegarasidagi ta'til faqat shu yilga tushgan qismi bilan. Kvota yo'q (faqat hisobot).
 
+### 1.8 `GET /api/leaves/{id}/deduction-preview` (SA, A)
+Tasdiqlash oynasida "haqsiz" tanlansa oylikdan qancha ayirilishini ko'rsatish uchun. Ta'til **haqsiz deb** hisoblanadi
+(`paid` va `status` e'tiborga olinmaydi), har oy alohida:
+```json
+[ { "month": 9,  "year": 2026, "workDays": 25, "unpaidDays": 2, "fixedSalary": 2700000, "amount": 216000 },
+  { "month": 10, "year": 2026, "workDays": 27, "unpaidDays": 4, "fixedSalary": 2700000, "amount": 400000 } ]
+```
+- Formula — payroll `LEAVE_DEDUCTION` bilan **bir xil kod** (`SalaryCalculationService`): `amount = uzs(fixedSalary × unpaidDays / workDays)`,
+  `≤ fixedSalary` (butun oy — aynan `fixedSalary`). `workDays` — oydagi ish kunlari, `unpaidDays` — ta'tilning shu oyga tushgan ish kunlari;
+  ish kuni = Du–Sha, **bayram emas**. `amount` — musbat son (ayirma).
+- `fixedSalary` — oy oxiridagi oylik qoidasi (shaxsiy → rol). Qoida yo'q yoki rol oylik olmaydi (SA, ACC) → `fixedSalary` va `amount` **`null`**
+  ("hisoblanmaydi" deb ko'rsating, 0 emas).
+- Faqat shu ta'til: shu oydagi boshqa haqsiz ta'tillar qo'shilmaydi. Haqli tasdiqlansa ayirma bo'lmaydi.
+- Xatolar: 404 (ta'til yo'q), 400 `leave.userMissing` (V61 bajarilmagan eski yozuv), 403 (SA/A emas).
+
 ---
 
 ## 2. "Darsni X o'tdi" (o'rinbosar) — `/api/substitutions`
@@ -131,7 +147,7 @@ Belgilash paytida davomat allaqachon bo'lsa — darhol `CONDUCTED`.
 | `POST /api/substitutions` | SA, A | `{groupId, lessonDate, substituteTeacherId, leaveRequestId?, note?}` → 201 |
 | `POST /api/substitutions/bulk` | SA, A | `{items: [ … ]}` (1–200) — hammasi yoki hech biri; xatoda `data.index` — qaysi element |
 | `GET /api/substitutions` | SA, A, ACC | Query: `teacherId` (asosiy yoki o'rinbosar), `substituteTeacherId`, `groupId`, `from`, `to`, `status`, `page`, `size` (50) |
-| `GET /api/substitutions/my` | T | O'rinbosar sifatidagi bugungi va kelgusi darslarim |
+| `GET /api/substitutions/my` | T | O'zim **asosiy** (darsimni boshqasi o'tadi) yoki **o'rinbosar** bo'lgan darslar, bekor qilinganlarsiz, sana bo'yicha. Query: `from` (standart — bugun), `to` (standart — `from` + 1 yil). Har yozuvda `role`: `ORIGINAL` / `SUBSTITUTE`. `from > to` → 400 `substitution.range.invalid`; 1 yildan uzun → 400 `substitution.range.tooLong` |
 | `POST /api/substitutions/{id}/cancel` | SA, A | `{reason?}`. CONDUCTED ham bekor qilinadi (xato belgi), lekin o'rinbosar oyligi yopilgan oyda → 409 |
 
 Xatolar (belgilash): 400 `substitution.sameTeacher` (guruh o'qituvchisining o'zi), 400 `substitution.teacherInactive`
@@ -147,6 +163,7 @@ Xatolar (belgilash): 400 `substitution.sameTeacher` (guruh o'qituvchisining o'zi
   "leaveRequestId": 7, "status": "CONDUCTED", "conductedAt": "2026-09-15T15:10:00", "conductedByName": "…",
   "note": null, "createdByName": "…", "createdAt": "…", "cancelledAt": null, "cancelledByName": null, "cancelReason": null }
 ```
+`role` (`ORIGINAL` | `SUBSTITUTE`) — faqat `GET /my` javobida; boshqa endpointlarda maydon yo'q.
 
 ### 2.1 Davomat ruxsati (o'zgargan)
 
@@ -200,6 +217,9 @@ bekor qilish = kassaga **REVERSAL** (pul qaytadi, asl yozuv o'chmaydi). O'quvchi
 
 | Metod, yo'l | Rollar | Tavsif |
 |---|---|---|
+| `GET /api/exams` | SA, A, ACC, T (o'z imtihonlari) | Sahifali (`size` 20), yaratilgan ↓. Query: `groupId`, `from`, `to` (imtihon sanasi, ikkalasi kiritilgan; sanasiz imtihon bu filtrda chiqmaydi), `status`: `ACTIVE` (standart), `UPCOMING` (faol, sana ≥ bugun yoki sanasiz — yozilish ochiq), `PAST` (faol, sana < bugun), `INACTIVE` (o'chirilgan). Noma'lum → 400 `exam.status.invalid`; `from > to` → 400 `exam.dates.invalid`. T — o'z guruhi yoki o'ziga biriktirilgan (guruhsiz ham) |
+| `GET /api/exams/{id}` | SA, A, ACC, T (o'z imtihoni) | `ExamResponse` |
+| `GET /api/exams/{id}/eligible-students` | SA, A, ACC, T (o'z guruhi) | Yozilishga mos o'quvchilar (yozilish dialogi uchun) |
 | `POST /api/exams`, `PUT /api/exams/{id}` | SA, A, T | `ExamRequest` + **`fee`** (≥ 0; `PUT` da berilmasa o'zgarmaydi). REGISTERED yozilish bor imtihonda `fee` o'zgarsa → 409 `exam.feeLocked`. Guruhli **bepul** imtihon yaratilganda guruh o'quvchilari avtomatik FREE yoziladi (OVERDUE lar yo'q); pullikda — yo'q |
 | `GET /api/exams/{id}/registrations` | SA, A, ACC, T (o'z imtihoni) | Sahifali (`size` 50), barcha holatlar, yangilari avval |
 | `POST /api/exams/{id}/registrations` | SA, A, ACC; T — faqat bepul | Yozilish (pullikda to'lov bilan) |
@@ -209,6 +229,8 @@ bekor qilish = kassaga **REVERSAL** (pul qaytadi, asl yozuv o'chmaydi). O'quvchi
 | `POST /api/exams/{id}/calculate-payment?studentId=` | SA, A, T | **deprecated** — endi `{examId, examName, examDate, fee, amountDue, free, message}` |
 
 `ExamResponse` ga `fee` qo'shildi.
+ACC — imtihonlarni faqat **o'qiydi** (ro'yxat, bitta, yozilishlar, `eligible-students`) va pullik yozilishda to'lov qabul qiladi/bekor qiladi;
+yaratish/tahrir/o'chirish/natijalar — 403.
 
 ### 4.1 `POST /api/exams/{id}/registrations`
 ```json
@@ -274,6 +296,7 @@ lekin bo'sh: `legalName, inn, address, phone, bankName, bankAccount, bankMfo, di
 
 | Metod, yo'l | Tavsif |
 |---|---|
+| `GET /api/contracts` | Sahifali (`size` 20), shartnoma sanasi ↓. Query: `studentId`, `status`, `q` — o'quvchi ismi/familiyasi (`"Ism Familiya"` ham), telefoni (o'quvchi yoki ota-ona) yoki shartnoma raqami, katta-kichik harf farqsiz; `%` va `_` **oddiy belgi**. `from`, `to` — shartnoma sanasi (ikkalasi kiritilgan); `from > to` → 400 `contract.dates.invalid` |
 | `POST /api/contracts/generate` | `{studentId, studentGroupId?, templateId?}` → 201 `ContractDto` (narx snapshot'i bilan) |
 | `GET /api/contracts/{id}/pdf` | `application/pdf`, `Content-Disposition: inline; filename="CTR-2026-00001.pdf"` — yangi oynada ochib chop eting |
 | `GET /api/contracts/{id}/pdf?download=true` | `attachment` |
@@ -329,17 +352,17 @@ Shablon oddiy matn bo'lsa (tegsiz) — qatorlar saqlanadi.
 
 | Kod | HTTP |
 |---|---|
-| `leave.type.invalid`, `leave.dates.invalid`, `leave.tooLong`, `leave.paidRequired`, `leave.noteRequired`, `leave.status.invalid`, `leave.teacherNoUser`, `leave.userNotStaff` | 400 |
+| `leave.type.invalid`, `leave.dates.invalid`, `leave.tooLong`, `leave.paidRequired`, `leave.noteRequired`, `leave.status.invalid`, `leave.teacherNoUser`, `leave.userNotStaff`, `leave.userMissing` | 400 |
 | `leave.selfApprove`, `leave.forbidden` | 403 |
 | `leave.overlap`, `leave.notPending`, `leave.notCancellable`, `leave.payrollLocked` | 409 |
-| `substitution.sameTeacher`, `substitution.teacherInactive`, `substitution.noLesson`, `substitution.noTeacher`, `substitution.status.invalid` | 400 |
+| `substitution.sameTeacher`, `substitution.teacherInactive`, `substitution.noLesson`, `substitution.noTeacher`, `substitution.status.invalid`, `substitution.range.invalid`, `substitution.range.tooLong` | 400 |
 | `substitution.lessonTaken` | 403 |
 | `substitution.notFound` | 404 |
 | `substitution.exists`, `substitution.timeConflict`, `substitution.payrollLocked`, `substitution.alreadyCancelled` | 409 |
-| `exam.notEligible` (`data.reason`), `exam.paymentRequired`, `exam.registration.reasonRequired` | 400 |
+| `exam.notEligible` (`data.reason`), `exam.paymentRequired`, `exam.registration.reasonRequired`, `exam.status.invalid`, `exam.dates.invalid` | 400 |
 | `exam.paymentRole` | 403 |
 | `exam.registration.notFound` | 404 |
 | `exam.closed`, `exam.alreadyRegistered`, `exam.idempotency.mismatch`, `exam.feeLocked`, `exam.hasRegistrations`, `exam.registration.notActive`, `exam.registration.hasResult` | 409 |
 | `settings.center.field.unknown`, `settings.center.tooLong`, `settings.center.inn.invalid`, `settings.center.bankAccount.invalid`, `settings.center.bankMfo.invalid` | 400 |
-| `contract.studentGroupRequired` (`data.studentGroups`), `contract.studentGroup.mismatch`, `contract.template.unknownPlaceholder` (`data.unknown`), `contract.sign.offer`, `contract.cancel.reasonRequired`, `contract.pdf.failed` | 400 |
+| `contract.studentGroupRequired` (`data.studentGroups`), `contract.studentGroup.mismatch`, `contract.template.unknownPlaceholder` (`data.unknown`), `contract.sign.offer`, `contract.cancel.reasonRequired`, `contract.pdf.failed`, `contract.dates.invalid` | 400 |
 | `contract.notDraft`, `contract.signed`, `contract.alreadyCancelled` | 409 |

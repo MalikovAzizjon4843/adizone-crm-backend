@@ -29,6 +29,30 @@
 | `POST /api/contracts/generate` | Raqam `CTR-YYYY-NNNNN`, har yil 00001 dan |
 | Har qanday endpoint | Baza cheklovi: 409 `error.conflict.*` / 400 `error.data.invalid`; yetishmagan parametr 400 `error.param.missing` |
 
+## Yangilanishlar (2026-10-02, filtrlar va ta'til preview)
+
+> Batafsil (javob shakli, xato kodlari): [leaves-exams-contracts-api.md](../design/leaves-exams-contracts-api.md) §1.8, §2, §4, §6.
+
+| Endpoint | Rollar | O'zgarish |
+|---|---|---|
+| `GET /api/substitutions/my` | T | Query `from` (standart bugun), `to` (standart `from` + 1 yil, ko'pi bilan 1 yil). Endi o'qituvchi **asosiy yoki o'rinbosar** bo'lgan faol belgilar; har yozuvda `role`: `ORIGINAL` / `SUBSTITUTE`. 400 `substitution.range.invalid` / `substitution.range.tooLong` |
+| `GET /api/exams` | SA, A, **ACC**, T | Query `groupId`, `from`, `to` (imtihon sanasi), `status` = `ACTIVE` (standart) / `UPCOMING` / `PAST` / `INACTIVE`. 400 `exam.status.invalid`, `exam.dates.invalid`. TEACHER — o'z guruhi yoki o'ziga biriktirilgan (guruhsiz ham) |
+| `GET /api/exams/{id}` | SA, A, **ACC**, T | ACCOUNTANT o'qiy oladi; `GET /api/exams/{id}/eligible-students` ham (yaratish/tahrir/o'chirish/natijalar — 403) |
+| `GET /api/contracts` | SA, A | Query `q` (o'quvchi ismi/familiyasi, telefoni yoki ota-ona telefoni, shartnoma raqami; `%`/`_` oddiy belgi), `from`, `to` (shartnoma sanasi). 400 `contract.dates.invalid` |
+| `GET /api/leaves/{id}/deduction-preview` | SA, A | **Yangi.** Ta'til haqsiz deb hisoblanganda ayirma (PENDING ham), oylar bo'yicha `[{month, year, workDays, unpaidDays, fixedSalary, amount}]`; formula payroll bilan bir xil, bayram ish kuni emas; qoida yo'q → `fixedSalary`/`amount` null |
+
+## Yangilanishlar (2026-10-02, SALES_HEAD qarorlari)
+
+> SH ning to'liq ruxsatlar jadvali — [§0.2a](#02a-sales_head-sh-effektiv-ruxsatlari).
+
+| Endpoint | O'zgarish |
+|---|---|
+| `DELETE /api/tasks/{id}` | Begona vazifani faqat SA/A o'chiradi; SH (va SM) — faqat o'zi yaratganini. Avval SH hammasini o'chira olardi |
+| `DELETE /api/leads/notes/{id}` | Begona izohni faqat SA/A o'chiradi; SH — faqat o'zinikini. Avval SH hammasini o'chira olardi |
+| `GET /api/exams/{id}/eligible-students` | ACCOUNTANT ham (faqat o'qish). `/results` — ACC uchun yopiq |
+| `POST /api/notices` | `targetRoles: ["SALES_HEAD"]` qabul qilinadi (avval ham enum bo'yicha qabul qilinardi; V60 eski `target_role` ko'chirishida ham SALES_HEAD bor) |
+| `POST /api/leads/{id}/convert`, `/api/leads/operators`, dashboard operatorlari | O'zgarish yo'q — SH allaqachon bor edi, test bilan tasdiqlandi |
+
 ## 0. Qanday o'qish kerak
 
 ### 0.1 Endpointlar soni
@@ -46,6 +70,7 @@
 |---|---|
 | **SA** | SUPER_ADMIN |
 | **A** | ADMIN |
+| **SH** | SALES_HEAD (sotuv bo'limi rahbari) — effektiv ruxsatlari: [§0.2a](#02a-sales_head-sh-effektiv-ruxsatlari) |
 | **SM** | SALES_MANAGER |
 | **T** | TEACHER |
 | **ACC** | ACCOUNTANT |
@@ -53,7 +78,7 @@
 | **P** | PARENT |
 
 - Manba: `entity/enums/UserRole.java`.
-- "Har qanday auth" yoki **AUTH** — eski hujjat atamasi. **2026-10-02 dan** `authenticated` qoidalarining hammasi **STAFF** = SA, A, SM, T, ACC (`SecurityConfig.STAFF_ROLES`); ST/P login qila olmaydi (403 `auth.roleNotAllowed`). Batafsil — [phase5-audit.md §14](phase5-audit.md).
+- "Har qanday auth" yoki **AUTH** — eski hujjat atamasi. **2026-10-02 dan** `authenticated` qoidalarining hammasi **STAFF** = SA, A, SH, SM, T, ACC (`SecurityConfig.STAFF_ROLES`); ST/P login qila olmaydi (403 `auth.roleNotAllowed`). Batafsil — [phase5-audit.md §14](phase5-audit.md).
 - **"Effektiv rollar"** = `config/SecurityConfig.java` dagi URL qoidasi ∩ `@PreAuthorize`. SecurityConfig'da birinchi mos kelgan qoida ishlaydi (qoidalar jadvali: backend-audit.md §2.1).
 - RoleHierarchy yo'q: SA har joyda alohida sanaladi.
 - TEACHER uchun egalik (o'z guruhi yoki o'z o'quvchisi) servisda `service/TeacherAccessService.java` orqali tekshiriladi:
@@ -62,6 +87,42 @@
   - `resolveTeacherScope` — `:66-71`
 
   Jadvallarda bu tekshiruv qayerda bor va qayerda yo'qligi ko'rsatilgan.
+
+### 0.2a SALES_HEAD (SH) effektiv ruxsatlari
+
+> Holat 2026-10-02 (`billing-v2`). Quyidagi jadvallardagi "Rollar" ustuni SH dan oldin yozilgan — SH uchun **shu jadval ustun**.
+> Effektiv = `SecurityConfig` URL qoidasi ∩ `@PreAuthorize` ∩ servis tekshiruvi (`LeadAccessService`). SH `STAFF_ROLES` da.
+> Testlar: `security/SalesHeadAccessTest`.
+
+| Soha | Endpoint | SH | Izoh (SM bilan farq) |
+|---|---|---|---|
+| Lidlar | `GET /api/leads`, `/kanban-stats`, `/{id}`, `/{id}/comments`, `/notes`, `/tasks`, `/timeline`, `/history` | ✅ hamma lid | SM — faqat o'ziga biriktirilgan |
+| | `POST /api/leads`, `PATCH /{id}/status`, `/amount`, `POST /{id}/comments`, `/notes` | ✅ hamma lid | `assignedUserId` — istalgan operator (SM — faqat o'zi) |
+| | `PATCH /api/leads/{id}/assign`, `GET /api/leads/operators` | ✅ | SM — 403. Operatorlar ro'yxatida SA, A, **SH**, SM |
+| | `GET /api/leads/stats` | ✅ | SM — 403 |
+| | `POST /api/leads/{id}/convert` | ✅ hamma lid | SM — faqat o'z lidi |
+| | `PUT /api/leads/notes/{id}` | faqat o'z izohi | hammaga bir xil (muallif) |
+| | `DELETE /api/leads/notes/{id}` | faqat **o'z** izohi | begona izoh — faqat SA/A (2026-10-02 dan; avval SH ham o'chirardi) |
+| | `GET /api/leads/export` | ❌ 403 | faqat SA/A |
+| Lid importi | `/api/leads/import/**`, `/api/import/**` | ❌ 403 | SA/A (partiyani o'chirish — SA) |
+| Lid bosqichlari | `GET /api/lead-stages` | ✅ | barcha xodimlar |
+| | `POST/PUT/DELETE /api/lead-stages/**`, `PATCH /reorder` | ❌ 403 | SA/A |
+| Meta | `/api/meta/**` | ❌ 403 | SA/A |
+| Vazifalar | `GET /api/tasks`, `/my`, `/stats`, `/{id}` | ✅ jamoa vazifalari | SM — faqat o'ziga biriktirilgan |
+| | `POST /api/tasks` (`assignedTo` — boshqa xodim), `PATCH /{id}`, `/complete`, `/postpone`, `/reassign` | ✅ | SM boshqaga yoza olmaydi. Mas'ul: SA, A, SH, SM (faol) |
+| | `DELETE /api/tasks/{id}` | faqat **o'zi yaratgan** | begona vazifa — faqat SA/A (2026-10-02 dan; avval SH ham o'chirardi) |
+| Dashboard | `GET /api/dashboard/director` | ✅ faqat `funnel`, `operators` | qolgan bo'limlar `null` + `meta.hiddenSections` |
+| | `/director/funnel/leads`, `/director/operators`, `/operators/{userId}/leads`, `/operators/{userId}/tasks`, `/director/trend?metric=funnel.*\|operators.*` | ✅ | operatorlar: ADMIN, **SH**, SM |
+| | `/director/collections/**`, `/debtors`, `/attendance/**`, `/trials/**`, `/retention/**` | ❌ 403 `dashboard.section.forbidden` | |
+| | `/api/dashboard/stats`, `/api/analytics/**` | ❌ 403 | SA/A |
+| E'lonlar | `GET /api/notices`, `/active`, `/latest`, `/unread-count`, `/{id}`; `POST /read-all`, `/{id}/read` | ✅ | lenta — `targetRoles` da SALES_HEAD bo'lgan yoki hammaga e'lonlar |
+| | `POST/PUT/DELETE /api/notices` | ❌ 403 | SA/A. `targetRoles` da `SALES_HEAD` qabul qilinadi |
+| Ta'til | `POST /api/leaves`, `GET /my`, `/summary` (o'zi), `/{id}` (o'zi), `POST /{id}/cancel` (o'z PENDING) | ✅ | barcha xodimlar kabi |
+| | `GET /api/leaves`, `/pending/count`, `approve`, `reject`, `/affected-lessons`, `/deduction-preview` | ❌ 403 | SA/A |
+| Chat | `/api/chat/**`, WebSocket | ✅ | a'zolik bo'yicha (`ChatAccessService`) |
+| Oylik | `/api/payroll/**`, `/api/salary-rules/**` | ❌ 403 | SH — oylik **oluvchi**: qoida `role: SALES_HEAD` (`fixedSalary`, `perNewStudent`), hisob SM kabi |
+| Bonus/jarima | `/api/bonus-penalties/**` | ❌ 403 | SH — `targetType: STAFF` bonus **oluvchisi** (SA/A/ACC yozadi) |
+| Foydalanuvchilar | `/api/users/**` | ❌ 403 | SA/A (SH ni A yaratadi) |
 
 ### 0.3 Umumiy konventsiyalar
 **Autentifikatsiya:** `Authorization: Bearer <accessToken>` sarlavhasi. Token faqat `sub/iat/exp` saqlaydi, ichida rol yo'q. Rolni login javobidan yoki `GET /api/auth/me` dan oling.
@@ -867,18 +928,18 @@ Yo'l tartibi: `/grid` va `/by-room` literal segmentlar bo'lgani uchun `/{id}` da
 
 - Base path: `/api/exams` (`ExamController.java:17`). Class-level `@PreAuthorize` yo'q.
 - SecurityConfig qoidalari:
-  - GET `/api/exams/**` → SA, A, T (`SecurityConfig.java:110-111`).
+  - GET `/api/exams`, `/api/exams/{id}`, `/api/exams/{id}/eligible-students` → SA, A, ACC, T; boshqa GET (`/results` va h.k.) `/api/exams/**` → SA, A, T (2026-10-02).
   - POST `/api/exams/**` → SA, A, T (`:169-170`).
   - PUT `/api/exams/**` → SA, A, T (`:171-172`).
   - DELETE → `:196`.
 
 | METHOD | path | Controller#metod | Effektiv rollar | Request | Response | Pagination | Izoh |
 |---|---|---|---|---|---|---|---|
-| GET | `/api/exams` | `getAllExams` (`:23-29`) | SA, A, T | query `page=0`, `size=20` | `ApiResponse<PageResponse<ExamResponse>>` | PageResponse, `createdAt DESC`, faqat faollar | TEACHER uchun filtrlanadi (`service/ExamService.java:49-63`). |
+| GET | `/api/exams` | `getAllExams` (`:23-29`) | SA, A, ACC, T | query `groupId`, `from`, `to`, `status` (ACTIVE/UPCOMING/PAST/INACTIVE), `page=0`, `size=20` | `ApiResponse<PageResponse<ExamResponse>>` | PageResponse, `createdAt DESC`, faqat faollar | TEACHER uchun filtrlanadi (`service/ExamService.java:49-63`). |
 | POST | `/api/exams/{id}/register-student` | `registerStudent` (`:31-39`) | SA, A, T | path `id`; **query** `studentId: Long` (majburiy) | **201** `ApiResponse<ExamRegistrationResponse>`, "Ro'yxatdan o'tdi" | yo'q | Egalik tekshirilmaydi. Takroriy ro'yxat → 409 (`ExamService.java:293-300`). |
-| GET | `/api/exams/{id}/eligible-students` | `getEligibleStudents` (`:41-45`) | SA, A, T | path `id` | `ApiResponse<List<StudentResponse>>` | yo'q | Tizimdagi **barcha** o'quvchilar ichidan tanlanadi: `present ≥ 8` va faol guruhda `paymentStatus="PAID"` (`ExamService.java:272-290, :32`). Teacher scope yo'q. |
+| GET | `/api/exams/{id}/eligible-students` | `getEligibleStudents` (`:41-45`) | SA, A, ACC, T | path `id` | `ApiResponse<List<StudentResponse>>` | yo'q | Tizimdagi **barcha** o'quvchilar ichidan tanlanadi: `present ≥ 8` va faol guruhda `paymentStatus="PAID"` (`ExamService.java:272-290, :32`). Teacher scope yo'q. |
 | POST | `/api/exams/{id}/calculate-payment` | `calculatePayment` (`:47-54`) | SA, A, T (`isAuthenticated()`, lekin URL `:169` cheklaydi) | path `id`; **query** `studentId: Long` | `ApiResponse<Map<String,Object>>` | yo'q | Faqat preview, yozuv qilinmaydi. Map kalitlari quyida. |
-| GET | `/api/exams/{id}` | `getExamById` (`:56-60`) | SA, A, T | path `id` | `ApiResponse<ExamResponse>` | yo'q | `assertExamAccess` (`ExamService.java:396-407`). |
+| GET | `/api/exams/{id}` | `getExamById` (`:56-60`) | SA, A, ACC, T | path `id` | `ApiResponse<ExamResponse>` | yo'q | `assertExamAccess` (`ExamService.java:396-407`). |
 | POST | `/api/exams` | `createExam` (`:62-67`) | SA, A, T | body `ExamRequest` (@Valid) | **201** `ApiResponse<ExamResponse>` | yo'q | `groupId` berilgan bo'lsa guruh o'quvchilari avtomatik ro'yxatga olinadi (`ExamService.java:73-87`). |
 | PUT | `/api/exams/{id}` | `updateExam` (`:69-74`) | SA, A, T | path `id`; body `ExamRequest` (@Valid) | `ApiResponse<ExamResponse>` | yo'q | |
 | DELETE | `/api/exams/{id}` | `deleteExam` (`:76-81`) | SA, A | path `id` | `ApiResponse<Void>` | yo'q | Soft: `isActive=false`. |
@@ -994,6 +1055,7 @@ Yo'l tartibi: `/grid` va `/by-room` literal segmentlar bo'lgani uchun `/{id}` da
 | GET | `/api/leaves/teacher/{teacherId}` | `getLeavesByTeacher` (`:31-38`) | SA, A | path `teacherId`; query `page=0`, `size=`**`50`** | `ApiResponse<PageResponse<LeaveResponse>>` | PageResponse | Teacher'ning `user` i orqali qidiriladi. `user` bo'lmasa bo'sh sahifa qaytadi (`service/LeaveService.java:41-52`). |
 | GET | `/api/leaves/pending` | `getPendingLeaves` (`:40-44`) | SA, A | — | `ApiResponse<List<LeaveResponse>>` | yo'q | |
 | GET | `/api/leaves/{id}` | `getLeaveById` (`:46-49`) | **AUTH (har kim)** | path `id` | `ApiResponse<LeaveResponse>` | yo'q | `@PreAuthorize` va egalik tekshiruvi yo'q. |
+| GET | `/api/leaves/{id}/deduction-preview` | `deductionPreview` | SA, A | path `id` | `ApiResponse<List<LeaveDeductionMonth>>` = `[{month, year, workDays, unpaidDays, fixedSalary, amount}]` | yo'q | 2026-10-02. Ta'til haqsiz deb hisoblanadi (holatidan qat'i nazar); formula `SalaryCalculationService.leaveDeductionAmount` (payroll bilan bitta). |
 | GET | `/api/leaves/user/{userId}` | `getLeavesByUser` (`:51-57`) | **AUTH (har kim)** | path `userId`; query `page=0`, `size=20` | `ApiResponse<PageResponse<LeaveResponse>>` | PageResponse | Ixtiyoriy `userId` ni so'rash mumkin. |
 | POST | `/api/leaves` | `submitLeave` (`:59-63`) | **AUTH (har kim)** | body `LeaveSubmitRequest` (@Valid) | **201** `ApiResponse<LeaveResponse>` | yo'q | `teacherId` amalda **majburiy** (`teacherRepository.findById(request.getTeacherId())`, `LeaveService.java:66-67`). `requester` ni so'rovdan olish mumkin, ya'ni boshqa foydalanuvchi nomidan ham ariza berish mumkin. Status "PENDING". |
 | PATCH | `/api/leaves/{id}/status` | `updateStatus` (`:65-71`) | SA, A | path `id`; body `Map<String,Object>`: `{status: String (majburiy), reason?: String, approvedById?: Long}` | `ApiResponse<LeaveResponse>` | yo'q | `status` validatsiyasiz saqlanadi. `status` bo'lmasa NPE → 500. REJECTED bo'lsa `reason` matnga qo'shiladi. Tasdiqlovchi joriy foydalanuvchi emas, `approvedById` dan olinadi (`LeaveService.java:111-129`). |
@@ -1070,7 +1132,7 @@ Yo'l tartibi: `/grid` va `/by-room` literal segmentlar bo'lgani uchun `/{id}` da
 | POST | `/api/contract-templates` | `createTemplate` (`:40-45`) | SA, A | body `ContractTemplateCreateDto` (@Valid, lekin DTO'da annotatsiya **yo'q**) | **201** `ApiResponse<ContractTemplateDto>` | yo'q | `isDefault=true` bo'lsa boshqa shablonlarning default belgisi olib tashlanadi (`service/ContractService.java:58-65`). |
 | PUT | `/api/contract-templates/{id}` | `updateTemplate` (`:47-53`) | SA, A | path `id`; body `ContractTemplateCreateDto` | `ApiResponse<ContractTemplateDto>` | yo'q | |
 | DELETE | `/api/contract-templates/{id}` | `deleteTemplate` (`:55-59`) | SA, A | path `id` | `ApiResponse<Void>` | yo'q | Hard delete. |
-| GET | `/api/contracts` | `getAllContracts` (`:61-71`) | SA, A | query `studentId: Long?`, `status: String?` (DRAFT/SIGNED/ACCEPTED; noto'g'ri qiymat **jimgina e'tiborsiz qoldiriladi**, `ContractService.java:306-315`), `page=0`, `size=20` | `ApiResponse<PageResponse<ContractDto>>` | PageResponse; sort qat'iy: `contractDate DESC, createdAt DESC` (`ContractController.java:67-68`) | |
+| GET | `/api/contracts` | `getAllContracts` (`:61-71`) | SA, A | query `studentId: Long?`, `status: String?` (DRAFT/SIGNED/ACCEPTED; noto'g'ri qiymat **jimgina e'tiborsiz qoldiriladi**, `ContractService.java:306-315`), `q: String?` (ism/telefon/raqam, `%`/`_` oddiy belgi), `from`/`to: LocalDate?` (shartnoma sanasi), `page=0`, `size=20` | `ApiResponse<PageResponse<ContractDto>>` | PageResponse; sort qat'iy: `contractDate DESC, createdAt DESC` (`ContractController.java:67-68`) | |
 | GET | `/api/contracts/student/{studentId}` | `getByStudent` (`:73-76`) | SA, A | path `studentId` | `ApiResponse<List<ContractDto>>` | yo'q | |
 | GET | `/api/contracts/{id}` | `getContract` (`:78-81`) | SA, A | path `id` | `ApiResponse<ContractDto>` | yo'q | |
 | POST | `/api/contracts/generate` | `generateContract` (`:83-88`) | SA, A | body `ContractCreateDto` | **201** `ApiResponse<ContractDto>` | yo'q | `studentId` null → 400. `templateId` null bo'lsa default shablon olinadi. Shablon `{{studentName}}`, `{{groupName}}`, `{{monthlyFee}}` kabi placeholderlar bilan to'ldiriladi. Status DRAFT (`ContractService.java:111-133, 183-217`). |

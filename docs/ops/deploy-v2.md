@@ -1,6 +1,6 @@
 # Deploy v2 — runbook (billing v2, dashboard, payroll v2, phase 5, ta'til/imtihon/shartnoma, SALES_HEAD)
 
-> Kod emas — prod'ga chiqarish tartibi. Branch `billing-v2`, migratsiyalar `V52…V63`.
+> Kod emas — prod'ga chiqarish tartibi. Branch `billing-v2`, migratsiyalar `V52…V64`.
 > Bog'liq: [env.md](env.md) (sirlar), [billing-v2-migration.md](billing-v2-migration.md) (billing migratsiyasi
 > va rollback), [prod-schema-check.sql](prod-schema-check.sql) (sxema tekshiruvi), [timezone.md](timezone.md).
 > **TAXMIN** — serverda tekshirilishi kerak bo'lgan da'vo.
@@ -165,9 +165,15 @@ Frontendga "texnik ishlar" sahifasi (ixtiyoriy). Meta webhook eventlari Meta tom
 
 ### 3.2a Egalik va huquqlar (`sudo -u postgres`, §3.3 dan OLDIN)
 
-**Nega:** prod'da ilova `crm_user` bilan ishlaydi, lekin ba'zi jadvallar `crm_user` ga tegishli emas
-(qo'lda yoki `postgres` bilan yaratilgan). Aniq ro'yxat prod'da quyidagi 0-so'rov bilan olinadi — repetitsiya
-nusxasi `pg_restore --no-owner` bilan tiklangani uchun egalarni ko'rsatmaydi.
+**Prod natijasi (2026-10-02, aniq):** 0-so'rov prod'da bajarildi — `crm_user` ga tegishli bo'lmagan **yagona**
+jadval `ops_tz_shift_log` edi. U 2026-10-02 da qo'lda `crm_user` ga o'tkazildi. Shuning uchun deploy kuni 0-so'rov natijasi **"0 qator"** bo'lishi kutiladi; 1-blok
+himoya sifatida baribir bajariladi (`egasi o'zgartirildi: 0 obyekt` — normal). 0-so'rov qator qaytarsa — bu
+02.10 dan keyin kimdir `postgres` bilan obyekt yaratgan degani: ro'yxat `owners-before.txt` da saqlanadi, 1-blok
+ularni o'tkazadi, sababi alohida aniqlanadi.
+
+**Nega:** prod'da ilova `crm_user` bilan ishlaydi; `crm_user` ga tegishli bo'lmagan obyekt (qo'lda yoki `postgres`
+bilan yaratilgan) migratsiyalarni to'xtatadi. Ro'yxat 0-so'rov bilan olinadi — repetitsiya nusxasi
+`pg_restore --no-owner` bilan tiklangani uchun egalarni ko'rsatmaydi.
 1. `ALTER TABLE` (V52…V63 ning ko'pi) faqat jadval **egasi** bajara oladi → `crm_user` bilan bajarilsa
    `must be owner of table …` va skript to'xtaydi.
 2. Skriptlarni `postgres` bilan bajarish ham yechim emas: yangi jadval va sequence'lar (`billing_periods`,
@@ -215,14 +221,16 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 SQL
 ```
 Tekshiruv: 0-so'rov yana bajarilganda bo'sh. Repetitsiyada (2026-10-02) shu blok 70 jadval + 2 mustaqil sequence
-ni o'tkazdi (tranzaksiyada sinab, qaytarildi).
+ni o'tkazdi (tranzaksiyada sinab, qaytarildi) — nusxa `--no-owner` bo'lgani (hammasi `postgres` ga tegishli) uchun;
+prod'da kutilgan natija — 0 obyekt (yuqoridagi "Prod natijasi").
 
 ### 3.3 Migratsiyalar (qo'lda, tartib bilan, `crm_user` bilan)
 ```bash
 for v in V52__billing_v2 V53__director_dashboard V54__payroll_v2 V55__payroll_v2_decisions \
          V56__legacy_constraints V57__salary_rule_overlaps V58__phase5_security \
          V59__contract_number_per_year V60__notice_target_roles \
-         V61__leaves_substitutions V62__exam_fee V63__settings_contract_snapshot; do
+         V61__leaves_substitutions V62__exam_fee V63__settings_contract_snapshot \
+         V64__teacher_user_fk_dedupe; do
   psql -h localhost -U crm_user -d adizone -X -v ON_ERROR_STOP=1 -f src/main/resources/db/migration/$v.sql \
     2>&1 | tee -a migrate-$(date +%F).log
 done
@@ -235,7 +243,10 @@ Repetitsiya natijasi (prod nusxasi, ikki marta): [rehearsal/REPORT.md](rehearsal
 - **SALES_HEAD uchun alohida migratsiya yo'q**: `users.role` VARCHAR; Hibernate yaratgan enum CHECK ni
   `EnumCheckConstraintCleaner` startda o'chiradi (§3.5 tekshiruvi).
 - V63 rekvizitlarni (`settings.center.*`) faqat yo'q bo'lsa qo'shadi.
-- Keyin `prod-schema-check.sql` ni qayta bajaring → `schema-after.txt`: V52…V63 "TO'LIQ", invariantlar `true`
+- V64 `teachers.user_id` dagi ikkinchi FK ni (`teachers_user_id_fkey`, ON DELETE SET NULL) olib tashlaydi, V50 ning
+  `fk_teachers_user` (NO ACTION) qoladi — xulq o'zgarmaydi (avval ham NO ACTION ishlagan). Repetitsiya nusxasida:
+  1-o'tish `NOTICE: teachers: FK teachers_user_id_fkey [n] olib tashlandi`, 2-o'tish — NOTICE siz.
+- Keyin `prod-schema-check.sql` ni qayta bajaring → `schema-after.txt`: V52…V63 "TO'LIQ", invariantlar `true` (V64 qatori ham)
   (`V61 ... EXCLUDE` ixtiyoriy).
 - **V52 dan oldingi QISMAN bo'laklar** (V25–V49: 18 ta indeks yo'q — `idx_schedule_group`, `idx_leads_*`,
   `uk_leads_meta_leadgen_id`, `uk_meta_*` va h.k.) bu deployga kirmaydi; repetitsiyada ham QISMAN qoldi. Ular eski
