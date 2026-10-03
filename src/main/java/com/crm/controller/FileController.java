@@ -27,17 +27,23 @@ public class FileController {
 
     private final FileStorageService fileStorageService;
 
+    /**
+     * Umumiy yuklash (≤ 4 MB): rasm (jpg, jpeg, png, webp, gif) yoki hujjat (pdf, doc, docx, xlsx) — uy vazifasi,
+     * shartnoma fayllari. Javob: {@code url} (saqlanadigan maydonga shu), {@code filename} (diskdagi nom),
+     * {@code originalName} (ko'rsatish uchun).
+     */
     @PostMapping("/upload")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<ApiResponse<Map<String, String>>> uploadFile(
             @RequestParam("file") MultipartFile file) {
         try {
-            // Kengaytmani saveImage oq ro'yxat bo'yicha o'zi qo'shadi
-            String fileUrl = fileStorageService.saveImage(file, UUID.randomUUID().toString());
+            // Kengaytmani saveUpload oq ro'yxat bo'yicha o'zi qo'yadi
+            String fileUrl = fileStorageService.saveUpload(file, UUID.randomUUID().toString());
             String filename = fileUrl.substring(FileStorageService.URL_PREFIX.length());
             Map<String, String> response = new HashMap<>();
             response.put("url", fileUrl);
             response.put("filename", filename);
+            response.put("originalName", originalName(file.getOriginalFilename()));
             return ResponseEntity.ok(ApiResponse.success("Fayl yuklandi", response));
         } catch (Exception e) {
             if (e instanceof BadRequestException) {
@@ -84,5 +90,18 @@ public class FileController {
         } catch (Exception e) {
             return ResponseEntity.notFound().build();
         }
+    }
+
+    /** Asl nom: yo'l qismlarisiz, ≤ 255 belgi; bo'lmasa {@code "file"}. */
+    private static String originalName(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "file";
+        }
+        String name = raw.replace('\\', '/');
+        name = name.substring(name.lastIndexOf('/') + 1).trim();
+        if (name.isEmpty()) {
+            return "file";
+        }
+        return name.length() > 255 ? name.substring(0, 255) : name;
     }
 }

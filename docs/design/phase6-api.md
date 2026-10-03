@@ -768,7 +768,7 @@ o'qituvchi belgilaydi. ACC, SH, SM → 403.
 | `dueDate` | Majburiy (`homework.dueDate.required`); `assignedDate` dan oldin emas (`homework.dates.invalid`) |
 | `assignedDate` | Berilmasa — bugun |
 | `marks` | Maksimal ball, ixtiyoriy, ≥ 0 |
-| `attachmentUrl` / `attachmentName` | Fayl avval `POST /api/files/upload` (multipart `file`, ≤ 4 MB; rasm, pdf, doc/docx, xls/xlsx, audio) orqali yuklanadi; javobdagi `url` shu yerga. Boshqa manzil → 400 `homework.attachment.invalid`. Fayl ochiq URL orqali beriladi (`GET /api/files/{nom}`) |
+| `attachmentUrl` / `attachmentName` | Fayl avval `POST /api/files/upload` (§4.4) orqali yuklanadi; javobdagi `url` → `attachmentUrl`, `originalName` → `attachmentName`. Boshqa manzil → 400 `homework.attachment.invalid`. Fayl ochiq URL orqali beriladi (`GET /api/files/{nom}`) |
 
 T yaratsa `teacherId` = o'zi; SA/A yaratsa — guruh o'qituvchisi (yoki `teacherId`).
 **`HomeworkResponse`:** `id, uuid, title, description, subjectId, subjectName, classId, className, groupId, groupName, teacherId, teacherName,
@@ -806,6 +806,25 @@ assignedDate, dueDate, marks, attachmentUrl, attachmentName, isActive, createdAt
 | `NOT_SUBMITTED` ga baho | 400 `homework.mark.notSubmitted` |
 | Begona o'qituvchi | 403 |
 | Vazifa o'chirilgan / yo'q | 404 |
+
+### 4.4 `POST /api/files/upload` — fayl yuklash (uy vazifasi, shartnoma)
+Barcha xodimlar. `multipart/form-data`, qism `file`. Javob **200**:
+```json
+{ "url": "/api/files/0c6f2a…e1.pdf", "filename": "0c6f2a…e1.pdf", "originalName": "1-dars mashqlari.pdf" }
+```
+| Tur | Kengaytma | `Content-Type` | Qo'shimcha tekshiruv |
+|---|---|---|---|
+| Rasm | `jpg`, `jpeg`, `png`, `webp`, `gif` | `image/jpeg`, `image/png`, `image/webp`, `image/gif` | tomoni ≤ 12 000 px, ≤ 50 MP |
+| PDF | `pdf` | `application/pdf` | fayl `%PDF-` bilan boshlanadi |
+| Word | `doc`, `docx` | `application/msword`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | doc — OLE2, docx — ZIP sarlavhasi |
+| Excel | `xlsx` | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | ZIP sarlavhasi |
+
+- Hajm ≤ **4 MB** (frontendda oldindan tekshiring; nginx 10 MB dan kattasini 413 bilan qaytaradi).
+- Fayl nomida kengaytma bo'lishi, kengaytma va `Content-Type` bir-biriga mos bo'lishi shart. `xls`, `txt`, `zip`, `html`, `svg`, audio — **yo'q**
+  (audio — faqat chatda, `POST /api/chat/upload`).
+- Xatolar (400, `ErrorResponse.message`, `code` yo'q): "Fayl bo'sh", "Faqat rasm (…) yoki hujjat (pdf, doc, docx, xlsx) qabul qilinadi",
+  "Fayl hajmi 4MB dan oshmasligi kerak", "Fayl mazmuni .pdf formatiga mos emas".
+- Fayl `GET /api/files/{filename}` orqali ochiq beriladi (rasm va PDF — `inline`, Word/Excel — `attachment`).
 
 ---
 

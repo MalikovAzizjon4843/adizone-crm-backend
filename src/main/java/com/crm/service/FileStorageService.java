@@ -81,6 +81,19 @@ public class FileStorageService {
     private static final Set<String> IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp", "gif");
 
     /**
+     * Umumiy yuklashda ({@code POST /api/files/upload}) rasmdan tashqari qabul qilinadigan hujjatlar —
+     * uy vazifasi va shartnoma fayllari (phase6-api §4). Mazmun sarlavhasi ham tekshiriladi
+     * ({@link #hasDocumentSignature}): kengaytma va MIME ni mijoz yozadi.
+     */
+    public static final Set<String> DOCUMENT_EXTENSIONS = Set.of("pdf", "doc", "docx", "xlsx");
+
+    private static final byte[] PDF_MAGIC = {'%', 'P', 'D', 'F', '-'};
+    /** DOCX/XLSX — ZIP konteyner. */
+    private static final byte[] ZIP_MAGIC = {'P', 'K', 3, 4};
+    /** DOC — OLE2 (Compound File). */
+    private static final byte[] OLE_MAGIC = {(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0, (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1};
+
+    /**
      * Fayl nomidagi kengaytma (nuqtasiz, kichik harfda) yoki {@code null}.
      */
     public static String extensionOf(String fileName) {
@@ -189,6 +202,58 @@ public class FileStorageService {
         return width > 0 && height > 0
             && width <= MAX_IMAGE_SIDE && height <= MAX_IMAGE_SIDE
             && (long) width * height <= MAX_IMAGE_PIXELS;
+    }
+
+    /**
+     * Umumiy yuklash ({@code POST /api/files/upload}): rasm — {@link #validateImage} qoidalari bilan,
+     * hujjat — pdf, doc, docx, xlsx (≤ 4 MB, kengaytma + MIME + mazmun sarlavhasi mos). Qaytaradi — kengaytma.
+     */
+    public String validateUpload(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new BadRequestException("Fayl bo'sh");
+        }
+        String extension = extensionOf(file.getOriginalFilename());
+        if (extension != null && IMAGE_EXTENSIONS.contains(extension)) {
+            return validateImage(file);
+        }
+        if (extension == null || !DOCUMENT_EXTENSIONS.contains(extension)
+                || !isAllowed(extension, file.getContentType())) {
+            throw new BadRequestException(
+                "Faqat rasm (jpg, jpeg, png, webp, gif) yoki hujjat (pdf, doc, docx, xlsx) qabul qilinadi");
+        }
+        if (file.getSize() > MAX_BYTES) {
+            throw new BadRequestException("Fayl hajmi 4MB dan oshmasligi kerak");
+        }
+        if (!hasDocumentSignature(file, extension)) {
+            throw new BadRequestException("Fayl mazmuni ." + extension + " formatiga mos emas");
+        }
+        return extension;
+    }
+
+    /** Birinchi baytlar kengaytmaga mos: pdf — {@code %PDF-}, docx/xlsx — ZIP, doc — OLE2. */
+    static boolean hasDocumentSignature(MultipartFile file, String extension) {
+        byte[] magic = switch (extension) {
+            case "pdf" -> PDF_MAGIC;
+            case "docx", "xlsx" -> ZIP_MAGIC;
+            case "doc" -> OLE_MAGIC;
+            default -> null;
+        };
+        if (magic == null) {
+            return false;
+        }
+        try (InputStream in = file.getInputStream()) {
+            byte[] head = in.readNBytes(magic.length);
+            return java.util.Arrays.equals(head, magic);
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** {@link #validateUpload} + saqlash; nom — {@code filename} + haqiqiy kengaytma. */
+    public String saveUpload(MultipartFile file, String filename) throws IOException {
+        String extension = validateUpload(file);
+        String baseName = filename.replaceFirst("\\.[^.]*$", "");
+        return save(file, baseName + "." + extension);
     }
 
     /**
