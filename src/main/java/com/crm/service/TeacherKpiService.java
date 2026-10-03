@@ -54,6 +54,11 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class TeacherKpiService {
 
+    /** Snapshot dublikatlaridan qaysi biri "eng yangi": {@code computed_at}, keyin {@code id} (V74 bilan bir xil). */
+    public static final Comparator<TeacherKpiMonthly> FRESHEST = Comparator
+        .comparing(TeacherKpiMonthly::getComputedAt, Comparator.nullsFirst(Comparator.naturalOrder()))
+        .thenComparing(TeacherKpiMonthly::getId, Comparator.nullsFirst(Comparator.naturalOrder()));
+
     public static final String SOURCE_LIVE = "LIVE";
     public static final String SOURCE_SNAPSHOT = "SNAPSHOT";
 
@@ -151,7 +156,8 @@ public class TeacherKpiService {
         if (range.closed()) {
             Map<Long, TeacherKpiMonthly> snaps = new HashMap<>();
             for (TeacherKpiMonthly m : monthlyRepository.findByMonthStart(range.from())) {
-                snaps.put(m.getTeacherId(), m);
+                // Dublikat bo'lsa (V74 dan oldingi baza) — eng yangisi (computed_at, keyin id; V74 bilan bir xil)
+                snaps.merge(m.getTeacherId(), m, (a, b) -> FRESHEST.compare(a, b) >= 0 ? a : b);
             }
             for (Long id : teacherIds) {
                 TeacherKpiMonthly m = snaps.get(id);

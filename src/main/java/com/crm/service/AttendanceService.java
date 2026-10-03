@@ -22,12 +22,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -35,7 +32,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AttendanceService {
 
-    private static final int DEFAULT_MISSING_DAYS = 30;
 
     private final AttendanceRepository attendanceRepository;
     private final StudentRepository studentRepository;
@@ -52,6 +48,7 @@ public class AttendanceService {
     private final AttendanceAccessService attendanceAccessService;
     private final LessonSubstitutionService lessonSubstitutionService;
     private final AbsenceNoticeService absenceNoticeService;
+    private final AttendanceDueService attendanceDueService;
 
     @Transactional
     @Audited(action = AuditAction.UPDATE, entity = "Attendance",
@@ -228,51 +225,15 @@ public class AttendanceService {
             .build();
     }
 
+    /** Qaysi kunlar "belgilanmagan" — faqat {@link AttendanceDueService} (guruh boshlanishi, bayram, istisno, faol o'quvchi). */
     private MissingAttendanceResponse buildMissingForGroup(Group group, LocalDate from, LocalDate to) {
-        LocalDate today = LocalDate.now();
-        LocalDate rangeTo = to != null ? to : today;
-        LocalDate rangeFrom = from != null ? from : today.minusDays(DEFAULT_MISSING_DAYS);
-        if (rangeTo.isAfter(today)) {
-            rangeTo = today;
-        }
-        if (rangeFrom.isAfter(rangeTo)) {
-            return MissingAttendanceResponse.builder()
-                .groupId(group.getId())
-                .groupName(group.getGroupName())
-                .missingDates(List.of())
-                .missingCount(0)
-                .build();
-        }
-
-        Map<String, String> startByDay = loadLessonStartTimes(group.getId());
-        if (startByDay.isEmpty()) {
-            return MissingAttendanceResponse.builder()
-                .groupId(group.getId())
-                .groupName(group.getGroupName())
-                .missingDates(List.of())
-                .missingCount(0)
-                .build();
-        }
-
-        Set<LocalDate> marked = new HashSet<>(
-            attendanceRepository.findDistinctDatesByGroupAndDateBetween(
-                group.getId(), rangeFrom, rangeTo));
-
-        List<MissingAttendanceResponse.MissingDateItem> missing = new ArrayList<>();
-        for (LocalDate d = rangeFrom; !d.isAfter(rangeTo); d = d.plusDays(1)) {
-            String day = d.getDayOfWeek().name();
-            if (!startByDay.containsKey(day)) {
-                continue;
-            }
-            if (marked.contains(d)) {
-                continue;
-            }
-            missing.add(MissingAttendanceResponse.MissingDateItem.builder()
-                .date(d)
-                .dayOfWeek(day)
-                .startTime(startByDay.get(day))
-                .build());
-        }
+        List<MissingAttendanceResponse.MissingDateItem> missing = attendanceDueService.missing(group, from, to).stream()
+            .map(l -> MissingAttendanceResponse.MissingDateItem.builder()
+                .date(l.date())
+                .dayOfWeek(l.dayOfWeek())
+                .startTime(l.startTime())
+                .build())
+            .toList();
 
         return MissingAttendanceResponse.builder()
             .groupId(group.getId())
@@ -280,15 +241,6 @@ public class AttendanceService {
             .missingDates(missing)
             .missingCount(missing.size())
             .build();
-    }
-
-    /** dayOfWeek → startTime (birinchi topilgan). Manba — {@link GroupScheduleService}. */
-    private Map<String, String> loadLessonStartTimes(Long groupId) {
-        Map<String, String> map = new LinkedHashMap<>();
-        for (GroupScheduleService.LessonSlot slot : groupScheduleService.lessonSlots(groupId)) {
-            map.putIfAbsent(slot.dayOfWeek(), slot.startTime());
-        }
-        return map;
     }
 
     static String dayToUzbek(String day) {

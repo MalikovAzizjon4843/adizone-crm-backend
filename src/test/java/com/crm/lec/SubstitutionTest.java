@@ -214,6 +214,8 @@ class SubstitutionTest extends LecItBase {
     @Test
     void teacherCabinet_andDirectorDashboard_attributeLessonToSubstitute() throws Exception {
         LocalDate today = LocalDate.now();
+        // O'qituvchi kabineti "bugun"ni tizim soatidan oladi (AttendanceDueService) — test soati ham shu kunga
+        clock.setDate(today);
         schedule(group, "11:00", "12:30", today.getDayOfWeek().name());
         Long student = fixtures.student();
         fixtures.enrollment(student, group).start(today.minusWeeks(2)).save();

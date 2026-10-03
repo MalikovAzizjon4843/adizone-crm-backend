@@ -51,6 +51,7 @@ class TeacherKpiMonthlyTest extends AbstractBillingIT {
     @Autowired StudentRepository studentRepo;
     @Autowired GroupRepository groupRepo;
     @Autowired StudentGroupRepository sgRepo;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     private Long teacher;
     private Long group;
@@ -238,6 +239,35 @@ class TeacherKpiMonthlyTest extends AbstractBillingIT {
         assertThat(inTx(() -> monthlyRepo.findByTeacherIdAndMonthStart(teacher, d("01.09.2026")))
             .orElseThrow().getSource()).isEqualTo(TeacherKpiMonthly.SOURCE_MANUAL);
         assertThat(inTx(() -> monthlyRepo.findByMonthStart(d("01.09.2026")))).hasSize(1);
+    }
+
+    @Test
+    void recompute_removesDuplicateRows_fromDatabaseWithoutUnique() {
+        // pgtest da V74 UNIQUE bor — dublikat qo'yib bo'lmaydi (u holat TeacherKpiUniqueMigrationTest da)
+        org.junit.jupiter.api.Assumptions.assumeFalse(Boolean.TRUE.equals(jdbc.execute(
+            (org.springframework.jdbc.core.ConnectionCallback<Boolean>) c ->
+                c.getMetaData().getDatabaseProductName().toLowerCase(java.util.Locale.ROOT).contains("postgres"))),
+            "faqat UNIQUE siz baza (H2)");
+        september();
+        clock.setDate(d("01.10.2026"));
+        snapshots.monthly();
+        // UNIQUE yo'q bazadagi holat (H2 da V72/V74 yo'q): shu o'qituvchi + oy uchun eskiroq ikkinchi qator
+        inTx(() -> {
+            TeacherKpiMonthly first = monthlyRepo.findByTeacherIdAndMonthStart(teacher, d("01.09.2026")).orElseThrow();
+            monthlyRepo.save(TeacherKpiMonthly.builder().teacherId(teacher).monthStart(first.getMonthStart())
+                .attendancePresent(0).attendanceTotal(0).periodsDecided(0).periodsPaid(0).periodsOnTime(0)
+                .periodsPending(0).openAtEnd(0).graduated(0).churned(0).insufficientData(true).groupCount(0)
+                .studentCount(0).source(TeacherKpiMonthly.SOURCE_JOB)
+                .computedAt(first.getComputedAt().minusDays(1)).build());
+        });
+        assertThat(inTx(() -> monthlyRepo.findByMonthStart(d("01.09.2026")))).hasSize(2);
+        // O'qishda eng yangisi (computed_at) — dublikat natijani buzmaydi
+        assertThat(kpi.scoresForMonth(teacher, kpi.resolveMonth("2026-09")).getPaymentRate()).isEqualTo(50.0);
+
+        clock.setDate(d("02.10.2026"));
+        snapshots.recompute(YearMonth.of(2026, 9));
+        assertThat(inTx(() -> monthlyRepo.findByMonthStart(d("01.09.2026")))).singleElement()
+            .satisfies(m -> assertThat(m.getSource()).isEqualTo(TeacherKpiMonthly.SOURCE_MANUAL));
     }
 
     @Test

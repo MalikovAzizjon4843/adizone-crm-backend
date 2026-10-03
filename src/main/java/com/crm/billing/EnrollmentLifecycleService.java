@@ -69,6 +69,7 @@ public class EnrollmentLifecycleService {
     private final BalanceTransactionRepository transactionRepository;
     private final AttendanceRepository attendanceRepository;
     private final StudentStatusHistoryRepository historyRepository;
+    private final StudentStatusService studentStatusService;
     private final Clock billingClock;
 
     // ════════════════════════════════════════════════════════════════════
@@ -240,15 +241,12 @@ public class EnrollmentLifecycleService {
         sg.setLeaveDate(freezeDate);
         sg.setExitNotes(note);
         studentGroupRepository.save(sg);
+        Student student = sg.getStudent();
+        String previous = student.getStatus() != null ? student.getStatus().name() : StudentStatus.ACTIVE.name();
+        // Holat (FROZEN — boshqa faol yozilma qolmasa) StudentStatusService orqali, refresh ichida
         BillingSnapshot after = snapshotService.refresh(sg);
 
-        Student student = sg.getStudent();
         boolean allFrozen = otherActive(studentId, sg.getId()) == 0;
-        String previous = student.getStatus() != null ? student.getStatus().name() : StudentStatus.ACTIVE.name();
-        if (allFrozen) {
-            student.setStatus(StudentStatus.FROZEN);
-            studentRepository.save(student);
-        }
         history(student, previous, student.getStatus() != null ? student.getStatus().name() : previous,
             reason != null && !reason.isBlank() ? reason : EXIT_FROZEN,
             "Muzlatildi: " + groupName(sg) + (note != null && !note.isBlank() ? " | " + note : ""),
@@ -362,13 +360,13 @@ public class EnrollmentLifecycleService {
         sg.setExitNotes(null);
         sg.setPaymentStartDate(anchor);
         studentGroupRepository.save(sg);
-        accrualService.accrueLocked(sg, today);
-
         Student student = sg.getStudent();
         String previous = student.getStatus() != null ? student.getStatus().name() : StudentStatus.FROZEN.name();
-        student.setStatus(StudentStatus.ACTIVE);
-        studentRepository.save(student);
-        history(student, previous, StudentStatus.ACTIVE.name(), "UNFROZEN",
+        accrualService.accrueLocked(sg, today);
+
+        // Faol yozilma bor → ACTIVE (yagona qoida)
+        studentStatusService.sync(student);
+        history(student, previous, student.getStatus().name(), "UNFROZEN",
             "Muzlatishdan chiqarildi: " + groupName(sg) + ", to'lov " + anchor + " dan", sg.getBalance());
         snapshotService.refresh(sg);
         return sg;
@@ -518,6 +516,36 @@ public class EnrollmentLifecycleService {
             sg.setExitReason(exitReason);
         }
         sg.setExitReasonCode(reasonCode != null ? reasonCode : ExitReasonCode.fromLegacy(exitReason));
+        if (exitNotes != null) {
+            sg.setExitNotes(exitNotes);
+        }
+        studentGroupRepository.save(sg);
+        snapshotService.refresh(sg);
+        return sg;
+    }
+
+    /**
+     * Muzlatilgan yozilmani yakunlash (o'quvchi butunlay ketdi — {@code DELETE /api/students/{id}}):
+     * u endi "pauza" emas. Ledger, davrlar va balansga tegilmaydi — muzlatishdagi qaytarim o'z
+     * joyida; yopilish sanasi muzlatilgan kun ({@code leave_date}) qoladi, sababi yangilanadi.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public StudentGroup closeFrozen(Long studentId, Long studentGroupId, String exitReason, String exitNotes) {
+        gate.requireWritable();
+        StudentGroup sg = locks.lockEnrollmentWithStudent(studentId, studentGroupId);
+        if (!isFrozen(sg)) {
+            throw CodedException.badRequest("student.unfreeze.notFrozen");
+        }
+        if (sg.getLeaveDate() == null) {
+            sg.setLeaveDate(sg.getFrozenFrom() != null ? sg.getFrozenFrom() : statusService.today());
+        }
+        if (sg.getExitDate() == null) {
+            sg.setExitDate(sg.getLeaveDate());
+        }
+        sg.setIsActive(false);
+        sg.setFrozenFrom(null);
+        sg.setExitReason(exitReason);
+        sg.setExitReasonCode(ExitReasonCode.fromLegacy(exitReason));
         if (exitNotes != null) {
             sg.setExitNotes(exitNotes);
         }

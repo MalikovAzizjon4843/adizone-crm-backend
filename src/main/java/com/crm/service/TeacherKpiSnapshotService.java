@@ -82,8 +82,21 @@ public class TeacherKpiSnapshotService {
         }
 
         Map<Long, TeacherKpiMonthly> existing = new HashMap<>();
+        List<TeacherKpiMonthly> duplicates = new java.util.ArrayList<>();
         for (TeacherKpiMonthly m : repository.findByMonthStart(from)) {
-            existing.put(m.getTeacherId(), m);
+            // UNIQUE (teacher_id, month_start) bo'lmagan bazada (V74 dan oldin) dublikat bo'lishi mumkin —
+            // eng yangisi yangilanadi, qolganlari o'chiriladi
+            TeacherKpiMonthly prev = existing.put(m.getTeacherId(), m);
+            if (prev != null) {
+                boolean prevNewer = TeacherKpiService.FRESHEST.compare(prev, m) >= 0;
+                existing.put(m.getTeacherId(), prevNewer ? prev : m);
+                duplicates.add(prevNewer ? m : prev);
+            }
+        }
+        if (!duplicates.isEmpty()) {
+            log.warn("teacher_kpi_monthly {}: {} ta dublikat qator o'chirildi", month, duplicates.size());
+            repository.deleteAll(duplicates);
+            repository.flush();
         }
 
         int written = 0;

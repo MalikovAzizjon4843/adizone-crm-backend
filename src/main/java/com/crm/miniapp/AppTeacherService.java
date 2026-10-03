@@ -76,6 +76,7 @@ public class AppTeacherService {
     private final AttendanceService attendanceService;
     private final AttendanceUnlockRequestService unlockService;
     private final GroupScheduleService groupScheduleService;
+    private final com.crm.service.AttendanceDueService attendanceDueService;
     private final org.springframework.transaction.support.TransactionTemplate tx;
     private final Clock billingClock;
 
@@ -95,12 +96,18 @@ public class AppTeacherService {
                 String substitute = sub.filter(x -> !x.getSubstituteTeacher().getId().equals(staff.teacher().getId()))
                     .map(x -> MiniAppQueryService.teacherName(x.getSubstituteTeacher())).orElse(null);
                 for (AppDtos.Lesson l : queryService.groupLessons(g, day, day, now)) {
+                    if (held(l) && !attendanceDueService.isDue(g, day)) {
+                        continue;    // guruh hali boshlanmagan / shu kuni faol o'quvchi yo'q
+                    }
                     lessons.add(lesson(staff, g, l, "ORIGINAL", substitute, day));
                 }
             }
             for (LessonSubstitution sub : substitutionRepository.findBySubstitute(staff.teacher().getId(), day, day,
                     SubstitutionStatus.CANCELLED)) {
                 for (AppDtos.Lesson l : queryService.groupLessons(sub.getGroup(), day, day, now)) {
+                    if (held(l) && !attendanceDueService.isDue(sub.getGroup(), day)) {
+                        continue;
+                    }
                     lessons.add(lesson(staff, sub.getGroup(), l, "SUBSTITUTE", null, day));
                 }
             }
@@ -110,9 +117,14 @@ public class AppTeacherService {
         });
     }
 
+    /** Dars o'tiladi (bekor/ko'chirilgan emas) — davomat shu darslarga. */
+    private static boolean held(AppDtos.Lesson l) {
+        return "PLANNED".equals(l.status()) || "EXTRA".equals(l.status());
+    }
+
     private AppDtos.TeacherLesson lesson(Staff staff, Group g, AppDtos.Lesson l, String role, String substitute,
                                          LocalDate day) {
-        boolean held = "PLANNED".equals(l.status()) || "EXTRA".equals(l.status());
+        boolean held = held(l);
         boolean canMark = held && substitute == null && lockReason(staff, g.getId(), day, false) == null;
         int marked = attendanceRepository.findByGroup_IdAndAttendanceDate(g.getId(), day).size();
         int total = studentGroupRepository.findByGroup_IdAndIsActiveTrue(g.getId()).size();

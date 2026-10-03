@@ -10,7 +10,6 @@ import com.crm.entity.enums.ExitReasonCode;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.entity.enums.UserRole;
-import com.crm.repository.StudentRepository;
 import com.crm.service.GroupService;
 import com.crm.service.PaymentService;
 import com.crm.service.StudentRosterService;
@@ -35,7 +34,6 @@ class StudentRosterTest extends AbstractBillingIT {
     @Autowired PaymentService payments;
     @Autowired AccrualService accrual;
     @Autowired StudentRosterService roster;
-    @Autowired StudentRepository studentRepository;
 
     record Ids(Long student, Long group, Long sg) {
     }
@@ -117,15 +115,10 @@ class StudentRosterTest extends AbstractBillingIT {
         leave(aSg, "05.09.2026", "GRADUATED", null, null);
         Long b = fixtures.student();
         Ids bSg = monthly(b, "01.09.2026");
-        // Matnsiz sabab, faqat kod (yangi front) — status LEFT ni o'zi beradi
+        // Matnsiz sabab, faqat kod (yangi front) — oxirgi yozilma yopildi → LEFT (StudentStatusService)
         clock.setDate(d("12.09.2026"));
         fixtures.loginAs(UserRole.ADMIN);
         groups.removeStudentFromGroup(bSg.group(), b, null, null, ExitReasonCode.MOVED_AWAY);
-        inTx(() -> {
-            var st = studentRepository.findById(b).orElseThrow();
-            st.setStatus(StudentStatus.LEFT);
-            studentRepository.save(st);
-        });
 
         List<LeftStudentResponse> rows = roster.getLeftStudents();
         assertThat(rows).extracting(LeftStudentResponse::getId).containsExactly(b, a);

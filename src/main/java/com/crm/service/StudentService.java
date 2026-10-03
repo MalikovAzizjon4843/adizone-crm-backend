@@ -67,6 +67,7 @@ public class StudentService {
     private final EnrollmentLifecycleService enrollmentLifecycleService;
     private final BillingStatusService billingStatusService;
     private final BillingSnapshotService billingSnapshotService;
+    private final com.crm.billing.StudentStatusService studentStatusService;
 
     @Transactional(readOnly = true)
     public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status) {
@@ -188,6 +189,7 @@ public class StudentService {
         label = "#result.firstName + ' ' + #result.lastName")
     public StudentResponse updateStudent(Long id, StudentRequest request) {
         Student student = findById(id);
+        StudentStatus statusBefore = student.getStatus();
 
         studentRepository.findByPhone(request.getPhone())
             .filter(s -> !s.getId().equals(id))
@@ -228,15 +230,19 @@ public class StudentService {
                     if (format == null) {
                         format = sg.getStudyFormat();
                     }
-                    sg.setIsActive(false);
-                    sg.setLeaveDate(LocalDate.now());
-                    studentGroupRepository.save(sg);
+                    // Eski yozilma umumiy yopish yo'li bilan (accrual, exit sanasi/sababi, snapshot)
+                    enrollmentLifecycleService.leave(student.getId(), sg.getGroup().getId(),
+                        "TRANSFERRED", "Tahrirda guruh almashtirildi: " + target.getGroupName(),
+                        com.crm.entity.enums.ExitReasonCode.TRANSFERRED);
                 }
                 addStudentToGroupIfNeeded(student, target.getId(), format);
             }
         }
 
+        // Qo'lda yuborilgan status yozilmalarga zid bo'lsa (masalan faol guruh bor, LEFT) — qoida ustun
+        studentStatusService.sync(student);
         studentRepository.save(student);
+        studentStatusService.recordIfChanged(student, statusBefore, "PROFILE_UPDATE", null);
         return toResponse(findById(student.getId()));
     }
 
@@ -379,6 +385,7 @@ public class StudentService {
             throw new BadRequestException(messages.get("group.full", toGroup.getMaxStudents()));
         }
 
+        String previousStatus = student.getStatus() != null ? student.getStatus().name() : "ACTIVE";
         String reason = request.getReason() != null && !request.getReason().isBlank()
             ? request.getReason().trim() : "TRANSFERRED";
         String note = request.getNote();
@@ -403,11 +410,11 @@ public class StudentService {
             billingSnapshotService.refreshStudentFully(studentId);
         }
 
-        String previousStatus = student.getStatus() != null ? student.getStatus().name() : "ACTIVE";
         StudentStatusHistory history = new StudentStatusHistory();
         history.setStudent(student);
         history.setFromStatus(previousStatus);
-        history.setToStatus(previousStatus);
+        // Yangi faol yozilma → ACTIVE (StudentStatusService, refresh ichida)
+        history.setToStatus(student.getStatus() != null ? student.getStatus().name() : previousStatus);
         history.setReason(reason);
         history.setNotes(note != null ? note : ("Guruhga o'tkazildi: " + toGroup.getGroupName()));
         history.setChangedAt(LocalDateTime.now());
@@ -512,8 +519,26 @@ public class StudentService {
     @Audited(action = AuditAction.DELETE, entity = "Student", entityId = "#id")
     public void deleteStudent(Long id) {
         Student student = findById(id);
-        student.setStatus(StudentStatus.LEFT);
+        StudentStatus before = student.getStatus();
+        // O'quvchi ketdi: faol yozilmalar umumiy yopish yo'li bilan, muzlatilganlari yakunlanadi —
+        // holat yozilmalardan (LEFT) chiqadi, ochiq yozilma qolmaydi
+        List<StudentGroup> all = studentGroupRepository.findByStudentId(id);
+        for (StudentGroup sg : all) {
+            if (Boolean.TRUE.equals(sg.getIsActive()) && sg.getFrozenFrom() == null && sg.getGroup() != null) {
+                enrollmentLifecycleService.leave(id, sg.getGroup().getId(), "LEFT", "O'quvchi o'chirildi", null);
+            } else if (sg.getFrozenFrom() != null
+                    || (!Boolean.TRUE.equals(sg.getIsActive()) && "FROZEN".equals(sg.getExitReason()))) {
+                enrollmentLifecycleService.closeFrozen(id, sg.getId(), "LEFT", "O'quvchi o'chirildi");
+            }
+        }
+        if (all.isEmpty()) {
+            // Hech qachon guruhga yozilmagan — qoida holatni o'zgartirmaydi, o'chirish esa LEFT
+            student.setStatus(StudentStatus.LEFT);
+        } else {
+            studentStatusService.sync(student);
+        }
         studentRepository.save(student);
+        studentStatusService.recordIfChanged(student, before, "LEFT", "O'quvchi o'chirildi");
     }
 
     @Transactional

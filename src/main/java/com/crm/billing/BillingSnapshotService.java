@@ -4,7 +4,6 @@ import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.PaymentType;
-import com.crm.entity.enums.StudentStatus;
 import com.crm.repository.StudentGroupRepository;
 import com.crm.repository.StudentRepository;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +38,7 @@ public class BillingSnapshotService {
     private final StudentRepository studentRepository;
     private final TransactionTemplate transactionTemplate;
     private final PeriodCoverageService periodCoverageService;
+    private final StudentStatusService studentStatusService;
 
     /** SG snapshot'i + o'quvchi agregati. Ledger amalidan keyin chaqiriladi. */
     @Transactional(propagation = Propagation.MANDATORY)
@@ -154,12 +154,8 @@ public class BillingSnapshotService {
         student.setNextPaymentDate(next);
         student.setNextPaymentAmount(nextAmount);
         student.setPaymentStatus(status);
-        // student.status: faqat ACTIVE ↔ FROZEN (LEFT/GRADUATED ga tegilmaydi)
-        if (allFrozen && student.getStatus() == StudentStatus.ACTIVE) {
-            student.setStatus(StudentStatus.FROZEN);
-        } else if (!allFrozen && open > frozen && student.getStatus() == StudentStatus.FROZEN) {
-            student.setStatus(StudentStatus.ACTIVE);
-        }
+        // student.status yozilmalardan: ACTIVE / FROZEN / LEFT / GRADUATED (yagona qoida)
+        studentStatusService.sync(student, all);
         studentRepository.save(student);
     }
 

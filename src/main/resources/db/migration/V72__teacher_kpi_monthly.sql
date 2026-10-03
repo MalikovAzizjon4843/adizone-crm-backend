@@ -34,11 +34,53 @@ CREATE TABLE IF NOT EXISTS teacher_kpi_monthly (
     source                VARCHAR(20)       NOT NULL,     -- JOB | MANUAL
     computed_at           TIMESTAMP         NOT NULL
 );
--- Bitta o'qituvchi + oy uchun bitta qator (qayta hisoblash ustidan yozadi)
-CREATE UNIQUE INDEX IF NOT EXISTS ux_teacher_kpi_monthly_teacher_month
-    ON teacher_kpi_monthly (teacher_id, month_start);
 -- Reyting: WHERE month_start = ?
 CREATE INDEX IF NOT EXISTS idx_teacher_kpi_monthly_month ON teacher_kpi_monthly (month_start);
+
+-- Bitta o'qituvchi + oy uchun bitta qator (qayta hisoblash ustidan yozadi). Jadvalni Hibernate oldinroq
+-- yaratgan bo'lishi mumkin (UNIQUE siz) va unda dublikat bo'lishi mumkin — "IF NOT EXISTS" nom bo'yicha yetmaydi:
+-- ustunlar bo'yicha tekshiriladi, dublikatlar NOTICE bilan ko'rsatilib eng yangisi qoladi (V74 bilan bir xil).
+DO $$
+DECLARE
+    r       record;
+    removed int := 0;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_index i
+         WHERE i.indrelid = 'teacher_kpi_monthly'::regclass
+           AND i.indisunique AND i.indpred IS NULL AND i.indexprs IS NULL
+           AND (SELECT array_agg(a.attname::text ORDER BY a.attname)
+                  FROM pg_attribute a
+                 WHERE a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)) = ARRAY['month_start', 'teacher_id']
+    ) THEN
+        RETURN;
+    END IF;
+    FOR r IN
+        SELECT teacher_id, month_start, COUNT(*) AS n,
+               (array_agg(id ORDER BY computed_at DESC NULLS LAST, id DESC))[1] AS keep_id,
+               string_agg(id::text, ', ' ORDER BY id) AS ids
+          FROM teacher_kpi_monthly
+         GROUP BY teacher_id, month_start
+        HAVING COUNT(*) > 1
+    LOOP
+        RAISE NOTICE 'teacher_kpi_monthly dublikat: teacher_id=%, month_start=%, qatorlar=% (id: %) — qoladi id=%',
+            r.teacher_id, r.month_start, r.n, r.ids, r.keep_id;
+    END LOOP;
+    WITH ranked AS (
+        SELECT id, row_number() OVER (PARTITION BY teacher_id, month_start
+                                      ORDER BY computed_at DESC NULLS LAST, id DESC) AS rn
+          FROM teacher_kpi_monthly
+    )
+    DELETE FROM teacher_kpi_monthly t USING ranked x WHERE t.id = x.id AND x.rn > 1;
+    GET DIAGNOSTICS removed = ROW_COUNT;
+    IF removed > 0 THEN
+        RAISE NOTICE 'teacher_kpi_monthly: % ta eski dublikat qator o''chirildi', removed;
+    END IF;
+    IF to_regclass('public.ux_teacher_kpi_monthly_teacher_month') IS NOT NULL THEN
+        DROP INDEX ux_teacher_kpi_monthly_teacher_month;
+    END IF;
+    CREATE UNIQUE INDEX ux_teacher_kpi_monthly_teacher_month ON teacher_kpi_monthly (teacher_id, month_start);
+END $$;
 
 DO $$
 BEGIN

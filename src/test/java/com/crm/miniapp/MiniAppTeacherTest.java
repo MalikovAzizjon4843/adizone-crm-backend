@@ -108,6 +108,24 @@ class MiniAppTeacherTest extends MiniAppItBase {
     }
 
     @Test
+    void today_skipsGroupNotStartedYet_andGroupWithoutActiveStudents() throws Exception {
+        // Ertaga boshlanadigan guruh (o'quvchisi ham ertadan) va o'quvchisiz guruh — bugun dars yo'q (AttendanceDueService)
+        Long future = dailyGroup(teacherId);
+        inTx(() -> {
+            var g = groupRepository.findById(future).orElseThrow();
+            g.setStartDate(today.plusDays(1));
+            groupRepository.save(g);
+        });
+        fixtures.enrollment(student("Soli", "Karimov", phone(), null), future).start(today.plusDays(1)).save();
+        dailyGroup(teacherId);
+
+        mvc.perform(get("/api/app/teacher/today").header("Authorization", bearer(token)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.lessons", hasSize(1)))
+            .andExpect(jsonPath("$.data.lessons[0].groupId").value(groupId));
+    }
+
+    @Test
     void markToday_viaAttendanceService() throws Exception {
         mvc.perform(get("/api/app/teacher/attendance/{id}", groupId).header("Authorization", bearer(token)))
             .andExpect(status().isOk())

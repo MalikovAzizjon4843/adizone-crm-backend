@@ -63,6 +63,7 @@ public class GroupService {
     private final Messages messages;
     private final com.crm.billing.BillingStatusService billingStatusService;
     private final com.crm.billing.EnrollmentLifecycleService enrollmentLifecycleService;
+    private final com.crm.billing.StudentStatusService studentStatusService;
 
     @Transactional(readOnly = true)
     public List<GroupResponse> getAllGroups(GroupStatus status) {
@@ -498,6 +499,7 @@ public class GroupService {
         Student student = studentRepository.findById(request.getStudentId())
             .orElseThrow(() -> new ResourceNotFoundException("Student", request.getStudentId()));
         Group group = findById(request.getGroupId());
+        com.crm.entity.enums.StudentStatus statusBefore = student.getStatus();
 
         long currentCount = studentGroupRepository.countByGroupIdAndIsActiveTrue(request.getGroupId());
         if (group.getMaxStudents() != null && currentCount >= group.getMaxStudents()) {
@@ -558,7 +560,10 @@ public class GroupService {
 
         studentGroupRepository.save(sg);
         studentGroupRepository.flush();
+        // recalculate → snapshot → StudentStatusService: yangi faol yozilma → ACTIVE (LEFT/FROZEN dan ham)
         LocalDate studentNext = paymentScheduleService.recalculateForStudent(student);
+        studentStatusService.recordIfChanged(student, statusBefore, "ENROLLED",
+            "Guruhga qo'shildi: " + group.getGroupName());
         log.info("addStudentToGroup student={} sg={} paymentType={} paymentStart={} → student.nextPaymentDate={}",
             student.getId(), sg.getId(), paymentType, paymentStart, studentNext);
     }
@@ -568,8 +573,8 @@ public class GroupService {
         summary = "'O''quvchi guruhdan chiqarildi'",
         entityId = "#groupId")
     public void removeStudentFromGroup(Long studentId, Long groupId) {
-        // Billing v2 (§6.10): bugungacha boshlangan davrlar yoziladi, keyingilari yo'q; qaytarim yo'q
-        enrollmentLifecycleService.leave(studentId, groupId, null, null);
+        // DELETE /groups/{g}/students/{s}: sababsiz chiqarish — remove-student bilan bitta yo'l
+        removeStudentFromGroup(groupId, studentId, null, null, null);
     }
 
     @Transactional
@@ -587,21 +592,12 @@ public class GroupService {
         entityId = "#groupId")
     public void removeStudentFromGroup(Long groupId, Long studentId,
             String reason, String notes, com.crm.entity.enums.ExitReasonCode reasonCode) {
-        // Billing v2 (§6.10): yopish ledger/accrual bilan — balans SG da qoladi
-        StudentGroup sg = enrollmentLifecycleService.leave(studentId, groupId, reason, notes, reasonCode);
-
-        // Update student status based on reason
-        Student student = sg.getStudent();
+        Student student = studentRepository.findById(studentId)
+            .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
         String previousStatus = student.getStatus() != null ? student.getStatus().name() : "ACTIVE";
-        switch (reason != null ? reason : "OTHER") {
-            case "GRADUATED" -> student.setStatus(com.crm.entity.enums.StudentStatus.GRADUATED);
-            case "LEFT" -> student.setStatus(com.crm.entity.enums.StudentStatus.LEFT);
-            case "TRANSFERRED" -> {
-                // Keep ACTIVE - just moving groups
-            }
-            case "SUSPENDED" -> student.setStatus(com.crm.entity.enums.StudentStatus.SUSPENDED);
-        }
-        studentRepository.save(student);
+        // Billing v2 (§6.10): yopish ledger/accrual bilan — balans SG da qoladi. O'quvchi holati
+        // (boshqa faol yozilma qolmasa LEFT / GRADUATED / SUSPENDED) — StudentStatusService, refresh ichida
+        enrollmentLifecycleService.leave(studentId, groupId, reason, notes, reasonCode);
 
         // Save to student history
         StudentStatusHistory history = new StudentStatusHistory();

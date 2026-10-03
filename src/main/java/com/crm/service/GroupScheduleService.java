@@ -24,7 +24,7 @@ import java.util.Set;
  * <ul>
  *   <li>{@code GET /api/groups/{id}/lesson-days} ({@link GroupService#getLessonDays})</li>
  *   <li>{@code POST /api/attendance/mark} dagi "bu kunda dars bormi" tekshiruvi</li>
- *   <li>belgilanmagan darslar ({@code /api/attendance/missing}, {@code /missing/my})</li>
+ *   <li>belgilanmagan darslar ({@code /api/attendance/missing}, {@code /missing/my}) — {@code AttendanceDueService} orqali</li>
  * </ul>
  *
  * <p><b>Qoida:</b> {@link GroupScheduleDay} — asosiy manba; guruhda birorta ham schedule day bo'lmasa
@@ -105,16 +105,31 @@ public class GroupScheduleService {
         if (holidayRepository.existsById(date)) {
             return false;
         }
-        boolean added = lessonExceptionRepository.findByGroupIdAndMovedTo(groupId, date).stream()
-            .anyMatch(e -> e.getKind() == LessonException.Kind.MOVED)
-            || lessonExceptionRepository.findByGroupIdAndLessonDate(groupId, date).stream()
-                .anyMatch(e -> e.getKind() == LessonException.Kind.EXTRA);
+        List<LessonException> exceptions = new ArrayList<>(lessonExceptionRepository.findByGroupIdAndMovedTo(groupId, date));
+        exceptions.addAll(lessonExceptionRepository.findByGroupIdAndLessonDate(groupId, date));
+        return isLessonDay(date, lessonWeekdays(groupId), false, exceptions);
+    }
+
+    /**
+     * Sof qoida (oraliq hisoblari ham shu bilan — {@code AttendanceDueService}): bayram — yo'q;
+     * EXTRA yoki MOVED ning yangi kuni — bor; CANCELLED / MOVED ning asl kuni — yo'q; aks holda hafta kuni jadvali.
+     *
+     * @param exceptions guruh istisnolari (shu sanaga tegishli bo'lmaganlari e'tiborsiz)
+     */
+    public static boolean isLessonDay(LocalDate date, Set<DayOfWeek> weekdays, boolean holiday,
+                                      java.util.Collection<LessonException> exceptions) {
+        if (date == null || holiday) {
+            return false;
+        }
+        boolean added = exceptions.stream().anyMatch(e ->
+            (e.getKind() == LessonException.Kind.MOVED && date.equals(e.getMovedTo()))
+                || (e.getKind() == LessonException.Kind.EXTRA && date.equals(e.getLessonDate())));
         if (added) {
             return true;
         }
-        boolean removed = lessonExceptionRepository.findByGroupIdAndLessonDate(groupId, date).stream()
-            .anyMatch(e -> e.getKind() == LessonException.Kind.CANCELLED || e.getKind() == LessonException.Kind.MOVED);
-        return !removed && lessonWeekdays(groupId).contains(date.getDayOfWeek());
+        boolean removed = exceptions.stream().anyMatch(e -> date.equals(e.getLessonDate())
+            && (e.getKind() == LessonException.Kind.CANCELLED || e.getKind() == LessonException.Kind.MOVED));
+        return !removed && weekdays.contains(date.getDayOfWeek());
     }
 
     /**

@@ -144,6 +144,36 @@
 
 Hali grace ichida va to'lanmagan davr (`periodsPending`) maxrajga kirmaydi. To'lov davri o'qituvchisi — `billing_periods.teacher_id` (davr yozilgandagi), bo'lmasa guruhning hozirgisi. `billing_hold`, qaytarilgan va PER_LESSON (davrsiz) hisobga olinmaydi — direktor dashboardi "Muddati kelgan to'lovlar" bilan bir xil ta'rif.
 
+## Yangilanishlar (2026-10-04, belgilanmagan davomat; V74)
+
+> Davomat qaysi darslarga majburiy — yagona `AttendanceDueService`. Dars: jadval (yoki EXTRA / MOVED ning yangi kuni),
+> bayram va CANCELLED / MOVED (asl kun) emas; sana ≥ `max(group.start_date, guruhdagi eng erta join_date, oraliq boshi)`;
+> shu kuni kamida bitta faol o'quvchi (qo'shilgan, `d < leave_date`, `d < frozen_from`). Ilgari faqat hafta kuni va
+> 30 kun orqaga qaralardi — 29.09 da boshlangan guruh 05.09 dan "belgilanmagan" ko'rsatardi; bayram/istisno hisobga olinmasdi.
+
+| Endpoint | O'zgarish |
+|---|---|
+| `GET /api/attendance/missing`, `/missing/my` | Javob shakli o'zgarmagan; kunlar yuqoridagi qoida bo'yicha. `from` berilmasa — bugun − 30 kun (lekin guruh boshlanishidan oldin emas). EXTRA / ko'chirilgan darslar ham kiradi |
+| `GET /api/teacher/dashboard` → `todayLessons` | Bayram, bekor/ko'chirilgan dars, boshlanmagan yoki faol o'quvchisiz guruh — ro'yxatda yo'q; bugunga ko'chirilgan / EXTRA dars — bor |
+| `GET /api/app/teacher/today` | O'tiladigan (PLANNED / EXTRA) dars shu qoidadan o'tmasa — ko'rsatilmaydi (CANCELLED / MOVED ma'lumot sifatida qoladi) |
+| V74 (`teacher_kpi_monthly`) | UNIQUE (teacher_id, month_start) yo'q bo'lsa qo'shadi (dublikatlar NOTICE bilan, eng yangisi qoladi); V72 ham shu holatni qamraydi |
+
+## Yangilanishlar (2026-10-04, o'quvchi holati yozilmalardan — V73)
+
+> `students.status` endi yozilmalardan kelib chiqadi (`StudentStatusService`, har yozilma/ledger amalidan keyin):
+> faol yozilma bor → `ACTIVE`; faqat muzlatilgan → `FROZEN`; ochiq yozilma qolmadi → oxirgi yopilgan yozilma sababi
+> bo'yicha `GRADUATED` / `SUSPENDED` / `LEFT` (admin qo'ygan `ARCHIVED`/`FINISHED`/`SUSPENDED` saqlanadi). Mavjud
+> qatorlar — V73 (qo'lda, idempotent).
+
+| Endpoint | O'zgarish |
+|---|---|
+| `POST /api/groups/{g}/remove-student` | Holat `reason` matnidan emas: boshqa guruhda o'qiyotgan o'quvchi `reason: LEFT` bilan chiqsa ham `ACTIVE` qoladi; oxirgi guruhdan har qanday sabab (yoki faqat `reasonCode`) bilan chiqsa `LEFT` (`GRADUATED`/`SUSPENDED` — sabab shunday bo'lsa) |
+| `DELETE /api/groups/{g}/students/{s}` | remove-student bilan bitta yo'l: oxirgi guruh bo'lsa `LEFT`, holat tarixi yoziladi (ilgari holat o'zgarmasdi) |
+| `POST /api/groups/students` | LEFT/GRADUATED/FROZEN o'quvchi qayta qo'shilsa → `ACTIVE`, tarixda `reason: ENROLLED` |
+| `DELETE /api/students/{id}` | Faol yozilmalar yopiladi (accrual, `exit_reason = LEFT`), muzlatilganlari yakunlanadi (`frozen_from` → null, ledger o'zgarmaydi) → `LEFT`. Ilgari faqat `status = LEFT` yozilardi, guruhlar ochiq qolardi |
+| `PUT /api/students/{id}` | Guruh almashtirish eski yozilmani umumiy yopish yo'li bilan yopadi (`TRANSFERRED`); yuborilgan `status` yozilmalarga zid bo'lsa (masalan faol guruh bor, `LEFT`) qoida ustun. Holat o'zgarsa tarix (`PROFILE_UPDATE`) |
+| `POST /api/students/{id}/transfer-group`, freeze/unfreeze | Mantiq o'zgarmagan; tarixdagi `fromStatus` endi amaldan oldingi holat (ilgari ba'zan `FROZEN → FROZEN`) |
+
 ## 0. Qanday o'qish kerak
 
 ### 0.1 Endpointlar soni
