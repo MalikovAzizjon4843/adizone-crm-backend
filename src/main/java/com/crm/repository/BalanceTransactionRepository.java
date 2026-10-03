@@ -37,6 +37,14 @@ public interface BalanceTransactionRepository extends JpaRepository<BalanceTrans
         """)
     BigDecimal sumAmountByStudentGroupId(@Param("studentGroupId") Long studentGroupId);
 
+    /** Ro'yxatlar uchun batch: [studentGroupId, Σ amount] — yozuvi yo'q SG qatorda bo'lmaydi. */
+    @Query("""
+        SELECT t.studentGroup.id, COALESCE(SUM(t.amount), 0) FROM BalanceTransaction t
+        WHERE t.studentGroup.id IN :ids
+        GROUP BY t.studentGroup.id
+        """)
+    List<Object[]> sumAmountGroupedByStudentGroupIds(@Param("ids") java.util.Collection<Long> ids);
+
     boolean existsByStudentGroup_IdAndTypeAndReferenceId(
         Long studentGroupId, BalanceTransactionType type, Long referenceId);
 

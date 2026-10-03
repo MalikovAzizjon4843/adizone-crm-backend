@@ -354,6 +354,20 @@ public class TeacherService {
 
     @Transactional(readOnly = true)
     public TeacherKpiDto getKpi(Long teacherId, LocalDate from, LocalDate to, String period) {
+        return getKpi(teacherId, from, to, period, null);
+    }
+
+    /**
+     * {@code month} berilsa oraliq o'shandan ({@code from/to} e'tiborsiz) va 4 mezonli skor oy
+     * bo'yicha: joriy oy — jonli, yopilgan — {@code teacher_kpi_monthly} snapshot'idan.
+     */
+    @Transactional(readOnly = true)
+    public TeacherKpiDto getKpi(Long teacherId, LocalDate from, LocalDate to, String period,
+                                TeacherKpiService.MonthRange month) {
+        if (month != null) {
+            from = month.from();
+            to = month.to();
+        }
         Teacher teacher = findById(teacherId);
         String normalizedPeriod = TeacherKpiService.normalizePeriod(period);
 
@@ -426,8 +440,11 @@ public class TeacherService {
         dto.setStudentProgress(0.0);
 
         // 4 mezonli skor + trend (mavjud KPI ustiga)
-        dto.setCurrent(teacherKpiService.computeScores(teacherId, from, to));
+        dto.setCurrent(month != null
+            ? teacherKpiService.scoresForMonth(teacherId, month)
+            : teacherKpiService.computeScores(teacherId, from, to));
         dto.setTrend(teacherKpiService.buildTrend(teacherId, normalizedPeriod, from, to));
+        dto.setMonth(month != null ? month.label() : null);
 
         return dto;
     }
@@ -435,6 +452,14 @@ public class TeacherService {
     @Transactional(readOnly = true)
     public TeacherKpiRankingResponse getKpiRanking(String period, LocalDate from, LocalDate to) {
         return teacherKpiService.getRanking(period, from, to);
+    }
+
+    @Transactional(readOnly = true)
+    public TeacherKpiRankingResponse getKpiRanking(String period, LocalDate from, LocalDate to,
+                                                   TeacherKpiService.MonthRange month) {
+        return month != null
+            ? teacherKpiService.getRanking(period, month)
+            : teacherKpiService.getRanking(period, from, to);
     }
 
     private void fillFinancialKpi(TeacherKpiDto dto, Long teacherId, LocalDate from, LocalDate to) {
@@ -546,8 +571,14 @@ public class TeacherService {
 
     @Transactional(readOnly = true)
     public TeacherKpiDto getKpiForUser(Long userId, LocalDate from, LocalDate to, String period) {
+        return getKpiForUser(userId, from, to, period, null);
+    }
+
+    @Transactional(readOnly = true)
+    public TeacherKpiDto getKpiForUser(Long userId, LocalDate from, LocalDate to, String period,
+                                       TeacherKpiService.MonthRange month) {
         Teacher teacher = findTeacherByUserId(userId);
-        return getKpi(teacher.getId(), from, to, period);
+        return getKpi(teacher.getId(), from, to, period, month);
     }
 
     @Transactional(readOnly = true)
@@ -557,10 +588,16 @@ public class TeacherService {
 
     @Transactional(readOnly = true)
     public TeacherKpiDto getKpiForUsername(String username, LocalDate from, LocalDate to, String period) {
+        return getKpiForUsername(username, from, to, period, null);
+    }
+
+    @Transactional(readOnly = true)
+    public TeacherKpiDto getKpiForUsername(String username, LocalDate from, LocalDate to, String period,
+                                           TeacherKpiService.MonthRange month) {
         User user = userRepository.findByUsername(username)
             .orElseThrow(() -> new ResourceNotFoundException(
                 "User not found with username: " + username));
-        return getKpiForUser(user.getId(), from, to, period);
+        return getKpiForUser(user.getId(), from, to, period, month);
     }
 
     /** /me/... yo'llari uchun: tizimga kirgan userning Teacher profili ID si. */

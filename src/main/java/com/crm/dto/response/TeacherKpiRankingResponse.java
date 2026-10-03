@@ -17,6 +17,10 @@ public class TeacherKpiRankingResponse {
     private String period;
     private LocalDate from;
     private LocalDate to;
+    /** "YYYY-MM" — {@code ?month=} bilan so'ralganda. */
+    private String month;
+    /** LIVE (joriy oy / oraliq), SNAPSHOT (yopilgan oy, hammasi snapshot'dan), MIXED (ba'zilari jonli). */
+    private String source;
 
     @Builder.Default
     private List<TeacherKpiRankingItemDto> teachers = new ArrayList<>();

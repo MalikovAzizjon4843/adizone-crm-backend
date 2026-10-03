@@ -19,6 +19,21 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
 
     List<StudentGroup> findByStudentId(Long studentId);
 
+    /** Ro'yxatlar uchun batch: o'quvchilarning barcha yozilmalari (guruh bilan). */
+    @Query("SELECT sg FROM StudentGroup sg JOIN FETCH sg.group WHERE sg.student.id IN :studentIds")
+    List<StudentGroup> findWithGroupByStudentIds(@Param("studentIds") Collection<Long> studentIds);
+
+    /**
+     * Muzlatilgan yozilmalar — {@code EnrollmentLifecycleService.isFrozen} bilan bir xil shart:
+     * {@code frozenFrom} bor, yoki eski (v1) muzlatish — nofaol va {@code exitReason = 'FROZEN'}.
+     */
+    @Query("""
+        SELECT sg FROM StudentGroup sg JOIN FETCH sg.student JOIN FETCH sg.group
+        WHERE sg.frozenFrom IS NOT NULL
+           OR ((sg.isActive = false OR sg.isActive IS NULL) AND sg.exitReason = 'FROZEN')
+        """)
+    List<StudentGroup> findFrozenWithStudentAndGroup();
+
     List<StudentGroup> findByStudentIdOrderByJoinDateDesc(Long studentId);
 
     List<StudentGroup> findByGroupId(Long groupId);
@@ -146,22 +161,37 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
     List<Object[]> countActivePaymentStatsGroupedByTeacher(@Param("overdueBefore") LocalDate overdueBefore);
 
     /**
-     * Batch leavers in period by teacher:
-     * teacherId, graduatedCount, leftCount (non-GRADUATED)
+     * O'qituvchi KPI (saqlab qolish) — {@code [from, to]} oralig'i, guruhning hozirgi o'qituvchisi
+     * bo'yicha, sinov yozilmalarisiz: [teacherId, oxirida ochiq, bitirgan, ketgan (churn)].
+     * Churn — {@code ExitReasonCode.isChurn()}: TRANSFERRED / FROZEN / GRADUATED emas; kodi yo'q eski
+     * qator {@code exit_reason} matni bo'yicha. Muzlatilgan yozilma ochiq ham, ketgan ham emas.
      */
     @Query("""
         SELECT g.teacher.id,
-               SUM(CASE WHEN sg.exitReason = 'GRADUATED' THEN 1 ELSE 0 END),
-               SUM(CASE WHEN sg.exitReason IS NULL OR sg.exitReason <> 'GRADUATED' THEN 1 ELSE 0 END)
+               SUM(CASE WHEN sg.joinDate <= :to
+                         AND ((sg.leaveDate IS NULL AND sg.isActive = true) OR sg.leaveDate > :to)
+                        THEN 1 ELSE 0 END),
+               SUM(CASE WHEN sg.leaveDate BETWEEN :from AND :to
+                         AND (sg.exitReasonCode = com.crm.entity.enums.ExitReasonCode.GRADUATED
+                              OR (sg.exitReasonCode IS NULL AND sg.exitReason = 'GRADUATED'))
+                        THEN 1 ELSE 0 END),
+               SUM(CASE WHEN sg.leaveDate BETWEEN :from AND :to
+                         AND (sg.isActive = false OR sg.isActive IS NULL)
+                         AND ((sg.exitReasonCode IS NOT NULL
+                               AND sg.exitReasonCode NOT IN (com.crm.entity.enums.ExitReasonCode.TRANSFERRED,
+                                                             com.crm.entity.enums.ExitReasonCode.FROZEN,
+                                                             com.crm.entity.enums.ExitReasonCode.GRADUATED))
+                              OR (sg.exitReasonCode IS NULL AND sg.frozenFrom IS NULL
+                                  AND (sg.exitReason IS NULL
+                                       OR sg.exitReason NOT IN ('GRADUATED', 'TRANSFERRED', 'FROZEN'))))
+                        THEN 1 ELSE 0 END)
         FROM StudentGroup sg
         JOIN sg.group g
         WHERE g.teacher IS NOT NULL
-          AND sg.isActive = false
-          AND sg.leaveDate IS NOT NULL
-          AND sg.leaveDate BETWEEN :from AND :to
+          AND (sg.isTrial = false OR sg.isTrial IS NULL)
         GROUP BY g.teacher.id
         """)
-    List<Object[]> countLeaveStatsGroupedByTeacher(
+    List<Object[]> countRetentionStatsGroupedByTeacher(
         @Param("from") LocalDate from,
         @Param("to") LocalDate to);
 

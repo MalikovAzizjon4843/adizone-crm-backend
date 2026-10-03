@@ -25,5 +25,7 @@ public class TeacherKpiDto {
     /** monthly: oylar, daily: kunlar */
     private List<TeacherKpiTrendPointDto> trend;
     private String period;
+    /** "YYYY-MM" — {@code ?month=} bilan so'ralganda. */
+    private String month;
 }
 

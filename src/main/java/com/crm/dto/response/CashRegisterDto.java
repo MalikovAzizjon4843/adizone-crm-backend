@@ -15,6 +15,12 @@ public class CashRegisterDto {
     private BigDecimal balance;
     private BigDecimal plasticBalance;
     private BigDecimal cashBalance;
+    /**
+     * Qoldiq to'lov usuli guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE, BANK, OTHER) — kassa
+     * tranzaksiyalaridan. Tranzaksiyasiz o'zgarish (boshlang'ich qoldiq) bu yerda yo'q —
+     * {@code GET /{id}/balance} dagi {@code unattributed*} ga qarang.
+     */
+    private java.util.Map<String, BigDecimal> balanceByMethod;
     private CashRegisterStatus status;
     private boolean acceptOnlinePayment;
     private boolean archived;

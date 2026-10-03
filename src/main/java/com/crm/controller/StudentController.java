@@ -15,6 +15,7 @@ import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.BadRequestException;
 import com.crm.service.FileStorageService;
 import com.crm.service.ImportService;
+import com.crm.service.StudentRosterService;
 import com.crm.service.StudentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ import java.util.UUID;
 public class StudentController {
 
     private final StudentService studentService;
+    private final StudentRosterService studentRosterService;
     private final FileStorageService fileStorageService;
     private final ImportService importService;
     private final RefundPayoutService refundPayoutService;
@@ -59,10 +61,11 @@ public class StudentController {
         return ResponseEntity.ok(ApiResponse.success(studentService.getArchivedStudents()));
     }
 
+    /** Har muzlatilgan yozilma: frozenFrom, guruh, ledger qoldig'i; o'quvchi bo'yicha jami. */
     @GetMapping("/frozen")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
     public ResponseEntity<ApiResponse<List<FrozenStudentResponse>>> getFrozenStudents() {
-        return ResponseEntity.ok(ApiResponse.success(studentService.getFrozenStudents()));
+        return ResponseEntity.ok(ApiResponse.success(studentRosterService.getFrozenStudents()));
     }
 
     @GetMapping("/{id:\\d+}")
@@ -263,12 +266,10 @@ public class StudentController {
         return ResponseEntity.ok(ApiResponse.success(studentService.getStudentStats()));
     }
 
-    // Ketgan o'quvchilar (LEFT, GRADUATED)
+    // Ketgan o'quvchilar (LEFT, GRADUATED): oxirgi guruh, chiqish sanasi va sababi bilan
     @GetMapping("/left")
-    public ResponseEntity<ApiResponse<List<StudentResponse>>> getLeftStudents() {
-        return ResponseEntity.ok(ApiResponse.success(
-            studentService.getStudentsByStatus(
-                List.of("LEFT", "GRADUATED"))));
+    public ResponseEntity<ApiResponse<List<LeftStudentResponse>>> getLeftStudents() {
+        return ResponseEntity.ok(ApiResponse.success(studentRosterService.getLeftStudents()));
     }
 
     // Probniy o'quvchilar (TRIAL payment status)

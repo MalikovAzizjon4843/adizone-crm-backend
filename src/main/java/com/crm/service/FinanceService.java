@@ -6,6 +6,7 @@ import com.crm.dto.response.FinanceReportResponse;
 import com.crm.entity.Expense;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
+import com.crm.entity.enums.PaymentChannel;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
@@ -38,6 +39,7 @@ public class FinanceService {
     private final CashRegisterService cashRegisterService;
     private final PayrollRepository payrollRepository;
     private final com.crm.repository.CashTransactionRepository cashTransactionRepository;
+    private final CashChannelService cashChannelService;
 
     @Transactional(readOnly = true)
     public List<ExpenseResponse> getExpenses(LocalDate from, LocalDate to) {
@@ -178,6 +180,15 @@ public class FinanceService {
         BigDecimal examFees = Optional.ofNullable(cashTransactionRepository.sumExamFees(start, end))
             .orElse(BigDecimal.ZERO);
 
+        // Kassa oqimi to'lov usuli guruhlari bo'yicha (hamma kassalar birga)
+        Map<PaymentChannel, CashChannelService.Flow> flows = cashChannelService.flows(null, start, end);
+        Map<String, BigDecimal> incomeByMethod = new LinkedHashMap<>();
+        Map<String, BigDecimal> expenseByMethod = new LinkedHashMap<>();
+        for (PaymentChannel c : PaymentChannel.values()) {
+            incomeByMethod.put(c.name(), flows.get(c).netIncome());
+            expenseByMethod.put(c.name(), flows.get(c).netExpense());
+        }
+
         return FinanceReportResponse.builder()
             .totalIncome(totalIncome)
             .examFees(examFees)
@@ -187,6 +198,9 @@ public class FinanceService {
             .netProfit(totalIncome.add(examFees).subtract(totalExpenses).subtract(payrollPaid))
             .incomeByCategory(incomeByCategory)
             .expenseByCategory(expenseByCategory)
+            .incomeByMethod(incomeByMethod)
+            .expenseByMethod(expenseByMethod)
+            .cashFlowByMethod(CashChannelService.toDtos(flows))
             .period(start + " to " + end)
             .build();
     }

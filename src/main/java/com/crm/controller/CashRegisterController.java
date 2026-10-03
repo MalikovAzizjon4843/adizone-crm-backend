@@ -7,6 +7,7 @@ import com.crm.dto.request.IncomeCreateDto;
 import com.crm.dto.request.TransferDto;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.CashBalanceDto;
+import com.crm.dto.response.CashChannelReportDto;
 import com.crm.dto.response.CashRegisterDto;
 import com.crm.dto.response.CashTransactionDto;
 import com.crm.service.CashRegisterService;
@@ -84,6 +85,17 @@ public class CashRegisterController {
         return ResponseEntity.ok(ApiResponse.success(cashRegisterService.getBalance(id)));
     }
 
+    /** Davr oqimi to'lov usuli guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE, BANK, OTHER). */
+    @GetMapping("/{id}/by-method")
+    public ResponseEntity<ApiResponse<CashChannelReportDto>> getByMethod(
+            @PathVariable Long id,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+        return ResponseEntity.ok(ApiResponse.success(
+            cashRegisterService.getChannelReport(id, parseOptionalDate(from), parseOptionalDate(to))));
+    }
+
+    /** {@code channel} — to'lov usuli guruhi; {@code paymentMethod} — aniq usul (ikkalasi birga ham bo'ladi). */
     @GetMapping("/{id}/transactions")
     public ResponseEntity<ApiResponse<Page<CashTransactionDto>>> getTransactions(
             @PathVariable Long id,
@@ -93,6 +105,7 @@ public class CashRegisterController {
             @RequestParam(required = false) Long teacherId,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String paymentMethod,
+            @RequestParam(required = false) String channel,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         LocalDate fromDate = parseOptionalDate(from);
@@ -101,7 +114,7 @@ public class CashRegisterController {
             Sort.by(Sort.Direction.DESC, "transactionDate", "createdAt"));
         return ResponseEntity.ok(ApiResponse.success(
             cashRegisterService.getTransactions(
-                id, fromDate, toDate, studentId, teacherId, type, paymentMethod, pageable)));
+                id, fromDate, toDate, studentId, teacherId, type, paymentMethod, channel, pageable)));
     }
 
     @GetMapping("/{id}/transactions/export")
@@ -112,11 +125,12 @@ public class CashRegisterController {
             @RequestParam(required = false) Long studentId,
             @RequestParam(required = false) Long teacherId,
             @RequestParam(required = false) String type,
-            @RequestParam(required = false) String paymentMethod) {
+            @RequestParam(required = false) String paymentMethod,
+            @RequestParam(required = false) String channel) {
         LocalDate fromDate = parseOptionalDate(from);
         LocalDate toDate = parseOptionalDate(to);
         byte[] file = cashRegisterService.exportTransactions(
-            id, fromDate, toDate, studentId, teacherId, type, paymentMethod);
+            id, fromDate, toDate, studentId, teacherId, type, paymentMethod, channel);
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION,
                 "attachment; filename=cash-transactions-" + id + ".xlsx")

@@ -875,24 +875,6 @@ public class StudentService {
         return "\"" + val.replace("\"", "\"\"") + "\"";
     }
 
-    public List<StudentResponse> getStudentsByStatus(List<String> statuses) {
-        List<com.crm.entity.enums.StudentStatus> enumStatuses = statuses.stream()
-            .map(s -> {
-                try {
-                    return com.crm.entity.enums.StudentStatus.valueOf(s);
-                } catch (IllegalArgumentException e) {
-                    return null;
-                }
-            })
-            .filter(java.util.Objects::nonNull)
-            .collect(Collectors.toList());
-
-        return studentRepository.findByStatusIn(enumStatuses)
-            .stream()
-            .map(this::toResponse)
-            .collect(Collectors.toList());
-    }
-
     public List<Map<String, Object>> getTrialStudents() {
         return studentGroupRepository
             .findActiveTrials()
@@ -984,36 +966,6 @@ public class StudentService {
     public List<BalanceHistoryItemDto> transferBalance(Long studentId, BalanceTransferRequest request) {
         return balanceTransactionService.transferBetweenGroups(studentId, request.getFromGroupId(),
             request.getToGroupId(), request.getAmount(), request.getNote());
-    }
-
-    @Transactional(readOnly = true)
-    public List<FrozenStudentResponse> getFrozenStudents() {
-        List<Student> frozen = studentRepository.findByStatus(StudentStatus.FROZEN);
-        List<FrozenStudentResponse> result = new ArrayList<>();
-        for (Student s : frozen) {
-            StudentGroup last = studentGroupRepository.findByStudentIdOrderByJoinDateDesc(s.getId())
-                .stream()
-                .filter(sg -> "FROZEN".equals(sg.getExitReason()) || Boolean.FALSE.equals(sg.getIsActive()))
-                .findFirst()
-                .orElse(studentGroupRepository.findByStudentIdOrderByJoinDateDesc(s.getId())
-                    .stream().findFirst().orElse(null));
-
-            LocalDate frozenDate = last != null && last.getLeaveDate() != null
-                ? last.getLeaveDate()
-                : (s.getUpdatedAt() != null ? s.getUpdatedAt().toLocalDate() : null);
-
-            result.add(FrozenStudentResponse.builder()
-                .studentId(s.getId())
-                .fullName(((s.getFirstName() != null ? s.getFirstName() : "")
-                    + " " + (s.getLastName() != null ? s.getLastName() : "")).trim())
-                .phone(s.getPhone())
-                .frozenDate(frozenDate)
-                .balance(s.getBalance() != null ? s.getBalance() : BigDecimal.ZERO)
-                .lastGroupId(last != null && last.getGroup() != null ? last.getGroup().getId() : null)
-                .lastGroupName(last != null && last.getGroup() != null ? last.getGroup().getGroupName() : null)
-                .build());
-        }
-        return result;
     }
 
     /**

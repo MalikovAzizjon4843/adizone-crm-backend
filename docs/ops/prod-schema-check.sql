@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V71 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V72 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,18 +11,19 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V71 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V72 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
 --   4. CHECK cheklovlari (enum CHECK lar EnumCheckConstraintCleaner tomonidan o'chiriladi)
 --   5. Dublikat UNIQUE / oddiy indekslar (bir xil ustunlar to'plami)
+--  6a. Kassa: payment_method bo'yicha sonlar (TERMINAL, qismsiz CASH_AND_CARD) — faqat ma'lumot
 --   6. flyway_schema_history (qolgan bo'lsa)
 -- ═══════════════════════════════════════════════════════════════════════════════════
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V71 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V72 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
@@ -341,7 +342,10 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V71', 'table', 'user_notifications', NULL),
     ('V71', 'index', 'user_notifications', 'idx_user_notifications_user_created'),
     ('V71', 'index', 'user_notifications', 'idx_user_notifications_created'),
-    ('V71', 'index', 'user_notifications', 'idx_user_notifications_unread')
+    ('V71', 'index', 'user_notifications', 'idx_user_notifications_unread'),
+    ('V72', 'table', 'teacher_kpi_monthly', NULL),
+    ('V72', 'index', 'teacher_kpi_monthly', 'ux_teacher_kpi_monthly_teacher_month'),
+    ('V72', 'index', 'teacher_kpi_monthly', 'idx_teacher_kpi_monthly_month')
 ), checked AS (
     SELECT w.*,
            CASE w.kind
@@ -517,7 +521,17 @@ SELECT 'V67 user_onboarding.user_id → users FK CASCADE',
        EXISTS (SELECT 1 FROM pg_constraint c
                  JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
                 WHERE c.conrelid = to_regclass('public.user_onboarding') AND c.contype = 'f'
-                  AND a.attname = 'user_id' AND c.confdeltype = 'c');
+                  AND a.attname = 'user_id' AND c.confdeltype = 'c')
+UNION ALL
+SELECT 'V72 teacher_kpi_monthly UNIQUE(teacher_id, month_start)',
+       EXISTS (SELECT 1 FROM phase5_uniq WHERE tbl = 'teacher_kpi_monthly'
+                 AND cols = ARRAY['month_start','teacher_id'] AND NOT partial)
+UNION ALL
+SELECT 'V72 teacher_kpi_monthly.teacher_id → teachers FK CASCADE',
+       EXISTS (SELECT 1 FROM pg_constraint c
+                 JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+                WHERE c.conrelid = to_regclass('public.teacher_kpi_monthly') AND c.contype = 'f'
+                  AND a.attname = 'teacher_id' AND c.confdeltype = 'c');
 
 -- V58: sequence mavjud CTR-YYYY-NNNNN raqamlaridan oldindami (sequence bo'lsa)
 SELECT 'contract_number_seq' AS sequence,
@@ -573,6 +587,21 @@ SELECT indrelid::regclass AS jadval, cols AS ustunlar, indisunique AS is_unique,
   FROM idx
  GROUP BY indrelid, cols, indisunique, pred, exprs
 HAVING COUNT(*) > 1
+ ORDER BY 1, 2;
+
+-- ── 6a. Kassa: to'lov usullari (ma'lumot, sxema emas) ───────────────────────────────
+-- Kassa balansi va tranzaksiyalari usul guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE, BANK,
+-- OTHER) kodda payment_method + cash_part/card_part dan hisoblanadi — CashBucket bazada SAQLANMAYDI,
+-- TERMINAL yozuvlari uchun data migratsiyasi kerak emas. Bu yerda faqat sonlar: TERMINAL qatorlari
+-- (V32 eski CARD to'lovlarini TERMINAL ga o'tkazgan) va qismlari yo'q eski CASH_AND_CARD (to'liq naqd
+-- chelakka yozilgan).
+SELECT 'cash_transactions' AS jadval, payment_method, COUNT(*) AS soni, SUM(amount) AS summa,
+       COUNT(*) FILTER (WHERE payment_method = 'CASH_AND_CARD'
+                          AND (cash_part IS NULL OR card_part IS NULL)) AS qismsiz_split
+  FROM cash_transactions GROUP BY payment_method
+UNION ALL
+SELECT 'payments', payment_method, COUNT(*), SUM(amount), NULL
+  FROM payments GROUP BY payment_method
  ORDER BY 1, 2;
 
 -- ── 6. flyway_schema_history ─────────────────────────────────────────────────────────

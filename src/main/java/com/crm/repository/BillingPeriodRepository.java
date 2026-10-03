@@ -37,4 +37,25 @@ public interface BillingPeriodRepository extends JpaRepository<BillingPeriod, Lo
     @Modifying
     @Query("DELETE FROM BillingPeriod p WHERE p.migrationRunId = :runId AND p.studentGroupId = :sgId")
     int deleteByMigrationRunAndSg(@Param("runId") Long runId, @Param("sgId") Long sgId);
+
+    /**
+     * O'qituvchi KPI (to'lov / o'z vaqtida to'lov): muddati {@code [from, to]} da kelgan yozilgan
+     * davrlar. Qator: [teacherId (davr yozilgandagi, bo'lmasa guruhning hozirgi), dueDate, graceUntil,
+     * paidOn, amount, refundedAmount]. Qaytarilgan / {@code billing_hold} ni chaqiruvchi tashlaydi
+     * ({@code CollectionsMetricsService} bilan bir xil ta'rif).
+     */
+    @Query("""
+        SELECT COALESCE(bp.teacherId, t.id), COALESCE(bp.dueDate, bp.periodStart), bp.graceUntil, bp.paidOn,
+               bp.amount, bp.refundedAmount
+        FROM BillingPeriod bp
+        JOIN StudentGroup sg ON sg.id = bp.studentGroupId
+        LEFT JOIN sg.group g
+        LEFT JOIN g.teacher t
+        WHERE COALESCE(bp.dueDate, bp.periodStart) BETWEEN :from AND :to
+          AND bp.status IN :statuses
+          AND bp.chargeTxId IS NOT NULL
+          AND (sg.billingHold IS NULL OR sg.billingHold = false)
+        """)
+    List<Object[]> findDueForTeacherKpi(@Param("from") LocalDate from, @Param("to") LocalDate to,
+                                        @Param("statuses") java.util.Collection<com.crm.entity.enums.BillingPeriodStatus> statuses);
 }

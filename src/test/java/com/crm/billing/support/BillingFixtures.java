@@ -51,7 +51,7 @@ public class BillingFixtures {
         "billing_job_runs", "billing_migration_runs", "audit_logs",
         "lead_assignments", "lead_status_history", "lead_comments", "lead_notes", "tasks", "leads",
         "holidays", "lesson_exceptions", "director_daily_stats", "director_digest_log",
-        "payroll", "salary_rules",
+        "payroll", "salary_rules", "teacher_kpi_monthly",
         "exam_results", "exam_registrations", "exams", "contracts", "contract_templates",
         "contract_number_counters", "notice_reads", "notice_target_roles", "notices",
         "lesson_substitutions", "leave_requests", "attendance_unlock_requests",

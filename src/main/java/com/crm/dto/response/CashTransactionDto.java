@@ -38,6 +38,11 @@ public class CashTransactionDto {
     /** Faqat CASH_AND_CARD uchun to'ldiriladi. */
     private BigDecimal cashPart;
     private BigDecimal cardPart;
+    /**
+     * Summa to'lov usuli guruhlari bo'yicha ({@link com.crm.entity.enums.PaymentChannel}):
+     * odatda bitta kalit; CASH_AND_CARD — {@code {CASH: cashPart, CARD: cardPart}}.
+     */
+    private java.util.Map<String, BigDecimal> channelAmounts;
     private String note;
     private CashTransactionStatus status;
     private LocalDate periodMonth;

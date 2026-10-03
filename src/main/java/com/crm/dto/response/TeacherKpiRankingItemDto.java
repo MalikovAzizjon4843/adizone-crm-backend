@@ -22,4 +22,6 @@ public class TeacherKpiRankingItemDto {
     private Double retentionRate;
     private Double overallScore;
     private Boolean insufficientData;
+    /** LIVE | SNAPSHOT */
+    private String source;
 }

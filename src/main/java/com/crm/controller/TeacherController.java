@@ -7,6 +7,7 @@ import com.crm.service.FileStorageService;
 import com.crm.service.ImportService;
 import com.crm.service.StaffStatusService;
 import com.crm.service.TeacherKpiService;
+import com.crm.service.TeacherKpiSnapshotService;
 import com.crm.service.TeacherProfileSyncService;
 import com.crm.service.TeacherService;
 import jakarta.validation.Valid;
@@ -34,6 +35,8 @@ public class TeacherController {
     private final ImportService importService;
     private final TeacherProfileSyncService teacherProfileSyncService;
     private final StaffStatusService staffStatusService;
+    private final TeacherKpiService teacherKpiService;
+    private final TeacherKpiSnapshotService teacherKpiSnapshotService;
 
     /**
      * Ro'yxat, detal va qidiruv: maosh va pasport ma'lumoti bor, shuning uchun
@@ -60,6 +63,7 @@ public class TeacherController {
         return ResponseEntity.ok(ApiResponse.success(data));
     }
 
+    /** {@code month=YYYY-MM} berilsa from/to o'rniga: joriy oy — jonli, yopilgan — snapshot. */
     @GetMapping("/me/kpi")
     @PreAuthorize("hasRole('TEACHER')")
     public ResponseEntity<TeacherKpiDto> myKpi(
@@ -68,13 +72,16 @@ public class TeacherController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String month) {
+        TeacherKpiService.MonthRange range = teacherKpiService.resolveMonth(month);
         to = TeacherKpiService.defaultTo(to);
         from = TeacherKpiService.defaultFrom(period, from, to);
         return ResponseEntity.ok(
-            teacherService.getKpiForUsername(userDetails.getUsername(), from, to, period));
+            teacherService.getKpiForUsername(userDetails.getUsername(), from, to, period, range));
     }
 
+    /** {@code month=YYYY-MM} berilsa from/to o'rniga: joriy oy — jonli, yopilgan — snapshot. */
     @GetMapping("/kpi/ranking")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<TeacherKpiRankingResponse>> getKpiRanking(
@@ -82,11 +89,30 @@ public class TeacherController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String month) {
+        TeacherKpiService.MonthRange range = teacherKpiService.resolveMonth(month);
         to = TeacherKpiService.defaultTo(to);
         from = TeacherKpiService.defaultFrom(period, from, to);
         return ResponseEntity.ok(ApiResponse.success(
-            teacherService.getKpiRanking(period, from, to)));
+            teacherService.getKpiRanking(period, from, to, range)));
+    }
+
+    /**
+     * Yopilgan oy KPI snapshot'ini qayta hisoblash (teacher_kpi_monthly ustidan yoziladi).
+     * Joriy / kelajak oy — 400. Faqat SUPER_ADMIN.
+     */
+    @PostMapping("/kpi/snapshots")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> recomputeKpiSnapshot(
+            @RequestParam String month) {
+        TeacherKpiService.MonthRange range = teacherKpiService.resolveMonth(month);
+        if (range == null) {
+            throw new BadRequestException("month (YYYY-MM) ko'rsatilishi shart");
+        }
+        int rows = teacherKpiSnapshotService.recompute(range.month());
+        return ResponseEntity.ok(ApiResponse.success("KPI snapshot qayta hisoblandi",
+            Map.of("month", range.label(), "rows", rows)));
     }
 
     @GetMapping("/{id:\\d+}")
@@ -95,7 +121,10 @@ public class TeacherController {
         return ResponseEntity.ok(ApiResponse.success(teacherService.getTeacherById(id)));
     }
 
-    /** Istalgan o'qituvchining KPI si (moliyaviy maydonlar bilan) — faqat ma'muriyat. */
+    /**
+     * Istalgan o'qituvchining KPI si (moliyaviy maydonlar bilan) — faqat ma'muriyat.
+     * {@code month=YYYY-MM} berilsa from/to o'rniga: joriy oy — jonli, yopilgan — snapshot.
+     */
     @GetMapping("/{id:\\d+}/kpi")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<TeacherKpiDto> getKpi(
@@ -104,10 +133,12 @@ public class TeacherController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String month) {
+        TeacherKpiService.MonthRange range = teacherKpiService.resolveMonth(month);
         to = TeacherKpiService.defaultTo(to);
         from = TeacherKpiService.defaultFrom(period, from, to);
-        return ResponseEntity.ok(teacherService.getKpi(id, from, to, period));
+        return ResponseEntity.ok(teacherService.getKpi(id, from, to, period, range));
     }
 
     /** Oylik trend. Ruxsat: /{id}/kpi bilan bir xil. */

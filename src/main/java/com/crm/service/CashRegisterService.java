@@ -7,6 +7,7 @@ import com.crm.dto.request.ExpenseCreateDto;
 import com.crm.dto.request.IncomeCreateDto;
 import com.crm.dto.request.TransferDto;
 import com.crm.dto.response.CashBalanceDto;
+import com.crm.dto.response.CashChannelReportDto;
 import com.crm.dto.response.CashRegisterDto;
 import com.crm.dto.response.CashTransactionDto;
 import com.crm.entity.CashRegister;
@@ -14,6 +15,7 @@ import com.crm.entity.CashTransaction;
 import com.crm.entity.Student;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
+import com.crm.entity.enums.PaymentChannel;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.CashDirection;
 import com.crm.entity.enums.CashRegisterStatus;
@@ -53,8 +55,10 @@ import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -67,6 +71,7 @@ public class CashRegisterService {
     private final UserRepository userRepository;
     private final StudentRepository studentRepository;
     private final com.crm.billing.BillingLocks billingLocks;
+    private final CashChannelService cashChannelService;
 
     @Transactional(readOnly = true)
     public List<CashRegisterDto> getAll(String status) {
@@ -77,12 +82,41 @@ public class CashRegisterService {
         } else {
             registers = cashRegisterRepository.findAll();
         }
-        return registers.stream().map(this::toRegisterDto).collect(Collectors.toList());
+        Map<Long, Map<PaymentChannel, CashChannelService.Flow>> flows = cashChannelService.flowsByRegister();
+        return registers.stream()
+            .map(r -> withChannels(toRegisterDto(r), flows.get(r.getId())))
+            .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public CashRegisterDto getById(Long id) {
-        return toRegisterDto(findRegisterById(id));
+        return withChannels(toRegisterDto(findRegisterById(id)), cashChannelService.flows(id, null, null));
+    }
+
+    /** {@code GET /{id}/by-method}: davr oqimi to'lov usuli guruhlari bo'yicha. */
+    @Transactional(readOnly = true)
+    public CashChannelReportDto getChannelReport(Long id, LocalDate from, LocalDate to) {
+        findRegisterById(id);
+        Map<PaymentChannel, CashChannelService.Flow> flows = cashChannelService.flows(id, from, to);
+        return CashChannelReportDto.builder()
+            .cashRegisterId(id)
+            .from(from)
+            .to(to)
+            .channels(CashChannelService.toDtos(flows))
+            .total(CashChannelService.total(flows))
+            .build();
+    }
+
+    private static CashRegisterDto withChannels(CashRegisterDto dto,
+                                                Map<PaymentChannel, CashChannelService.Flow> flows) {
+        Map<String, BigDecimal> byMethod = new LinkedHashMap<>();
+        Map<PaymentChannel, CashChannelService.Flow> f = flows != null ? flows : CashChannelService.emptyFlows();
+        for (PaymentChannel c : PaymentChannel.values()) {
+            CashChannelService.Flow one = f.get(c);
+            byMethod.put(c.name(), one != null ? one.net() : BigDecimal.ZERO);
+        }
+        dto.setBalanceByMethod(byMethod);
+        return dto;
     }
 
     @Transactional
@@ -148,15 +182,40 @@ public class CashRegisterService {
         return toRegisterDto(cashRegisterRepository.save(register));
     }
 
+    /**
+     * Saqlangan chelaklar ({@code cash_balance}, {@code plastic_balance}) + tranzaksiyalardan
+     * to'lov usuli guruhlari bo'yicha qoldiq. Farq ({@code unattributed*}) — tranzaksiyasiz
+     * o'zgarish; u guruhlarga taqsimlanmaydi.
+     */
     @Transactional(readOnly = true)
     public CashBalanceDto getBalance(Long id) {
         CashRegister register = findRegisterById(id);
+        Map<PaymentChannel, CashChannelService.Flow> flows = cashChannelService.flows(id, null, null);
+        BigDecimal derivedCash = BigDecimal.ZERO;
+        BigDecimal derivedNonCash = BigDecimal.ZERO;
+        for (Map.Entry<PaymentChannel, CashChannelService.Flow> e : flows.entrySet()) {
+            if (e.getKey().isCash()) {
+                derivedCash = derivedCash.add(e.getValue().net());
+            } else {
+                derivedNonCash = derivedNonCash.add(e.getValue().net());
+            }
+        }
+        BigDecimal cashDiff = nz(register.getCashBalance()).subtract(derivedCash);
+        BigDecimal nonCashDiff = nz(register.getPlasticBalance()).subtract(derivedNonCash);
         return CashBalanceDto.builder()
             .cashRegisterId(register.getId())
             .balance(register.getBalance())
             .cashBalance(register.getCashBalance())
             .plasticBalance(register.getPlasticBalance())
+            .byMethod(CashChannelService.toDtos(flows))
+            .unattributedCash(cashDiff)
+            .unattributedNonCash(nonCashDiff)
+            .reconciled(cashDiff.signum() == 0 && nonCashDiff.signum() == 0)
             .build();
+    }
+
+    private static BigDecimal nz(BigDecimal v) {
+        return v != null ? v : BigDecimal.ZERO;
     }
 
     @Transactional(readOnly = true)
@@ -169,19 +228,36 @@ public class CashRegisterService {
             String type,
             String paymentMethod,
             Pageable pageable) {
+        return getTransactions(cashRegisterId, from, to, studentId, teacherId, type, paymentMethod, null, pageable);
+    }
+
+    /** {@code channel} — to'lov usuli guruhi (CASH, CARD, TERMINAL, ONLINE, BANK, OTHER). */
+    @Transactional(readOnly = true)
+    public Page<CashTransactionDto> getTransactions(
+            Long cashRegisterId,
+            LocalDate from,
+            LocalDate to,
+            Long studentId,
+            Long teacherId,
+            String type,
+            String paymentMethod,
+            String channel,
+            Pageable pageable) {
 
         findRegisterById(cashRegisterId);
 
         CashTransactionType typeFilter = parseTransactionType(type);
         PaymentMethod methodFilter = parsePaymentMethod(paymentMethod);
+        PaymentChannel channelFilter = parseChannel(channel);
 
         log.debug(
-            "getTransactions registerId={}, from={}, to={}, studentId={}, teacherId={}, type={}, paymentMethod={}, page={}, size={}",
-            cashRegisterId, from, to, studentId, teacherId, typeFilter, methodFilter,
+            "getTransactions registerId={}, from={}, to={}, studentId={}, teacherId={}, type={}, paymentMethod={}, channel={}, page={}, size={}",
+            cashRegisterId, from, to, studentId, teacherId, typeFilter, methodFilter, channelFilter,
             pageable.getPageNumber(), pageable.getPageSize());
 
         Specification<CashTransaction> spec = buildTransactionSpec(
-            cashRegisterId, from, to, studentId, teacherId, typeFilter, methodFilter);
+            cashRegisterId, from, to, studentId, teacherId, typeFilter, methodFilter)
+            .and(channelSpec(channelFilter));
 
         Page<CashTransaction> page = cashTransactionRepository.findAll(spec, pageable);
 
@@ -200,12 +276,26 @@ public class CashRegisterService {
             Long teacherId,
             String type,
             String paymentMethod) {
+        return exportTransactions(cashRegisterId, from, to, studentId, teacherId, type, paymentMethod, null);
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] exportTransactions(
+            Long cashRegisterId,
+            LocalDate from,
+            LocalDate to,
+            Long studentId,
+            Long teacherId,
+            String type,
+            String paymentMethod,
+            String channel) {
 
         findRegisterById(cashRegisterId);
         CashTransactionType typeFilter = parseTransactionType(type);
         PaymentMethod methodFilter = parsePaymentMethod(paymentMethod);
         Specification<CashTransaction> spec = buildTransactionSpec(
-            cashRegisterId, from, to, studentId, teacherId, typeFilter, methodFilter);
+            cashRegisterId, from, to, studentId, teacherId, typeFilter, methodFilter)
+            .and(channelSpec(parseChannel(channel)));
         List<CashTransaction> transactions = cashTransactionRepository.findAll(spec);
 
         try (Workbook workbook = new XSSFWorkbook();
@@ -229,7 +319,7 @@ public class CashRegisterService {
 
             String[] headers = {
                 "ID", "Sana", "Turi", "Yo'nalish", "Usul", "O'quvchi", "O'qituvchi",
-                "Nomi", "Summa (±)", "Izoh", "Holat", "Yaratuvchi"
+                "Nomi", "Summa (±)", "Izoh", "Holat", "Yaratuvchi", "Usul guruhi"
             };
             Row headerRow = sheet.createRow(0);
             for (int i = 0; i < headers.length; i++) {
@@ -264,6 +354,13 @@ public class CashRegisterService {
                     t.getStatus() != null ? t.getStatus().name() : "");
                 row.createCell(11).setCellValue(t.getCreatedBy() != null
                     ? t.getCreatedBy().getFirstName() + " " + t.getCreatedBy().getLastName() : "");
+                // Bitta guruh — nomi; CASH_AND_CARD — "CASH 300000 + CARD 200000"
+                Map<String, BigDecimal> channels = channelAmounts(t);
+                row.createCell(12).setCellValue(channels.size() == 1
+                    ? channels.keySet().iterator().next()
+                    : channels.entrySet().stream()
+                        .map(e -> e.getKey() + " " + e.getValue().stripTrailingZeros().toPlainString())
+                        .collect(Collectors.joining(" + ")));
             }
 
             for (int i = 0; i < headers.length; i++) {
@@ -861,6 +958,54 @@ public class CashRegisterService {
         return PaymentMethod.parseOrNull(method);
     }
 
+    /** Berilgan, lekin tanilmagan guruh — 400 (jim e'tiborsiz qoldirilsa butun ro'yxat qaytardi). */
+    private static PaymentChannel parseChannel(String channel) {
+        if (channel == null || channel.isBlank()) {
+            return null;
+        }
+        PaymentChannel parsed = PaymentChannel.parseOrNull(channel);
+        if (parsed == null) {
+            throw new BadRequestException("Noto'g'ri to'lov usuli guruhi: " + channel
+                + " (CASH, CARD, TERMINAL, ONLINE, BANK, OTHER)");
+        }
+        return parsed;
+    }
+
+    /**
+     * Guruh filtri {@link PaymentChannel#split} bilan bir xil: CASH_AND_CARD qatori CASH da (naqd
+     * qismi bor yoki qismsiz eski yozuv) va CARD da (karta qismi bor) ko'rinadi; usulsiz — CASH.
+     */
+    private static Specification<CashTransaction> channelSpec(PaymentChannel channel) {
+        if (channel == null) {
+            return null;
+        }
+        return (root, query, cb) -> {
+            var method = root.<PaymentMethod>get("paymentMethod");
+            var cashPart = root.<BigDecimal>get("cashPart");
+            var cardPart = root.<BigDecimal>get("cardPart");
+            var split = cb.equal(method, PaymentMethod.CASH_AND_CARD);
+            var partsKnown = cb.and(cb.isNotNull(cashPart), cb.isNotNull(cardPart));
+            return switch (channel) {
+                case CASH -> cb.or(
+                    cb.isNull(method),
+                    cb.equal(method, PaymentMethod.CASH),
+                    cb.and(split, cb.or(cb.not(partsKnown), cb.greaterThan(cashPart, BigDecimal.ZERO))));
+                case CARD -> cb.or(
+                    cb.equal(method, PaymentMethod.CARD),
+                    cb.and(split, partsKnown, cb.greaterThan(cardPart, BigDecimal.ZERO)));
+                default -> method.in(channel.methods());
+            };
+        };
+    }
+
+    /** Yozuv summasi guruhlar bo'yicha (ro'yxat va eksport uchun). */
+    private static Map<String, BigDecimal> channelAmounts(CashTransaction t) {
+        Map<String, BigDecimal> out = new LinkedHashMap<>();
+        PaymentChannel.split(t.getPaymentMethod(), t.getAmount(), t.getCashPart(), t.getCardPart())
+            .forEach((c, v) -> out.put(c.name(), v));
+        return out;
+    }
+
     private CashRegisterDto toRegisterDto(CashRegister r) {
         CashRegisterDto dto = new CashRegisterDto();
         dto.setId(r.getId());
@@ -942,6 +1087,7 @@ public class CashRegisterService {
         dto.setRelatedTxId(t.getRelatedTxId());
         dto.setCashPart(t.getCashPart());
         dto.setCardPart(t.getCardPart());
+        dto.setChannelAmounts(channelAmounts(t));
         dto.setNote(t.getNote());
         dto.setStatus(t.getStatus());
         dto.setPeriodMonth(t.getPeriodMonth());
