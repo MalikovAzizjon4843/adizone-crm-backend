@@ -9,6 +9,8 @@ import com.crm.entity.StudentGroup;
 import com.crm.entity.Teacher;
 import com.crm.entity.TelegramOutbox;
 import com.crm.exception.CodedException;
+import com.crm.notification.NotificationService;
+import com.crm.notification.NotificationType;
 import com.crm.repository.AbsenceNoticeRepository;
 import com.crm.repository.AppIdentityRepository;
 import com.crm.repository.GroupRepository;
@@ -61,6 +63,7 @@ public class MiniAppAbsenceService {
     private final TelegramOutboxService outboxService;
     private final TelegramProperties telegramProperties;
     private final Clock billingClock;
+    private final NotificationService notificationService;
 
     @Transactional
     public AppDtos.AbsenceNoticeItem create(AppPrincipal principal, AppDtos.AbsenceNoticeRequest request) {
@@ -192,6 +195,14 @@ public class MiniAppAbsenceService {
                 .ifPresent(i -> outboxService.enqueue(i.getChatId(), text, button, TelegramOutbox.Priority.HIGH,
                     "absence:" + notice.getId() + ":" + userId, "ABSENCE_NOTICE"));
         }
+        // CRM qo'ng'iroqchasi — app'da ulanmagan o'qituvchi ham ko'radi (commit'dan keyin)
+        notificationService.toUsers(NotificationType.ABSENCE_NOTICE, userIds, null,
+            "Sabab bildirildi: " + MiniAppQueryService.fullName(student),
+            group.getGroupName() + ", " + notice.getLessonDate().format(DATE)
+                + (lesson.startTime() != null ? " " + lesson.startTime() : "") + " — " + typeLabel(notice.getType())
+                + (notice.getComment() != null ? ": " + notice.getComment() : ""),
+            "/attendance?groupId=" + group.getId() + "&date=" + notice.getLessonDate(),
+            "AbsenceNotice", notice.getId());
     }
 
     private static boolean ended(String endTime, LocalTime now) {

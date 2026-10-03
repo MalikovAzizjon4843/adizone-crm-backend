@@ -54,6 +54,7 @@ public class AppSecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 // initData (HMAC) bilan himoyalangan — token hali yo'q
                 .requestMatchers(HttpMethod.POST, "/api/app/auth", "/api/app/link/manual").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/app/link/manual/status").permitAll()
                 // O'qituvchi rejimi (telegram-platform §11.4) — rol bazadan, AppJwtFilter
                 .requestMatchers("/api/app/teacher/**").hasAuthority(AppJwtFilter.ROLE_TEACHER)
                 .anyRequest().hasAuthority(AppJwtFilter.ROLE))

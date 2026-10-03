@@ -17,6 +17,8 @@ import com.crm.entity.enums.GroupStatus;
 import com.crm.entity.enums.LeaveStatus;
 import com.crm.entity.enums.LeaveType;
 import com.crm.entity.enums.UserRole;
+import com.crm.notification.NotificationService;
+import com.crm.notification.NotificationType;
 import com.crm.exception.CodedException;
 import com.crm.exception.ConflictException;
 import com.crm.exception.ResourceNotFoundException;
@@ -97,6 +99,7 @@ public class LeaveService {
     private final SalaryCalculationService salaryCalculationService;
     private final EntityManager entityManager;
     private final Clock billingClock;
+    private final NotificationService notificationService;
 
     /** {@code GET /api/leaves} filtri — hammasi ixtiyoriy. */
     public record Filter(LeaveStatus status, Long userId, Long teacherId, LocalDate from, LocalDate to, Boolean paid) {
@@ -253,7 +256,9 @@ public class LeaveService {
             .status(LeaveStatus.PENDING)
             .build();
         AuditContext.change("status", null, LeaveStatus.PENDING);
-        return toResponse(leaveRepository.save(leave));
+        Leave saved = leaveRepository.save(leave);
+        notifyRequested(saved, requester);
+        return toResponse(saved);
     }
 
     /**
@@ -292,6 +297,7 @@ public class LeaveService {
         AuditContext.change("paid", null, request.getPaid());
         Leave saved = leaveRepository.save(leave);
         syncTeacherStatus(saved);
+        notifyDecided(saved, me);
         LeaveResponse response = toResponse(saved);
         response.setAffectedLessons(affectedLessons(saved));
         return response;
@@ -315,7 +321,9 @@ public class LeaveService {
         leave.setDecidedAt(LocalDateTime.now(billingClock));
         leave.setDecisionNote(why);
         AuditContext.change("status", LeaveStatus.PENDING, LeaveStatus.REJECTED);
-        return toResponse(leaveRepository.save(leave));
+        Leave rejected = leaveRepository.save(leave);
+        notifyDecided(rejected, me);
+        return toResponse(rejected);
     }
 
     /**
@@ -546,6 +554,38 @@ public class LeaveService {
     private static String teacherName(Teacher t) {
         return t == null ? null : ((t.getFirstName() != null ? t.getFirstName() : "") + " "
             + (t.getLastName() != null ? t.getLastName() : "")).trim();
+    }
+
+    // ── Bildirishnomalar (CRM qo'ng'iroqchasi; commit'dan keyin) ─────────
+
+    private static final java.time.format.DateTimeFormatter DMY = java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy");
+
+    /** Yangi ariza → SA, A (ariza beruvchidan tashqari). */
+    private void notifyRequested(Leave l, User requester) {
+        notificationService.toRoles(NotificationType.LEAVE_REQUEST,
+            EnumSet.of(UserRole.SUPER_ADMIN, UserRole.ADMIN), requester.getId(),
+            "Ta'til arizasi: " + userName(l.getUser()), period(l), "/leaves/" + l.getId(), "Leave", l.getId());
+    }
+
+    /** Qaror → ta'tildagi xodim va (boshqa bo'lsa) ariza bergan; qaror qilgan o'zi — yo'q. */
+    private void notifyDecided(Leave l, User actor) {
+        Set<Long> ids = new java.util.LinkedHashSet<>();
+        if (l.getUser() != null) {
+            ids.add(l.getUser().getId());
+        }
+        if (l.getRequester() != null) {
+            ids.add(l.getRequester().getId());
+        }
+        String title = l.getStatus() == LeaveStatus.APPROVED
+            ? "Ta'til tasdiqlandi" + (Boolean.TRUE.equals(l.getPaid()) ? " (haqli)" : " (haqsiz)")
+            : "Ta'til rad etildi";
+        notificationService.toUsers(NotificationType.LEAVE_DECIDED, ids, actor.getId(), title,
+            period(l) + (l.getDecisionNote() != null ? " — " + l.getDecisionNote() : ""),
+            "/leaves/" + l.getId(), "Leave", l.getId());
+    }
+
+    private static String period(Leave l) {
+        return l.getFromDate().format(DMY) + " — " + l.getToDate().format(DMY);
     }
 
     private static String userName(User u) {

@@ -18,6 +18,9 @@ import com.crm.entity.User;
 import com.crm.entity.enums.ConversationType;
 import com.crm.entity.enums.UserRole;
 import com.crm.exception.CodedException;
+import com.crm.notification.NotificationEvent;
+import com.crm.notification.NotificationService;
+import com.crm.notification.NotificationType;
 import com.crm.repository.ConversationParticipantRepository;
 import com.crm.repository.ConversationRepository;
 import com.crm.repository.MessageRepository;
@@ -80,6 +83,7 @@ public class AppChatService {
     private final ChatAttachmentService chatAttachmentService;
     private final AppChatPushService pushService;
     private final Clock billingClock;
+    private final NotificationService notificationService;
 
     /** Yuborish natijasi: app javobi va xodimlarga ({@code /topic/conversation.{id}}) tarqatiladigan hodisa. */
     public record Sent(AppDtos.ChatMessageItem item, ChatMessageResponse broadcast) {
@@ -187,6 +191,7 @@ public class AppChatService {
             response = chatService.appendAppMessage(conversationId, access.identity().getId(), text, attachments);
             messageRepository.findById(response.getId())
                 .ifPresent(m -> pushService.onAppMessage(access.conversation(), m));
+            notifyStaff(access.conversation(), response);
         } else {
             ChatSendRequest request = new ChatSendRequest();
             request.setConversationId(conversationId);
@@ -235,6 +240,23 @@ public class AppChatService {
             return new Access(c, Side.STAFF, authService.identity(principal), authService.requireTeacher(principal));
         }
         throw CodedException.forbidden("app.chat.forbidden");
+    }
+
+    /**
+     * CRM qo'ng'iroqchasi: suhbatning faol xodim a'zolariga (commit'dan keyin). O'qilmagan bildirishnoma bo'lsa
+     * yangilanadi — har xabarga yangi qator emas.
+     */
+    private void notifyStaff(Conversation c, ChatMessageResponse message) {
+        Set<Long> members = participantRepository.findByConversationId(c.getId()).stream()
+            .filter(p -> p.getLeftAt() == null)
+            .map(p -> p.getUser().getId())
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+        String text = message.getText();
+        String preview = text == null || text.isBlank() ? "📎 Rasm"
+            : text.length() > 100 ? text.substring(0, 100) + "..." : text;
+        notificationService.publish(new NotificationEvent(NotificationType.CHAT_EXTERNAL, members, Set.of(), null,
+            "Yangi xabar: " + c.getTitle(), preview, "/chat?conversation=" + c.getId(), "Conversation", c.getId(),
+            true));
     }
 
     /** O'qituvchi useri → u dars beradigan guruh nomlari (identity o'quvchilarining ochiq guruhlari). */

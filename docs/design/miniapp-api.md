@@ -7,6 +7,8 @@
 > **O'zgarish (2026-10-03):** `balance.nextPaymentDate`/`nextPaymentAmount` → `balance.nextPayment {date, amount} | null` + `nextPaymentState` (`SCHEDULED | HOLD | NONE`, §3.4); davomatda `total`/`rate` faqat belgilangan darslar, yangi `unmarked` (+ `unmarkedLessons`) — §3.3.
 >
 > **Bosqich 3 (2026-10-03):** qo'lda raqam bilan ulash (§1.1), `profile.roles` / `profile.teacher` (§2), sabab bildirish (§5), chat (§6), o'qituvchi rejimi (§7), CRM endpointlari (§8), yangi xato kodlari (§4).
+>
+> **2026-10-03 (keyin):** `GET /api/app/link/manual/status` — qo'lda so'rov holati (§1.1); ilova hodisalari (qo'lda so'rov, chat xabari, sabab bildirish) CRM qo'ng'iroqchasiga ham tushadi (§8).
 
 ## 0. Umumiy
 
@@ -70,7 +72,23 @@ initData 1 soatdan eski bo'lsa auth ham 401 initDataExpired beradi → "Ilovani 
 | 401 | `app.auth.invalidInitData` / `initDataExpired` | "Ilovani qayta oching" |
 
 Tasdiqlangandan keyin: bot "✅ So'rovingiz tasdiqlandi" + **Ilovani ochish**; Mini App `POST /api/app/auth` — 200. Rad etilsa: bot "❌ … Sabab: …".
-Topilganlar (kim ekani) javobda **oshkor qilinmaydi**.
+Topilganlar (kim ekani) javobda **oshkor qilinmaydi**. **Rad etilgandan keyin** yangi so'rov yuborish mumkin (o'sha raqam bilan ham) — kunlik limit (5) saqlanadi.
+
+#### So'rov holati — `GET /api/app/link/manual/status` (ochiq, initData bilan)
+initData — `X-Telegram-Init-Data` sarlavhasida (tavsiya) yoki `?initData=` query parametrida (URL-encode qiling).
+```json
+{ "success": true, "data": { "requestId": 31, "status": "REJECTED", "reason": "Raqam ota-onaniki emas",
+                             "createdAt": "2026-09-15T12:00:00", "decidedAt": "2026-09-15T14:10:00" } }
+```
+| `status` | Ma'nosi | UI |
+|---|---|---|
+| `NONE` | so'rov yo'q (`requestId: null`) | "Hisobni ulash" ekrani |
+| `PENDING` | markaz ko'rib chiqmoqda | "So'rov yuborildi, kuting" (ekranni ochganda / 30 s da tekshirish) |
+| `APPROVED` | tasdiqlandi | `POST /api/app/auth` → bosh sahifa |
+| `REJECTED` | rad etildi, `reason` — xodim yozgan sabab | sabab + "Qayta yuborish" (yangi `POST /api/app/link/manual`) |
+| `CANCELLED` | foydalanuvchi boshqa raqam bilan yangi so'rov yubordi (eskisi) | odatda ko'rinmaydi — oxirgisi qaytadi |
+
+Har doim **oxirgi** so'rov qaytadi. Xatolar: 401 `app.auth.invalidInitData` / `initDataExpired`, 503 `app.auth.notConfigured`.
 
 ### Bot (minimal)
 | Xabar | Bot javobi |
@@ -378,6 +396,7 @@ Chatlar — §6 (`side: STAFF`).
 | `GET /api/absence-notices?groupId&date` | SA, A, T | T — o'z guruhi yoki shu kungi o'rinbosar (aks holda 403). Faol bildirishlar: `{id, studentId, studentName, groupId, groupName, lessonDate, type, comment, status, submittedAs, createdAt}` |
 | `GET /api/attendance/group/{id}?date` | (o'zgarmagan) | har qatorda `absenceNotice` (yuqoridagi shakl) yoki `null` |
 | `GET /api/chat/conversations` va boshqa `/api/chat/**`, STOMP | (o'zgarmagan) | `type: "EXTERNAL"` suhbatlar: `title` — "Ota-ona: …", `externalTarget`, `externalStatus`; app xabarida `senderType: "APP"`, `senderId: null`, `senderAppIdentityId`. Xodim javobi — mavjud `/app/chat.send` |
+| `GET /api/notifications/me`, `…/me/unread-count`, `POST /api/notifications/{id}/read`, `/read-all`; STOMP `/user/queue/notifications` | barcha xodimlar (o'zinikini) | CRM qo'ng'iroqchasi — batafsil [api-inventory.md](../audit/api-inventory.md). Ilovadan: `APP_LINK_REQUEST` (yangi qo'lda so'rov → SA, A, SH), `CHAT_EXTERNAL` (ilovadan xabar → suhbatning xodim a'zolari; o'qilmagani yangilanadi), `ABSENCE_NOTICE` (→ guruh o'qituvchisi va o'rinbosar) |
 
 ---
 

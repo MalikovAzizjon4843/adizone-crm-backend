@@ -76,5 +76,7 @@ class ChatSubscriptionGuardTest extends Phase5ItBase {
 
         assertThat(interceptor.preSend(subscribe(eve, "/topic/presence"), channel)).isNotNull();
         assertThat(interceptor.preSend(subscribe(eve, "/user/queue/errors"), channel)).isNotNull();
+        // Xodim bildirishnomalari (CRM qo'ng'iroqchasi) — o'z navbati
+        assertThat(interceptor.preSend(subscribe(eve, "/user/queue/notifications"), channel)).isNotNull();
     }
 }

@@ -9,7 +9,10 @@ import com.crm.entity.AppLinkRequest;
 import com.crm.entity.Student;
 import com.crm.entity.TelegramOutbox;
 import com.crm.entity.User;
+import com.crm.entity.enums.UserRole;
 import com.crm.exception.CodedException;
+import com.crm.notification.NotificationService;
+import com.crm.notification.NotificationType;
 import com.crm.repository.AppIdentityRepository;
 import com.crm.repository.AppLinkAttemptRepository;
 import com.crm.repository.AppLinkRequestRepository;
@@ -33,6 +36,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -48,6 +52,8 @@ public class MiniAppLinkRequestService {
     /** 24 soatda qo'lda urinishlar (so'rov + topilmadi) chegarasi. */
     static final int DAILY_LIMIT = 5;
     static final int REASON_MAX = 500;
+    /** So'rovlarni ko'rib chiqadiganlar — bildirishnoma ham ularga. */
+    static final Set<UserRole> REVIEWERS = EnumSet.of(UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.SALES_HEAD);
 
     private final TelegramInitDataValidator initDataValidator;
     private final MiniAppLinkService linkService;
@@ -60,6 +66,7 @@ public class MiniAppLinkRequestService {
     private final TelegramOutboxService outboxService;
     private final TelegramProperties telegramProperties;
     private final Clock billingClock;
+    private final NotificationService notificationService;
 
     // ── Mini App: so'rov yuborish ────────────────────────────────────────
 
@@ -111,7 +118,24 @@ public class MiniAppLinkRequestService {
             .build());
         attempt(user.id(), AppLinkAttempt.Result.MANUAL_REQUEST, now);
         log.info("Mini App qo'lda ulash so'rovi: request={}, telegramUserId={}", request.getId(), user.id());
+        // CRM qo'ng'iroqchasi: SA, A, SH (commit'dan keyin)
+        notificationService.toRoles(NotificationType.APP_LINK_REQUEST, REVIEWERS, null,
+            "Telegram ilova: ulash so'rovi", who(request) + " — " + request.getMatchSummary(),
+            "/app-link-requests", "AppLinkRequest", request.getId());
         return result(request);
+    }
+
+    /**
+     * Shu Telegram hisobining oxirgi qo'lda so'rovi (§11.1) — "kutilmoqda / tasdiqlandi / rad etildi" ekrani.
+     * So'rov bo'lmasa {@code NONE}. Rad etilgandan keyin yangi so'rov yuborish mumkin (kunlik limit saqlanadi).
+     */
+    @Transactional(readOnly = true)
+    public AppDtos.LinkRequestStatus status(String initData) {
+        TelegramInitDataValidator.WebAppUser user = initDataValidator.validate(initData);
+        return requestRepository.findFirstByTelegramUserIdOrderByIdDesc(user.id())
+            .map(r -> new AppDtos.LinkRequestStatus(r.getId(), r.getStatus().name(), r.getRejectReason(),
+                r.getCreatedAt(), r.getDecidedAt()))
+            .orElse(new AppDtos.LinkRequestStatus(null, "NONE", null, null, null));
     }
 
     // ── CRM: ko'rib chiqish ──────────────────────────────────────────────
@@ -228,6 +252,14 @@ public class MiniAppLinkRequestService {
         }
         String text = String.join("; ", parts);
         return text.length() > 1000 ? text.substring(0, 997) + "..." : text;
+    }
+
+    /** Telegram ismi / @username / id — CRM bildirishnomasida kim so'raganini ko'rsatish uchun. */
+    private static String who(AppLinkRequest r) {
+        if (r.getFirstName() != null && !r.getFirstName().isBlank()) {
+            return r.getFirstName() + (r.getTelegramUsername() != null ? " (@" + r.getTelegramUsername() + ")" : "");
+        }
+        return r.getTelegramUsername() != null ? "@" + r.getTelegramUsername() : "Telegram " + r.getTelegramUserId();
     }
 
     private void attempt(long telegramUserId, AppLinkAttempt.Result result, LocalDateTime now) {

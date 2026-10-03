@@ -59,7 +59,7 @@ public class BillingFixtures {
         "app_identity_students", "app_identities", "app_link_attempts", "telegram_updates",
         "student_parents", "parents",
         "absence_notices", "app_link_requests", "telegram_outbox",
-        "message_attachments", "messages", "conversation_participants", "conversations");
+        "message_attachments", "messages", "conversation_participants", "conversations", "user_notifications");
 
     private final CourseRepository courseRepository;
     private final GroupRepository groupRepository;

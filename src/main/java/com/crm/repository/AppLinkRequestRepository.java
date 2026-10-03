@@ -14,4 +14,6 @@ public interface AppLinkRequestRepository extends JpaRepository<AppLinkRequest, 
 
     Optional<AppLinkRequest> findFirstByTelegramUserIdAndStatusOrderByIdDesc(Long telegramUserId,
                                                                             AppLinkRequest.Status status);
+
+    Optional<AppLinkRequest> findFirstByTelegramUserIdOrderByIdDesc(Long telegramUserId);
 }

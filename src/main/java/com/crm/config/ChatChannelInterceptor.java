@@ -58,7 +58,9 @@ public class ChatChannelInterceptor implements ChannelInterceptor {
 
     /** A'zolik tekshiruvisiz obuna bo'linadigan manzillar (presence, shaxsiy xatolar). */
     private static final Set<String> STATIC_SUBSCRIPTIONS = Set.of(
-        ChatPresenceService.PRESENCE_TOPIC, "/user/queue/errors");
+        ChatPresenceService.PRESENCE_TOPIC, "/user/queue/errors",
+        // Xodim bildirishnomalari (CRM qo'ng'iroqchasi) — /user/** har sessiyaning o'z navbati, begonasi ko'rinmaydi
+        "/user/queue/notifications");
 
     /** SimpleBroker obunada Ant-naqsh sifatida talqin qiladigan belgilar. */
     private static final String WILDCARDS = "*?{}";

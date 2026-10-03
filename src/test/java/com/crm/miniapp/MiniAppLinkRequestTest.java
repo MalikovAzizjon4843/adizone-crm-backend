@@ -141,6 +141,61 @@ class MiniAppLinkRequestTest extends MiniAppItBase {
             .andExpect(jsonPath("$.data", hasSize(1)));
     }
 
+    private ResultActions linkStatus(long telegramUserId) throws Exception {
+        return mvc.perform(get("/api/app/link/manual/status").header("X-Telegram-Init-Data", initData(telegramUserId)));
+    }
+
+    @Test
+    void status_lifecycle_rejectSendsBotMessage_thenResubmit() throws Exception {
+        linkStatus(908).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("NONE"))
+            .andExpect(jsonPath("$.data.requestId").doesNotExist());
+
+        String phone = phone();
+        student("Ali", "Karimov", phone, null);
+        Long first = submit(908, phone);
+        linkStatus(908).andExpect(jsonPath("$.data.status").value("PENDING"))
+            .andExpect(jsonPath("$.data.requestId").value(first))
+            .andExpect(jsonPath("$.data.decidedAt").doesNotExist());
+
+        User admin = staff(UserRole.ADMIN, null);
+        mvc.perform(post("/api/app-link-requests/{id}/reject", first).with(as(admin))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Raqam ota-onaniki emas\"}"))
+            .andExpect(status().isOk());
+        linkStatus(908).andExpect(jsonPath("$.data.status").value("REJECTED"))
+            .andExpect(jsonPath("$.data.reason").value("Raqam ota-onaniki emas"))
+            .andExpect(jsonPath("$.data.decidedAt").isString());
+
+        // Bot xabari haqiqatan yuboriladi (outbox → TelegramBotApi)
+        botApi.reset();
+        assertThat(outboxWorker.runOnce()).isEqualTo(1);
+        assertThat(botApi.sent).singleElement().satisfies(s -> {
+            assertThat(s.chatId()).isEqualTo(908);
+            assertThat(s.html()).contains("rad etildi").contains("Raqam ota-onaniki emas");
+        });
+        assertThat(outboxFor(908)).singleElement()
+            .satisfies(o -> assertThat(o.getStatus()).isEqualTo(TelegramOutbox.Status.SENT));
+
+        // Rad etilgandan keyin — yangi so'rov (o'sha raqam bilan ham)
+        Long second = submit(908, phone);
+        assertThat(second).isNotEqualTo(first);
+        linkStatus(908).andExpect(jsonPath("$.data.status").value("PENDING"))
+            .andExpect(jsonPath("$.data.requestId").value(second));
+
+        // Kunlik limit saqlanadi: 2 ta so'rov + 3 ta "topilmadi" = 5 → keyingisi 429
+        for (int i = 0; i < 3; i++) {
+            manual(908, phone()).andExpect(status().isNotFound());
+        }
+        manual(908, phone).andExpect(status().isTooManyRequests());
+
+        // initData query parametri bilan ham; yaroqsiz initData — 401
+        mvc.perform(get("/api/app/link/manual/status").param("initData", initData(908)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("PENDING"));
+        mvc.perform(get("/api/app/link/manual/status").header("X-Telegram-Init-Data", "hash=00"))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/app/link/manual/status")).andExpect(status().isUnauthorized());
+    }
+
     @Test
     void crmEndpoints_roles() throws Exception {
         for (UserRole role : new UserRole[]{UserRole.SALES_MANAGER, UserRole.TEACHER, UserRole.ACCOUNTANT}) {

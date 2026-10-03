@@ -76,6 +76,42 @@
 | `PUT /api/users/me/onboarding/{key}` | barcha STAFF | `ApiResponse<{key, seenAt}>` 200 | Idempotent: qayta chaqiruv xato emas, birinchi `seenAt` saqlanadi. Kalit noto'g'ri → 400 `onboarding.key.invalid`; 200 tadan ortiq kalit → 409 `onboarding.limit` |
 | `DELETE /api/users/me/onboarding` | barcha STAFF | `ApiResponse<{deleted: n}>` 200 | Hammasini tozalash ("turlarni qayta ko'rish"); bo'sh bo'lsa `deleted: 0` |
 
+## Yangilanishlar (2026-10-03, xodim bildirishnomalari — V71; Telegram ilova CRM endpointlari — V68–V70)
+
+> **Bildirishnomalar markazi (CRM qo'ng'iroqchasi, phase5-audit S-04).** Jadval `user_notifications (user_id, type, title, body, link, entity_type, entity_id, read_at, created_at)`, FK `users` ON DELETE CASCADE; 90 kundan eskilari har kecha 04:00 da o'chiriladi. Legacy `notifications` jadvali (kodsiz, 0 qator, `read_at`/`link` yo'q) **ishlatilmaydi** va o'chirilmaydi (X-06 — alohida qaror).
+> Bildirishnoma biznes amali **commit bo'lgandan keyin** yoziladi va push qilinadi (rollback — bildirishnoma yo'q); amalni bajargan xodimning o'ziga yuborilmaydi. Matn — faqat o'zbekcha, yozilish paytida tayyorlanadi.
+
+| Endpoint | Rollar | Javob | Izoh |
+|---|---|---|---|
+| `GET /api/notifications/me?page&size` | **barcha STAFF** | `ApiResponse<PageResponse<{id, type, title, body, link, entityType, entityId, read, readAt, createdAt}>>` | Faqat o'zinikini, yangilari oldin; `page` 0 dan, `size` 1..100 (standart 20) |
+| `GET /api/notifications/me/unread-count` | barcha STAFF | `{count}` | Qo'ng'iroqcha belgisi |
+| `POST /api/notifications/{id}/read` | barcha STAFF | bitta bildirishnoma (`read: true`) | Idempotent; begona yoki yo'q → **404** `notification.notFound` |
+| `POST /api/notifications/read-all` | barcha STAFF | `{updated: n}` | Faqat o'zinikini |
+| STOMP `SUBSCRIBE /user/queue/notifications` | barcha STAFF | `{type: "NOTIFICATION", notification: {...yuqoridagi qator}, unreadCount}` | CH-01 oq ro'yxatiga qo'shildi (`ChatChannelInterceptor`); har sessiyaning o'z navbati |
+
+| `type` | Qachon | Kimga | `entityType` / `link` |
+|---|---|---|---|
+| `APP_LINK_REQUEST` | Telegram ilovada yangi qo'lda ulash so'rovi | faol SA, A, SH | `AppLinkRequest` / `/app-link-requests` |
+| `CHAT_EXTERNAL` | ilova foydalanuvchisi EXTERNAL suhbatga yozdi | suhbatning faol xodim a'zolari; shu suhbat bo'yicha **o'qilmagani yangilanadi** (har xabarga yangi qator emas) | `Conversation` / `/chat?conversation={id}` |
+| `ABSENCE_NOTICE` | o'quvchi / ota-ona sabab bildirdi | guruh o'qituvchisi + shu kungi o'rinbosar (useri bo'lsa) | `AbsenceNotice` / `/attendance?groupId=&date=` |
+| `ATTENDANCE_UNLOCK_REQUEST` | `POST /api/attendance/unlock-requests` (CRM yoki ilova) | faol SA, A | `AttendanceUnlockRequest` / `/attendance/unlock-requests` |
+| `ATTENDANCE_UNLOCK_DECIDED` | `PATCH …/{id}/approve` yoki `/reject` | so'ragan o'qituvchi | `AttendanceUnlockRequest` / `/attendance?groupId=&date=` |
+| `LEAVE_REQUEST` | `POST /api/leaves` | faol SA, A (ariza beruvchidan tashqari) | `Leave` / `/leaves/{id}` |
+| `LEAVE_DECIDED` | `POST /api/leaves/{id}/approve` yoki `/reject` | ta'tildagi xodim (+ ariza bergan, boshqa bo'lsa) | `Leave` / `/leaves/{id}` |
+
+`link` — frontend yo'li uchun ishora; ishonchli havola — `entityType` + `entityId`.
+
+**Telegram ilova — CRM endpointlari** (batafsil: [miniapp-api.md](../design/miniapp-api.md) §8):
+
+| Endpoint | Rollar | Izoh |
+|---|---|---|
+| `GET /api/app-link-requests?status` | SA, A, SH | Qo'lda ulash so'rovlari; `status` PENDING (standart) \| APPROVED \| REJECTED \| CANCELLED \| ALL |
+| `POST /api/app-link-requests/{id}/approve` | SA, A, SH | Identity ulanadi, bot xabari; 409 `appLinkRequest.notPending` / `noMatch` |
+| `POST /api/app-link-requests/{id}/reject` `{reason}` | SA, A, SH | Sabab majburiy (≤ 500) — ilovada `GET /api/app/link/manual/status` da va bot xabarida ko'rinadi |
+| `GET /api/absence-notices?groupId&date` | SA, A, T | O'quvchi/ota-ona sabab bildirishlari; T — o'z guruhi yoki o'rinbosarlik kuni |
+| `GET /api/attendance/group/{id}?date` | (o'zgarmagan) | Har qatorda `absenceNotice` yoki `null` |
+| `/api/chat/**`, STOMP | (o'zgarmagan) | `type: EXTERNAL` suhbatlar (`externalTarget`, `externalStatus`); ilova xabarida `senderType: APP`, `senderId: null` |
+
 ## 0. Qanday o'qish kerak
 
 ### 0.1 Endpointlar soni

@@ -167,6 +167,14 @@ public final class AppDtos {
     public record LinkRequestResult(Long requestId, String status, LocalDateTime createdAt) {
     }
 
+    /**
+     * Oxirgi qo'lda so'rov holati: {@code status} PENDING | APPROVED | REJECTED | CANCELLED | NONE (so'rov yo'q);
+     * {@code reason} — faqat REJECTED da (xodim yozgan sabab).
+     */
+    public record LinkRequestStatus(Long requestId, String status, String reason, LocalDateTime createdAt,
+                                    LocalDateTime decidedAt) {
+    }
+
     /** CRM ro'yxati qatori ({@code GET /api/app-link-requests}). */
     public record LinkRequestRow(Long id, String status, String phone, Long telegramUserId, String telegramUsername,
                                  String firstName, String matchSummary, LocalDateTime createdAt,

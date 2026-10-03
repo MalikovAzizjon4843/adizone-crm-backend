@@ -10,6 +10,8 @@ import com.crm.entity.enums.BonusTargetType;
 import com.crm.entity.enums.UnlockRequestStatus;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.notification.NotificationService;
+import com.crm.notification.NotificationType;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,6 +39,7 @@ public class AttendanceUnlockRequestService {
     private final BonusPenaltyService bonusPenaltyService;
     private final TeacherAccessService teacherAccessService;
     private final AttendanceAccessService attendanceAccessService;
+    private final NotificationService notificationService;
 
     /**
      * APPROVED ruxsat {@code reviewedAt} dan shuncha soat amal qiladi. Undan keyin o'qituvchi
@@ -102,7 +105,9 @@ public class AttendanceUnlockRequestService {
             .teacherNote(dto.getNote())
             .build();
 
-        return toResponseDto(attendanceUnlockRequestRepository.save(req));
+        AttendanceUnlockRequest created = attendanceUnlockRequestRepository.save(req);
+        notifyRequested(created);
+        return toResponseDto(created);
     }
 
     /**
@@ -170,6 +175,7 @@ public class AttendanceUnlockRequestService {
             bonusPenaltyService.create(bpDto);
         }
 
+        notifyDecided(saved, admin);
         return toResponseDto(saved);
     }
 
@@ -189,7 +195,43 @@ public class AttendanceUnlockRequestService {
         req.setStatus(UnlockRequestStatus.REJECTED);
         req.setReviewedBy(admin);
         req.setReviewedAt(LocalDateTime.now());
-        return toResponseDto(attendanceUnlockRequestRepository.save(req));
+        AttendanceUnlockRequest rejected = attendanceUnlockRequestRepository.save(req);
+        notifyDecided(rejected, admin);
+        return toResponseDto(rejected);
+    }
+
+    // ── Bildirishnomalar (CRM qo'ng'iroqchasi; commit'dan keyin) ─────────
+
+    /** Yangi so'rov → SA, A (so'ragan o'qituvchidan tashqari). */
+    private void notifyRequested(AttendanceUnlockRequest req) {
+        Teacher t = req.getTeacher();
+        notificationService.toRoles(NotificationType.ATTENDANCE_UNLOCK_REQUEST,
+            java.util.EnumSet.of(com.crm.entity.enums.UserRole.SUPER_ADMIN, com.crm.entity.enums.UserRole.ADMIN),
+            t.getUser() != null ? t.getUser().getId() : null,
+            "Davomatni ochish so'rovi: " + (t.getFirstName() + " " + t.getLastName()).trim(),
+            lessonOf(req) + (req.getTeacherNote() != null && !req.getTeacherNote().isBlank()
+                ? " — " + req.getTeacherNote().trim() : ""),
+            "/attendance/unlock-requests", "AttendanceUnlockRequest", req.getId());
+    }
+
+    /** Tasdiq / rad → so'ragan o'qituvchi (useri bo'lsa). */
+    private void notifyDecided(AttendanceUnlockRequest req, User admin) {
+        User teacherUser = req.getTeacher() != null ? req.getTeacher().getUser() : null;
+        if (teacherUser == null) {
+            return;
+        }
+        boolean approved = req.getStatus() == UnlockRequestStatus.APPROVED;
+        notificationService.toUsers(NotificationType.ATTENDANCE_UNLOCK_DECIDED, List.of(teacherUser.getId()),
+            admin.getId(),
+            approved ? "Davomat ochildi: " + lessonOf(req) : "Davomatni ochish rad etildi: " + lessonOf(req),
+            approved ? unlockValidHours + " soat ichida kiriting" : null,
+            "/attendance?groupId=" + req.getGroup().getId() + "&date=" + req.getAttendanceDate(),
+            "AttendanceUnlockRequest", req.getId());
+    }
+
+    private static String lessonOf(AttendanceUnlockRequest req) {
+        return req.getGroup().getGroupName() + ", "
+            + req.getAttendanceDate().format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy"));
     }
 
     @Transactional(readOnly = true)

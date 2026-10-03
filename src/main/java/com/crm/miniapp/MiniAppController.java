@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -44,6 +45,17 @@ public class MiniAppController {
     public ApiResponse<AppDtos.LinkRequestResult> manualLink(@Valid @RequestBody AppDtos.ManualLinkRequest request) {
         return ApiResponse.success("So'rov yuborildi, markaz tasdiqlaydi",
             linkRequestService.submit(request.initData(), request.phone()));
+    }
+
+    /**
+     * Oxirgi qo'lda so'rov holati (ochiq, initData bilan). initData — {@code X-Telegram-Init-Data} sarlavhasi
+     * (tavsiya) yoki {@code initData} query parametri.
+     */
+    @GetMapping("/link/manual/status")
+    public ApiResponse<AppDtos.LinkRequestStatus> manualLinkStatus(
+            @RequestHeader(name = "X-Telegram-Init-Data", required = false) String header,
+            @RequestParam(name = "initData", required = false) String param) {
+        return ApiResponse.success(linkRequestService.status(header != null && !header.isBlank() ? header : param));
     }
 
     @GetMapping("/me")
