@@ -66,6 +66,16 @@
 | `POST /api/notices` | `targetRoles: ["SALES_HEAD"]` qabul qilinadi (avval ham enum bo'yicha qabul qilinardi; V60 eski `target_role` ko'chirishida ham SALES_HEAD bor) |
 | `POST /api/leads/{id}/convert`, `/api/leads/operators`, dashboard operatorlari | O'zgarish yo'q — SH allaqachon bor edi, test bilan tasdiqlandi |
 
+## Yangilanishlar (2026-10-03, onboarding holati — V67)
+
+> Xodim qaysi frontend turlarini ("tour") ko'rganini saqlash. Jadval `user_onboarding (user_id, tour_key, seen_at)`, PK `(user_id, tour_key)`, FK `users` ON DELETE CASCADE. Batafsil — [Users](#users--controllerusercontrollerjava) jadvali.
+
+| Endpoint | Rollar | Javob | Izoh |
+|---|---|---|---|
+| `GET /api/users/me/onboarding` | **barcha STAFF** (SA, A, SH, SM, ACC, T) | `ApiResponse<[{key, seenAt}]>`, `key` bo'yicha tartiblangan | Faqat joriy foydalanuvchi yozuvlari |
+| `PUT /api/users/me/onboarding/{key}` | barcha STAFF | `ApiResponse<{key, seenAt}>` 200 | Idempotent: qayta chaqiruv xato emas, birinchi `seenAt` saqlanadi. Kalit noto'g'ri → 400 `onboarding.key.invalid`; 200 tadan ortiq kalit → 409 `onboarding.limit` |
+| `DELETE /api/users/me/onboarding` | barcha STAFF | `ApiResponse<{deleted: n}>` 200 | Hammasini tozalash ("turlarni qayta ko'rish"); bo'sh bo'lsa `deleted: 0` |
+
 ## 0. Qanday o'qish kerak
 
 ### 0.1 Endpointlar soni
@@ -239,6 +249,7 @@ Majburiy query param yuborilmasa **500** qaytadi.
 
 - Base path: `/api/users` (`UserController.java:35`). Class-level `@PreAuthorize`: yo'q (har metodda alohida).
 - SecurityConfig: `/api/users/**` → SA, A (`SecurityConfig.java:151-152`; `/**` `/api/users` ning o'zini ham qamraydi).
+- **Istisno (2026-10-03):** `/api/users/me/onboarding`, `/api/users/me/onboarding/**` → barcha STAFF rollar (qoida `/api/users/**` va `DELETE /api/**` dan oldin). Controller — `controller/UserOnboardingController.java`, servis — `service/UserOnboardingService.java`; foydalanuvchi id si so'rovdan emas, SecurityContext'dan olinadi.
 
 | METHOD | path | Controller#metod | Effektiv rollar | Request | Response | Pagination | Izoh |
 |---|---|---|---|---|---|---|---|
@@ -254,6 +265,9 @@ Majburiy query param yuborilmasa **500** qaytadi.
 | PUT | /api/users/{id}/password | #changePassword (`:189`) | SA, A | path `id`; body `ChangePasswordRequest` (@Valid) | `ApiResponse<Void>` "Password changed" | yo'q | SA himoyasi va sessiya revoke YO'Q (Muammolar #U1). |
 | POST | /api/users/{id}/photo | #uploadUserPhoto (`:201`) | SA, A | path `id`; multipart `file` | `ApiResponse<UserResponse>` "Rasm saqlandi" | yo'q | |
 | DELETE | /api/users/{id} | #deleteUser (`:222`) | **SA** (SecurityConfig:151 SA,A ∩ @PreAuthorize SA `:223`) | path `id` | `ApiResponse<Void>` 200 | yo'q | Soft-delete = `setActive(id,false)` (`:230`). |
+| GET | /api/users/me/onboarding | UserOnboardingController#list | **barcha STAFF** | — | `ApiResponse<OnboardingItemResponse[]>` — `[{key: string, seenAt: LocalDateTime}]`, `key` bo'yicha | yo'q | **2026-10-03, V67.** Faqat joriy foydalanuvchi yozuvlari. |
+| PUT | /api/users/me/onboarding/{key} | UserOnboardingController#markSeen | **barcha STAFF** | path `key`: 1–80 belgi, `^[a-z0-9]+([._-][a-z0-9]+)*$` (masalan `dashboard.intro`, `leads.kanban-v2`) | `ApiResponse<OnboardingItemResponse>` 200 | yo'q | Idempotent (`INSERT … ON CONFLICT DO NOTHING`), birinchi `seenAt` (Asia/Tashkent) saqlanadi. 400 `onboarding.key.invalid` (katta harf, bo'sh joy, kirill, ketma-ket/chetdagi `. _ -`, > 80); 409 `onboarding.limit` — 200 ta kalitdan keyin yangisi (mavjudini qayta belgilash mumkin). Bazada ham CHECK `ck_user_onboarding_key`. |
+| DELETE | /api/users/me/onboarding | UserOnboardingController#reset | **barcha STAFF** | — | `ApiResponse<{deleted: int}>` 200 | yo'q | Joriy foydalanuvchining barcha belgilari o'chadi ("turlarni qayta ko'rish"). Boshqa foydalanuvchiniki uchun yo'l yo'q. |
 
 #### DTO tafsilotlari (Users)
 
