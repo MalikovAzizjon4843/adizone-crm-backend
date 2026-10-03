@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V64 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V65 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V63 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V65 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
@@ -22,7 +22,7 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V63 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V65 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
@@ -298,7 +298,12 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V63', 'column', 'contracts', 'cancel_reason'),
     ('V63', 'column', 'contracts', 'pdf_file'),
     ('V63', 'column', 'contracts', 'pdf_sha256'),
-    ('V63', 'index', 'contracts', 'idx_contracts_student_group')
+    ('V63', 'index', 'contracts', 'idx_contracts_student_group'),
+    ('V65', 'column', 'homeworks', 'attachment_url'),
+    ('V65', 'column', 'homeworks', 'attachment_name'),
+    ('V65', 'table', 'group_transfer_batches', NULL),
+    ('V65', 'index', 'group_transfer_batches', 'uk_group_transfer_batches_key'),
+    ('V65', 'index', 'group_transfer_batches', 'idx_group_transfer_batches_from')
 ), checked AS (
     SELECT w.*,
            CASE w.kind

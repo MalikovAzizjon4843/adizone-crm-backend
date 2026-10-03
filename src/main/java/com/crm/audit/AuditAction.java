@@ -28,6 +28,8 @@ public final class AuditAction {
 
     /** Vazifa natija bilan yopildi. */
     public static final String TASK_DONE = "TASK_DONE";
+    /** Guruhga ommaviy ko'chirish (phase6-api §5). */
+    public static final String TRANSFER = "TRANSFER";
 
     private AuditAction() {
     }

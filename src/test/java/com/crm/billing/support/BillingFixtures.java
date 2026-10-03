@@ -54,7 +54,8 @@ public class BillingFixtures {
         "payroll", "salary_rules",
         "exam_results", "exam_registrations", "exams", "contracts", "contract_templates",
         "contract_number_counters", "notice_reads", "notice_target_roles", "notices",
-        "lesson_substitutions", "leave_requests", "attendance_unlock_requests");
+        "lesson_substitutions", "leave_requests", "attendance_unlock_requests",
+        "homework_submissions", "homeworks", "group_transfer_batches", "expenses");
 
     private final CourseRepository courseRepository;
     private final GroupRepository groupRepository;

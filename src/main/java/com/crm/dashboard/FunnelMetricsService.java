@@ -133,6 +133,26 @@ public class FunnelMetricsService {
         return leadRows(reached, at);
     }
 
+    /** Kogorta lidi (analitika, phase6 §1): manba, yaratilgan payt, P oxirigacha konvert qilinganmi, birinchi to'lov bormi. */
+    public record CohortLead(String source, LocalDateTime createdAt, boolean converted, boolean firstPayment) {
+    }
+
+    /** P da yaratilgan lidlar (import qilinganlarsiz — {@link #cohort} bilan bir xil to'plam). */
+    @Transactional(readOnly = true)
+    public List<CohortLead> cohortLeadFacts(DashboardPeriod p, Filter f) {
+        List<Lead> cohort = cohortLeads(p, f);
+        LocalDateTime asOf = p.asOf();
+        Map<Long, Student> students = queries.studentsByLead(cohort.stream().map(Lead::getId).toList());
+        Map<Long, DashboardQueries.FirstPayment> firsts =
+            queries.firstPaymentsOf(students.values().stream().map(Student::getId).toList());
+        return cohort.stream().map(l -> {
+            LocalDateTime conv = l.getConvertedAt();
+            LocalDateTime paid = firstPaymentAt(l, students, firsts);
+            return new CohortLead(l.getSource(), l.getCreatedAt(), conv != null && conv.isBefore(asOf),
+                paid != null && paid.isBefore(asOf));
+        }).toList();
+    }
+
     private List<Lead> cohortLeads(DashboardPeriod p, Filter f) {
         return queries.leadsCreated(p.start(), p.endExclusive()).stream().filter(l -> keep(l, f)).toList();
     }

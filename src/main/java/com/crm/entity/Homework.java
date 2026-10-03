@@ -52,6 +52,13 @@ public class Homework extends BaseEntity {
     @Column(precision = 6, scale = 2)
     private BigDecimal marks;
 
+    /** Biriktirilgan fayl ({@code POST /api/files/upload} natijasi) — phase6-api §4. */
+    @Column(name = "attachment_url", length = 500)
+    private String attachmentUrl;
+
+    @Column(name = "attachment_name", length = 255)
+    private String attachmentName;
+
     @Column(name = "is_active")
     @Builder.Default
     private Boolean isActive = true;

@@ -1,9 +1,12 @@
 # Deploy v2 — runbook (billing v2, dashboard, payroll v2, phase 5, ta'til/imtihon/shartnoma, SALES_HEAD)
 
-> Kod emas — prod'ga chiqarish tartibi. Branch `billing-v2`, migratsiyalar `V52…V64`.
+> Kod emas — prod'ga chiqarish tartibi. Branch `billing-v2`, migratsiyalar `V52…V65`.
 > Bog'liq: [env.md](env.md) (sirlar), [billing-v2-migration.md](billing-v2-migration.md) (billing migratsiyasi
 > va rollback), [prod-schema-check.sql](prod-schema-check.sql) (sxema tekshiruvi), [timezone.md](timezone.md).
 > **TAXMIN** — serverda tekshirilishi kerak bo'lgan da'vo.
+>
+> **2026-10-04 deployi uchun aniq qadamlar (shu server, pilotsiz):** [deploy-day-2026-10-04.md](deploy-day-2026-10-04.md).
+> Qaror (2026-10-03): §5 dagi `crm.adizone.uz` pilot **o'tkazilmaydi** — yangi front darhol `admin.adizone.uz` ga.
 
 ## 0. Eng katta xavflar (qisqa)
 
@@ -230,7 +233,7 @@ for v in V52__billing_v2 V53__director_dashboard V54__payroll_v2 V55__payroll_v2
          V56__legacy_constraints V57__salary_rule_overlaps V58__phase5_security \
          V59__contract_number_per_year V60__notice_target_roles \
          V61__leaves_substitutions V62__exam_fee V63__settings_contract_snapshot \
-         V64__teacher_user_fk_dedupe; do
+         V64__teacher_user_fk_dedupe V65__homework_group_transfer; do
   psql -h localhost -U crm_user -d adizone -X -v ON_ERROR_STOP=1 -f src/main/resources/db/migration/$v.sql \
     2>&1 | tee -a migrate-$(date +%F).log
 done

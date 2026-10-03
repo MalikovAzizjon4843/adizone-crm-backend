@@ -24,6 +24,8 @@ public class HomeworkResponse {
     private LocalDate assignedDate;
     private LocalDate dueDate;
     private BigDecimal marks;
+    private String attachmentUrl;
+    private String attachmentName;
     private Boolean isActive;
     private LocalDateTime createdAt;
 }

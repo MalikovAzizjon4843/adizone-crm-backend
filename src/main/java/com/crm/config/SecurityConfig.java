@@ -146,6 +146,9 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT", "SALES_HEAD")
                 .requestMatchers("/api/dashboard/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                // Xodimlar samaradorligi: SALES_HEAD — faqat role=SALES (controller tekshiradi), phase6 §2
+                .requestMatchers(HttpMethod.GET, "/api/analytics/staff")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_HEAD")
                 .requestMatchers("/api/analytics/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/finance/**")

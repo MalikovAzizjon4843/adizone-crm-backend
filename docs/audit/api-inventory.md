@@ -41,6 +41,19 @@
 | `GET /api/contracts` | SA, A | Query `q` (o'quvchi ismi/familiyasi, telefoni yoki ota-ona telefoni, shartnoma raqami; `%`/`_` oddiy belgi), `from`, `to` (shartnoma sanasi). 400 `contract.dates.invalid` |
 | `GET /api/leaves/{id}/deduction-preview` | SA, A | **Yangi.** Ta'til haqsiz deb hisoblanganda ayirma (PENDING ham), oylar bo'yicha `[{month, year, workDays, unpaidDays, fixedSalary, amount}]`; formula payroll bilan bir xil, bayram ish kuni emas; qoida yo'q → `fixedSalary`/`amount` null |
 
+## Yangilanishlar (2026-10-03, phase 6 — "Tez orada" sahifalari)
+
+> To'liq shartnoma: [phase6-api.md](../design/phase6-api.md). Migratsiya V65.
+
+| Endpoint | Rollar | O'zgarish |
+|---|---|---|
+| `GET /api/analytics/overview` | SA, A | **Yangi.** Moliya, o'quvchilar, lidlar, guruhlar + oldingi davr va vaqt qatorlari |
+| `GET /api/analytics/staff?role=TEACHER\|SALES\|ADMIN` | SA, A; SH — faqat `SALES` | **Yangi javob** (`role` bilan). `role` siz — eski javob, deprecated |
+| `GET /api/analytics/dashboard`, `/revenue`, `/students`, `/marketing/sources`, `/staff/summary`, `/staff/{userId}/trend` | SA, A | **Deprecated** |
+| `GET /api/homework?groupId&from&to`, `GET/PUT /api/homework/{id}/students` | SA, A, T (o'z guruhi) | Filtrlar, o'quvchilar bo'yicha holat/baho; fayl biriktirish; eski submission endpointlari deprecated va endi egalikni tekshiradi |
+| `POST /api/groups/{fromId}/promote/preview`, `/promote` | SA, A | **Yangi.** Guruhga ommaviy ko'chirish, Idempotency-Key, audit `TRANSFER` |
+| Chat `chat.*` matnlari | — | Argumentsiz 9 ta o'zbekcha matnda ikki apostrof xatosi tuzatildi |
+
 ## Yangilanishlar (2026-10-02, SALES_HEAD qarorlari)
 
 > SH ning to'liq ruxsatlar jadvali — [§0.2a](#02a-sales_head-sh-effektiv-ruxsatlari).

@@ -36,7 +36,8 @@ public class HomeworkSubmission extends BaseEntity {
     @Column(name = "marks_obtained", precision = 6, scale = 2)
     private BigDecimal marksObtained;
 
+    /** {@link com.crm.entity.enums.HomeworkSubmissionStatus} nomi (V65 eski PENDING ni NOT_SUBMITTED ga o'tkazadi). */
     @Column(length = 20)
     @Builder.Default
-    private String status = "PENDING";
+    private String status = "NOT_SUBMITTED";
 }

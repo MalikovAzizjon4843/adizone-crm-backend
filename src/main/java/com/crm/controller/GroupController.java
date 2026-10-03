@@ -1,5 +1,6 @@
 package com.crm.controller;
 
+import com.crm.dto.request.GroupPromoteRequest;
 import com.crm.dto.request.GroupRequest;
 import com.crm.dto.request.RemoveStudentRequest;
 import com.crm.dto.request.StudentGroupRequest;
@@ -10,6 +11,8 @@ import com.crm.dto.response.GroupResponse;
 import com.crm.dto.response.SuspendedStudentResponse;
 import com.crm.dto.response.StudentResponse;
 import com.crm.entity.enums.GroupStatus;
+import com.crm.dto.response.GroupPromoteDtos;
+import com.crm.service.GroupPromotionService;
 import com.crm.service.GroupService;
 import com.crm.service.StudentService;
 import jakarta.validation.Valid;
@@ -27,6 +30,33 @@ public class GroupController {
 
     private final GroupService groupService;
     private final StudentService studentService;
+    private final GroupPromotionService promotionService;
+
+    /** Guruhga ko'chirish oldindan ko'rish (phase6-api §5) — hech narsa yozmaydi. */
+    @PostMapping("/{fromId}/promote/preview")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<GroupPromoteDtos.Preview>> promotePreview(
+            @PathVariable Long fromId, @Valid @RequestBody GroupPromoteRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(promotionService.preview(fromId, request)));
+    }
+
+    /**
+     * Guruhga ko'chirish — hammasi yoki hech biri. {@code Idempotency-Key}: takror so'rov o'sha natija,
+     * 200 + {@code X-Idempotent-Replay: true}.
+     */
+    @PostMapping("/{fromId}/promote")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<GroupPromoteDtos.Result>> promote(
+            @PathVariable Long fromId, @Valid @RequestBody GroupPromoteRequest request,
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey) {
+        var replay = promotionService.replay(fromId, request, idempotencyKey);
+        if (replay.isPresent()) {
+            return ResponseEntity.ok().header("X-Idempotent-Replay", "true")
+                .body(ApiResponse.success("Allaqachon ko'chirilgan", replay.get()));
+        }
+        return ResponseEntity.status(HttpStatus.CREATED)
+            .body(ApiResponse.success("Ko'chirildi", promotionService.promote(fromId, request, idempotencyKey)));
+    }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT','TEACHER')")

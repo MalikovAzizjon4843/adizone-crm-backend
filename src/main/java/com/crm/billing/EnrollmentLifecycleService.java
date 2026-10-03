@@ -458,6 +458,11 @@ public class EnrollmentLifecycleService {
         return new Transfer(from, to, moved);
     }
 
+    /** Preview (guruhga ko'chirish, phase6-api §5): ko'chirilsa yangi SG qaysi sanadan hisoblanadi. Hech narsa yozmaydi. */
+    public LocalDate transferAnchor(StudentGroup from) {
+        return continuedAnchor(from, statusService.today());
+    }
+
     /**
      * Yangi SG langari: MONTHLY va sinovda emas — eski SG ning keyingi hisoblanmagan
      * davr boshi (joriy davr eski SG da olingan, ikki marta olinmaydi). Davrlar bo'lmasa —
