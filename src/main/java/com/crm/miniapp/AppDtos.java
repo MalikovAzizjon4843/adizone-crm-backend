@@ -61,16 +61,29 @@ public final class AppDtos {
     }
 
     /**
-     * Billing v2 snapshot'i (faqat o'qish). {@code balance} &lt; 0 — qarz; {@code debt} = |manfiy qism|.
-     * {@code status}: PAID, PENDING, OVERDUE, FROZEN, TRIAL.
+     * Billing v2 snapshot'i (ledgerdan, faqat o'qish). {@code balance} &lt; 0 — qarz; {@code debt} = |manfiy qism|.
+     * {@code status}: PAID, PENDING, OVERDUE, FROZEN, TRIAL. Keyingi to'lov — {@link NextPayment} va
+     * {@code nextPaymentState}.
      */
     public record Balance(BigDecimal balance, BigDecimal debt, String status, LocalDate debtSince,
-                          LocalDate nextPaymentDate, BigDecimal nextPaymentAmount) {
+                          NextPayment nextPayment, String nextPaymentState) {
     }
 
-    /** {@code rate} = (keldi + kechikdi) / jami × 100, jami 0 bo'lsa null. */
+    /**
+     * Keyingi to'lov — faqat {@code nextPaymentState = SCHEDULED} bo'lsa (sana bugun yoki keyin). Aks holda
+     * {@code nextPayment = null}: HOLD — yozilma billing migratsiyasida ushlab turilgan ({@code billing_hold});
+     * NONE — rejalashtirilgan to'lov yo'q (sinov, muzlatilgan, narx yo'q yoki sana o'tib ketgan — qarz
+     * {@code debt}/{@code debtSince} da).
+     */
+    public record NextPayment(LocalDate date, BigDecimal amount) {
+    }
+
+    /**
+     * {@code total} — faqat belgilangan (davomat yozuvi bor) darslar; {@code rate} = (keldi + kechikdi) / total × 100,
+     * total 0 bo'lsa null. {@code unmarked} — o'tgan va bugungi boshlangan, lekin belgilanmagan darslar (rate ga kirmaydi).
+     */
     public record AttendanceSummary(String month, int present, int late, int absent, int excused, int total,
-                                    Integer rate) {
+                                    Integer rate, int unmarked) {
     }
 
     // ── Jadval ──
@@ -79,8 +92,13 @@ public final class AppDtos {
     }
 
     // ── Davomat ──
-    public record AttendanceMonth(String month, Counts counts, int total, Integer rate, List<AttendanceDay> days,
+    /** {@code total}/{@code rate}/{@code unmarked} — {@link AttendanceSummary} bilan bir xil qoida. */
+    public record AttendanceMonth(String month, Counts counts, int total, Integer rate, int unmarked,
+                                  List<UnmarkedLesson> unmarkedLessons, List<AttendanceDay> days,
                                   LastMissed lastMissed) {
+    }
+
+    public record UnmarkedLesson(LocalDate date, Long groupId, String groupName) {
     }
 
     public record Counts(int present, int late, int absent, int excused) {
@@ -101,7 +119,7 @@ public final class AppDtos {
     public record EnrollmentFee(Long studentGroupId, Long groupId, String groupName, String courseName,
                                 String paymentType, BigDecimal monthlyFee, BigDecimal discountPercent,
                                 BigDecimal finalFee, BigDecimal balance, BigDecimal debt, String status,
-                                LocalDate debtSince, LocalDate nextPaymentDate, BigDecimal nextPaymentAmount) {
+                                LocalDate debtSince, NextPayment nextPayment, String nextPaymentState) {
     }
 
     /** {@code status}: PAID yoki CANCELLED ("bekor qilingan"). {@code amount} — chegirmadan keyingi summa. */

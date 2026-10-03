@@ -51,6 +51,7 @@ class MiniAppDataTest extends MiniAppItBase {
     @Autowired private PaymentRepository paymentRepository;
     @Autowired private StudentGroupRepository studentGroupRepository;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private com.crm.billing.AccrualService accrualService;
 
     private Long studentId;
     private Long groupId;
@@ -204,6 +205,10 @@ class MiniAppDataTest extends MiniAppItBase {
             .andExpect(jsonPath("$.data.counts.excused").value(1))
             .andExpect(jsonPath("$.data.total").value(5))
             .andExpect(jsonPath("$.data.rate").value(60))
+            // 14.09 (dushanba) darsi bo'lgan, lekin belgilanmagan — foizga kirmaydi
+            .andExpect(jsonPath("$.data.unmarked").value(1))
+            .andExpect(jsonPath("$.data.unmarkedLessons[0].date").value("2026-09-14"))
+            .andExpect(jsonPath("$.data.unmarkedLessons[0].groupId").value(groupId))
             .andExpect(jsonPath("$.data.days", hasSize(5)))
             .andExpect(jsonPath("$.data.days[0].note").doesNotExist())
             .andExpect(jsonPath("$.data.days[3].status").value("EXCUSED"))
@@ -211,10 +216,57 @@ class MiniAppDataTest extends MiniAppItBase {
             .andExpect(jsonPath("$.data.lastMissed.date").value("2026-09-07"))
             .andExpect(jsonPath("$.data.lastMissed.weekday").value("MONDAY"));
 
-        call("/api/app/home").andExpect(jsonPath("$.data.attendance.rate").value(60));
+        call("/api/app/home")
+            .andExpect(jsonPath("$.data.attendance.total").value(5))
+            .andExpect(jsonPath("$.data.attendance.rate").value(60))
+            .andExpect(jsonPath("$.data.attendance.unmarked").value(1));
         mvc.perform(get("/api/app/attendance").param("month", "sentabr").header("Authorization", bearer(token)))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.code").value("app.month.invalid"));
+    }
+
+    @Test
+    void attendance_nothingMarked_rateNull_allPastLessonsUnmarked() throws Exception {
+        exception(d("09.09.2026"), LessonException.Kind.CANCELLED, null);   // bekor dars — belgilanmagan emas
+
+        // 01.09 dan bugungacha (15.09, seshanba): 2, 4, 7, 11, 14 — 5 ta dars
+        call("/api/app/attendance", "month", "2026-09")
+            .andExpect(jsonPath("$.data.total").value(0))
+            .andExpect(jsonPath("$.data.rate").doesNotExist())
+            .andExpect(jsonPath("$.data.unmarked").value(5))
+            .andExpect(jsonPath("$.data.unmarkedLessons[*].date").value(org.hamcrest.Matchers.contains(
+                "2026-09-02", "2026-09-04", "2026-09-07", "2026-09-11", "2026-09-14")));
+        call("/api/app/home")
+            .andExpect(jsonPath("$.data.attendance.total").value(0))
+            .andExpect(jsonPath("$.data.attendance.rate").doesNotExist())
+            .andExpect(jsonPath("$.data.attendance.unmarked").value(5));
+        // Kelajak oyi — darslar hali bo'lmagan
+        call("/api/app/attendance", "month", "2026-10").andExpect(jsonPath("$.data.unmarked").value(0));
+        // Qo'shilishdan oldingi oy
+        call("/api/app/attendance", "month", "2026-08").andExpect(jsonPath("$.data.unmarked").value(0));
+    }
+
+    @Test
+    void attendance_todaysLesson_unmarkedOnlyAfterStart() throws Exception {
+        mark("02.09.2026", AttendanceStatus.PRESENT, false, null, null);
+        mark("04.09.2026", AttendanceStatus.PRESENT, false, null, null);
+        mark("07.09.2026", AttendanceStatus.PRESENT, false, null, null);
+        mark("09.09.2026", AttendanceStatus.PRESENT, false, null, null);
+        mark("11.09.2026", AttendanceStatus.PRESENT, false, null, null);
+        mark("14.09.2026", AttendanceStatus.LATE, false, null, null);
+
+        clock.setDateTime(LocalDateTime.of(2026, 9, 16, 18, 0));   // chorshanba, dars 18:30 da
+        token = appToken(801);
+        call("/api/app/attendance").andExpect(jsonPath("$.data.unmarked").value(0))
+            .andExpect(jsonPath("$.data.rate").value(100));
+
+        clock.setDateTime(LocalDateTime.of(2026, 9, 16, 18, 45));
+        token = appToken(801);
+        call("/api/app/attendance")
+            .andExpect(jsonPath("$.data.unmarked").value(1))
+            .andExpect(jsonPath("$.data.unmarkedLessons[0].date").value("2026-09-16"))
+            .andExpect(jsonPath("$.data.total").value(6))
+            .andExpect(jsonPath("$.data.rate").value(100));
     }
 
     private void mark(String date, AttendanceStatus status, boolean excused, String reason, String notes) {
@@ -231,15 +283,16 @@ class MiniAppDataTest extends MiniAppItBase {
 
     // ── To'lov (faqat o'qish) ────────────────────────────────────────────
 
+    /** Sentabr davri ledgerga yoziladi (billing v2 accrual) — qarz 700 000, debtSince 01.09. */
+    private void accrueSeptember() {
+        accrualService.accrueUpTo(sgId, d("15.09.2026"));
+    }
+
     @Test
     void payments_snapshotHistoryAndHowToPay_readOnly() throws Exception {
-        inTx(() -> {
-            StudentGroup sg = studentGroupRepository.findById(sgId).orElseThrow();
-            sg.setBalance(new BigDecimal("-700000.00"));
-            sg.setDebtSince(d("01.09.2026"));
-            sg.setNextPaymentDate(d("01.09.2026"));
-            sg.setNextPaymentAmount(new BigDecimal("700000.00"));
-        });
+        accrueSeptember();
+        // Eski ustun ataylab boshqa (kelajak) sana — ishlatilmasligi kerak
+        legacyNextPaymentDate(sgId, d("10.10.2026"));
         payment("01.08.2026", "700000", PaymentStatus.PAID, PaymentMethod.CLICK, "R-801");
         payment("05.08.2026", "100000", PaymentStatus.CANCELLED, PaymentMethod.CASH, "R-802");
         payment("06.08.2026", "50000", PaymentStatus.PENDING, PaymentMethod.CASH, "R-803");
@@ -250,11 +303,14 @@ class MiniAppDataTest extends MiniAppItBase {
             .andExpect(jsonPath("$.data.balance.debt").value(700000.0))
             .andExpect(jsonPath("$.data.balance.status").value("OVERDUE"))
             .andExpect(jsonPath("$.data.balance.debtSince").value("2026-09-01"))
-            .andExpect(jsonPath("$.data.balance.nextPaymentDate").value("2026-09-01"))
-            .andExpect(jsonPath("$.data.balance.nextPaymentAmount").value(700000.0))
+            // snapshot sanasi = debtSince (01.09) — bugundan oldin → null, NONE
+            .andExpect(jsonPath("$.data.balance.nextPayment").doesNotExist())
+            .andExpect(jsonPath("$.data.balance.nextPaymentState").value("NONE"))
             .andExpect(jsonPath("$.data.enrollments[0].monthlyFee").value(700000.0))
             .andExpect(jsonPath("$.data.enrollments[0].finalFee").value(700000.0))
             .andExpect(jsonPath("$.data.enrollments[0].status").value("OVERDUE"))
+            .andExpect(jsonPath("$.data.enrollments[0].nextPayment").doesNotExist())
+            .andExpect(jsonPath("$.data.enrollments[0].nextPaymentState").value("NONE"))
             .andExpect(jsonPath("$.data.history", hasSize(2)))
             .andExpect(jsonPath("$.data.history[0].receiptNumber").value("R-802"))
             .andExpect(jsonPath("$.data.history[0].status").value("CANCELLED"))
@@ -267,13 +323,66 @@ class MiniAppDataTest extends MiniAppItBase {
 
         call("/api/app/home")
             .andExpect(jsonPath("$.data.balance.debt").value(700000.0))
-            .andExpect(jsonPath("$.data.balance.status").value("OVERDUE"));
+            .andExpect(jsonPath("$.data.balance.status").value("OVERDUE"))
+            .andExpect(jsonPath("$.data.balance.nextPayment").doesNotExist())
+            .andExpect(jsonPath("$.data.balance.nextPaymentState").value("NONE"));
 
-        // Faqat o'qish: snapshot va ledger o'zgarmagan
+        // Faqat o'qish: saqlangan snapshot va ledger o'zgarmagan
         StudentGroup after = inTx(() -> studentGroupRepository.findById(sgId).orElseThrow());
         assertThat(after.getBalance()).isEqualByComparingTo("-700000");
+        assertThat(after.getNextPaymentDate()).isEqualTo(d("10.10.2026"));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM balance_transactions", Integer.class))
             .isEqualTo(ledgerBefore);
+    }
+
+    @Test
+    void nextPayment_futureEnrollment_scheduledFromSnapshot_notLegacyColumn() throws Exception {
+        Long octGroup = fixtures.group(fixtures.course(500_000));
+        Long octSg = fixtures.enrollment(studentId, octGroup).start(d("01.10.2026")).save();
+        // @PrePersist eski ustunni paymentStartDate bilan to'ldiradi; boshqa sana qo'yamiz
+        legacyNextPaymentDate(octSg, d("20.09.2026"));
+        // Sentabr guruhidagi qarz → uning sanasi o'tgan (NONE), umumiy keyingi to'lov — oktabr guruhi
+        accrueSeptember();
+
+        call("/api/app/payments")
+            .andExpect(jsonPath("$.data.balance.nextPaymentState").value("SCHEDULED"))
+            .andExpect(jsonPath("$.data.balance.nextPayment.date").value("2026-10-01"))
+            .andExpect(jsonPath("$.data.balance.nextPayment.amount").value(500000.0))
+            .andExpect(jsonPath("$.data.balance.debt").value(700000.0))
+            .andExpect(jsonPath("$.data.enrollments[?(@.studentGroupId == " + octSg + ")].nextPaymentState")
+                .value("SCHEDULED"))
+            .andExpect(jsonPath("$.data.enrollments[?(@.studentGroupId == " + sgId + ")].nextPaymentState")
+                .value("NONE"));
+        call("/api/app/home")
+            .andExpect(jsonPath("$.data.balance.nextPayment.date").value("2026-10-01"))
+            .andExpect(jsonPath("$.data.balance.nextPaymentState").value("SCHEDULED"));
+    }
+
+    @Test
+    void nextPayment_billingHold_hold() throws Exception {
+        inTx(() -> {
+            StudentGroup sg = studentGroupRepository.findById(sgId).orElseThrow();
+            sg.setPaymentStartDate(d("01.10.2026"));   // snapshot bo'yicha kelajak sana bo'lardi
+            sg.setBillingHold(true);
+        });
+
+        call("/api/app/payments")
+            .andExpect(jsonPath("$.data.balance.nextPayment").doesNotExist())
+            .andExpect(jsonPath("$.data.balance.nextPaymentState").value("HOLD"))
+            .andExpect(jsonPath("$.data.enrollments[0].nextPayment").doesNotExist())
+            .andExpect(jsonPath("$.data.enrollments[0].nextPaymentState").value("HOLD"));
+        call("/api/app/home").andExpect(jsonPath("$.data.balance.nextPaymentState").value("HOLD"));
+
+        // Hold'siz shu yozilma — SCHEDULED (hold aniq sabab ekanini tasdiqlaydi)
+        inTx(() -> studentGroupRepository.findById(sgId).orElseThrow().setBillingHold(false));
+        call("/api/app/payments")
+            .andExpect(jsonPath("$.data.balance.nextPaymentState").value("SCHEDULED"))
+            .andExpect(jsonPath("$.data.balance.nextPayment.date").value("2026-10-01"))
+            .andExpect(jsonPath("$.data.balance.nextPayment.amount").value(700000.0));
+    }
+
+    private void legacyNextPaymentDate(Long sg, LocalDate date) {
+        inTx(() -> studentGroupRepository.findById(sg).orElseThrow().setNextPaymentDate(date));
     }
 
     private void payment(String date, String amount, PaymentStatus status, PaymentMethod method, String receipt) {

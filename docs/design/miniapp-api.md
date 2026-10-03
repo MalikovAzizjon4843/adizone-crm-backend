@@ -3,6 +3,8 @@
 > Bu hujjat — **amalda qurilgan** holat (branch `billing-v2`, migratsiya **V66**). Mini App (`https://webapp.adizone.uz`) faqat shu shartnoma bo'yicha ishlaydi.
 > Dizayn va sabablar: [telegram-platform.md](telegram-platform.md) (§3, bosqich 2 — MVP), maket: [mockups/telegram-miniapp-mockup.html](mockups/telegram-miniapp-mockup.html) (variant 1 "Tungi" / 2 "Yorug'" — `Telegram.WebApp.colorScheme` / `themeParams` bo'yicha).
 > Javoblar `ApiResponse {success, message, data}` ichida; xatolar `ErrorResponse {timestamp, status, error, message, code, data?}`. Mantiq uchun **`code`** ga tayaning, `message` — faqat ko'rsatish uchun.
+>
+> **O'zgarish (2026-10-03):** `balance.nextPaymentDate`/`nextPaymentAmount` → `balance.nextPayment {date, amount} | null` + `nextPaymentState` (`SCHEDULED | HOLD | NONE`, §3.4); davomatda `total`/`rate` faqat belgilangan darslar, yangi `unmarked` (+ `unmarkedLessons`) — §3.3.
 
 ## 0. Umumiy
 
@@ -114,12 +116,14 @@ Ro'yxat har `POST /api/app/auth` da (≤ 30 daqiqada bir) CRM bo'yicha **qayta q
                   "substituteTeacherName": null, "movedTo": null, "movedFrom": null, "note": null,
                   "startsInMinutes": 390 },
   "balance": { "balance": 0.00, "debt": 0.00, "status": "PAID", "debtSince": null,
-               "nextPaymentDate": "2026-10-01", "nextPaymentAmount": 700000.00 },
-  "attendance": { "month": "2026-09", "present": 7, "late": 1, "absent": 1, "excused": 1, "total": 10, "rate": 80 } }
+               "nextPayment": { "date": "2026-10-01", "amount": 700000.00 }, "nextPaymentState": "SCHEDULED" },
+  "attendance": { "month": "2026-09", "present": 7, "late": 1, "absent": 1, "excused": 1, "total": 10, "rate": 80,
+                  "unmarked": 1 } }
 ```
 - `nextLesson` — bugundan 14 kun ichida birinchi `PLANNED`/`EXTRA` dars (bugungi tugamagan dars ham); yo'q bo'lsa `null`. `startsInMinutes` — dars boshlanishigacha (boshlangan bo'lsa 0): "3 soatdan keyin".
 - `groups[].status`: `ACTIVE` | `FROZEN` (muzlatilgan) | `TRIAL` (sinov). `format`: `ONLINE` | `OFFLINE` | `null`.
-- `attendance.rate` = (keldi + kechikdi) / jami × 100 (butun); jami 0 → `null`.
+- `balance` — 3.4 dagi `balance` bilan aynan bir xil (keyingi to'lov qoidalari o'sha yerda).
+- `attendance` — joriy oy, 3.3 dagi qoidalar: `total`/`rate` faqat **belgilangan** darslar bo'yicha, `unmarked` alohida.
 
 ### 3.2 Jadval — `GET /api/app/schedule?studentId&from&to`
 `from`, `to` — ixtiyoriy (standart: joriy hafta dushanba…yakshanba); `from ≤ to`, oraliq **≤ 62 kun** → aks holda 400 `app.schedule.range.invalid`.
@@ -148,10 +152,15 @@ Faqat o'quvchi guruhda bo'lgan kunlar (qo'shilgan sanadan) ko'rsatiladi. Saralas
 ```json
 { "month": "2026-09",
   "counts": { "present": 7, "late": 1, "absent": 1, "excused": 1 }, "total": 10, "rate": 80,
+  "unmarked": 1,
+  "unmarkedLessons": [ { "date": "2026-09-14", "groupId": 7, "groupName": "Turk tili B1" } ],
   "days": [ { "date": "2026-09-02", "groupId": 7, "groupName": "Turk tili B1", "status": "PRESENT", "note": null },
             { "date": "2026-09-09", "groupId": 7, "groupName": "Turk tili B1", "status": "EXCUSED", "note": "Kasal" } ],
   "lastMissed": { "date": "2026-09-07", "weekday": "MONDAY", "groupName": "Turk tili B1" } }
 ```
+- **`total`** — faqat **belgilangan** darslar (davomat yozuvi bor) = `present + late + absent + excused`.
+- **`rate`** = (`present` + `late`) / `total` × 100 (butun). Belgilangan dars 0 bo'lsa → **`null`** ("—" ko'rsating, 0% emas).
+- **`unmarked`** — dars bo'lgan, lekin o'qituvchi hali belgilamagan darslar soni; `rate` va `total` ga **kirmaydi**. Sanaladi: jadval bo'yicha `PLANNED`/`EXTRA` dars (bekor, ko'chirilgan va bayram kunlari emas), o'quvchi guruhda bo'lgan kun, **o'tgan kunlar va bugun boshlanish vaqti o'tgan** darslar. Kelajak oyi — 0. `unmarkedLessons` — ular ro'yxati (kalendarda "belgilanmagan" deb ko'rsatish uchun); `days` da ular yo'q.
 - `status`: `PRESENT` (keldi), `LATE` (kechikdi), `ABSENT` (kelmadi), `EXCUSED` (sababli).
 - `note` — faqat `EXCUSED` sababi; o'qituvchining ichki izohi hech qachon berilmaydi.
 - `lastMissed` — bugungacha oxirgi **sababsiz** qoldirilgan dars (oydan qat'i nazar), yo'q bo'lsa `null`.
@@ -159,11 +168,14 @@ Faqat o'quvchi guruhda bo'lgan kunlar (qo'shilgan sanadan) ko'rsatiladi. Saralas
 ### 3.4 To'lov — `GET /api/app/payments?studentId` (faqat ko'rish)
 ```json
 { "balance": { "balance": -700000.00, "debt": 700000.00, "status": "OVERDUE", "debtSince": "2026-09-01",
-               "nextPaymentDate": "2026-09-01", "nextPaymentAmount": 700000.00 },
+               "nextPayment": { "date": "2026-10-01", "amount": 500000.00 }, "nextPaymentState": "SCHEDULED" },
   "enrollments": [ { "studentGroupId": 55, "groupId": 7, "groupName": "Turk tili B1", "courseName": "Turk tili",
                      "paymentType": "MONTHLY", "monthlyFee": 700000.00, "discountPercent": 0.00, "finalFee": 700000.00,
                      "balance": -700000.00, "debt": 700000.00, "status": "OVERDUE", "debtSince": "2026-09-01",
-                     "nextPaymentDate": "2026-09-01", "nextPaymentAmount": 700000.00 } ],
+                     "nextPayment": null, "nextPaymentState": "NONE" },
+                   { "studentGroupId": 61, "groupId": 9, "groupName": "Ingliz tili A2", "...": "...",
+                     "balance": 0.00, "debt": 0.00, "status": "PAID", "debtSince": null,
+                     "nextPayment": { "date": "2026-10-01", "amount": 500000.00 }, "nextPaymentState": "SCHEDULED" } ],
   "history": [ { "id": 9001, "date": "2026-09-01", "periodFrom": "2026-09-01", "periodTo": "2026-09-30",
                  "groupName": "Turk tili B1", "method": "CLICK", "methodLabel": "Click", "amount": 700000.00,
                  "status": "PAID", "receiptNumber": "2026-000123" },
@@ -171,9 +183,18 @@ Faqat o'quvchi guruhda bo'lgan kunlar (qo'shilgan sanadan) ko'rsatiladi. Saralas
   "howToPay": { "onlinePayment": false, "cashierAddress": "Toshkent sh., Chilonzor t., ...",
                 "supportPhone": "+998 77 337 32 33" } }
 ```
-- Manba — billing v2 snapshot (`student_groups.balance / debt_since / next_payment_*`); server hech narsa yozmaydi.
+- Manba — billing v2 snapshot: har so'rovda ledger (`balance_transactions`) va davrlardan (`billing_periods`) **yozuvsiz** hisoblanadi (billing-v2 §4). Saqlangan `student_groups.next_payment_date` / `balance` ustunlari ishlatilmaydi (eski v1 yozuvlarda eskirgan bo'lishi mumkin). Server hech narsa yozmaydi.
 - `balance.status` (umumiy): qarz bo'lsa `OVERDUE` (muddati o'tgan) / `PENDING` (kutilmoqda); qarz yo'q — `PAID`; hamma guruh muzlatilgan — `FROZEN`; hammasi sinovda — `TRIAL`; guruh yo'q — `null`.
-- `nextPaymentDate/Amount` — eng yaqin sana va shu sanadagi summalar yig'indisi. Qarz bo'lsa — "to'lash kerak edi" sanasi va qarz summasi. `PER_LESSON` yozilmada `monthlyFee`/`finalFee` — bitta dars narxi.
+- **Keyingi to'lov** — `nextPayment {date, amount}` faqat `nextPaymentState = "SCHEDULED"` da; aks holda `nextPayment: null`:
+
+  | `nextPaymentState` | Qachon | UI |
+  |---|---|---|
+  | `SCHEDULED` | snapshot sanasi **bugun yoki keyin** | "Keyingi to'lov 01.10.2026 — 500 000 UZS" |
+  | `HOLD` | yozilma billing migratsiyasida ushlab turilgan (`billing_hold`) | "To'lov jadvali tekshirilmoqda — markazga murojaat qiling" |
+  | `NONE` | sana yo'q (sinov, muzlatilgan, narx yo'q, guruh yo'q) **yoki sana o'tib ketgan** | sanani ko'rsatmang. Qarz bo'lsa — `debt` va `debtSince` ("01.09.2026 dan beri qarz") |
+
+  Umumiy `balance` da: `SCHEDULED` yozilmalar ichida eng yaqin sana va shu sanadagi summalar yig'indisi; birortasi ham `SCHEDULED` bo'lmasa — biror yozilma `HOLD` bo'lsa `HOLD`, aks holda `NONE`. Qarz holatida snapshot sanasi = `debtSince` (o'tgan) — shuning uchun qarzdorda `NONE` bo'ladi, qarz `debt` da ko'rinadi.
+- `PER_LESSON` yozilmada `monthlyFee`/`finalFee` — bitta dars narxi.
 - `history` — oxirgi 100 ta; `PAID` ("Qabul qilindi") va `CANCELLED` ("Bekor qilingan"). `amount` — chegirmadan keyingi summa. Davr yorlig'i ("Sentabr uchun") — `periodFrom` dan frontendda.
 - `howToPay` — "Qanday to'lash mumkin": kassa manzili (`center.address`) va yordam telefoni (`center.supportPhone`, tel: havola). `onlinePayment: false` — "To'lash" tugmasi ko'rsatilmaydi.
 

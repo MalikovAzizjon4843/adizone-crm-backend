@@ -1,5 +1,6 @@
 package com.crm.miniapp;
 
+import com.crm.billing.BillingSnapshot;
 import com.crm.billing.BillingStatusService;
 import com.crm.billing.EnrollmentPricing;
 import com.crm.entity.AppIdentity;
@@ -93,8 +94,11 @@ public class MiniAppQueryService {
                 || LocalTime.parse(l.endTime()).isAfter(now.toLocalTime()))
             .findFirst()
             .orElse(null);
-        return new AppDtos.Home(header(student), groupCards(sgs), next, balance(sgs, today),
-            attendanceSummary(student.getId(), YearMonth.from(today)));
+        MonthAttendance month = monthAttendance(student.getId(), YearMonth.from(today), now);
+        return new AppDtos.Home(header(student), groupCards(sgs), next,
+            balance(sgs.stream().map(sg -> billing(sg, today)).toList()),
+            new AppDtos.AttendanceSummary(month.month().toString(), month.present(), month.late(), month.absent(),
+                month.excused(), month.total(), month.rate(), month.unmarked().size()));
     }
 
     // ── Jadval ───────────────────────────────────────────────────────────
@@ -115,24 +119,15 @@ public class MiniAppQueryService {
 
     public AppDtos.AttendanceMonth attendance(Student student, String month) {
         YearMonth ym = parseMonth(month);
-        LocalDate today = LocalDate.now(billingClock);
-        List<Attendance> rows = attendanceRepository.findByStudentIdAndAttendanceDateBetweenOrderByAttendanceDateAsc(
-            student.getId(), ym.atDay(1), ym.atEndOfMonth());
-        int present = 0, late = 0, absent = 0, excused = 0;
-        List<AppDtos.AttendanceDay> days = new ArrayList<>();
-        for (Attendance a : rows) {
+        LocalDateTime now = LocalDateTime.now(billingClock);
+        LocalDate today = now.toLocalDate();
+        MonthAttendance m = monthAttendance(student.getId(), ym, now);
+        List<AppDtos.AttendanceDay> days = m.rows().stream().map(a -> {
             String status = status(a);
-            switch (status) {
-                case "PRESENT" -> present++;
-                case "LATE" -> late++;
-                case "EXCUSED" -> excused++;
-                default -> absent++;
-            }
-            days.add(new AppDtos.AttendanceDay(a.getAttendanceDate(), a.getGroup().getId(),
+            return new AppDtos.AttendanceDay(a.getAttendanceDate(), a.getGroup().getId(),
                 a.getGroup().getGroupName(), status,
-                "EXCUSED".equals(status) ? MiniAppAuthService.blankToNull(a.getExcuseReason()) : null));
-        }
-        int total = present + late + absent + excused;
+                "EXCUSED".equals(status) ? MiniAppAuthService.blankToNull(a.getExcuseReason()) : null);
+        }).toList();
         AppDtos.LastMissed lastMissed = attendanceRepository
             .findTop10ByStudentIdAndStatusAndAttendanceDateLessThanEqualOrderByAttendanceDateDesc(
                 student.getId(), AttendanceStatus.ABSENT, today).stream()
@@ -141,25 +136,27 @@ public class MiniAppQueryService {
             .map(a -> new AppDtos.LastMissed(a.getAttendanceDate(), a.getAttendanceDate().getDayOfWeek().name(),
                 a.getGroup().getGroupName()))
             .orElse(null);
-        return new AppDtos.AttendanceMonth(ym.toString(), new AppDtos.Counts(present, late, absent, excused),
-            total, rate(present + late, total), days, lastMissed);
+        return new AppDtos.AttendanceMonth(ym.toString(),
+            new AppDtos.Counts(m.present(), m.late(), m.absent(), m.excused()),
+            m.total(), m.rate(), m.unmarked().size(), m.unmarked(), days, lastMissed);
     }
 
     // ── To'lov ───────────────────────────────────────────────────────────
 
     public AppDtos.Payments payments(Student student) {
         LocalDate today = LocalDate.now(billingClock);
-        List<StudentGroup> sgs = openEnrollments(student.getId());
-        List<AppDtos.EnrollmentFee> fees = sgs.stream().map(sg -> {
-            BigDecimal balance = nz(sg.getBalance());
+        List<EnrollmentBilling> billings = openEnrollments(student.getId()).stream()
+            .map(sg -> billing(sg, today)).toList();
+        List<AppDtos.EnrollmentFee> fees = billings.stream().map(b -> {
+            StudentGroup sg = b.sg();
+            BillingSnapshot s = b.snapshot();
             boolean perLesson = sg.getPaymentType() == PaymentType.PER_LESSON;
             return new AppDtos.EnrollmentFee(sg.getId(), sg.getGroup().getId(), sg.getGroup().getGroupName(),
                 courseName(sg.getGroup()), sg.getPaymentType() != null ? sg.getPaymentType().name() : null,
                 perLesson ? EnrollmentPricing.lessonPrice(sg) : EnrollmentPricing.monthlyFee(sg),
                 sg.getDiscountPercentage() != null ? sg.getDiscountPercentage() : BigDecimal.ZERO,
                 perLesson ? EnrollmentPricing.effectiveLessonPrice(sg) : EnrollmentPricing.effectiveMonthlyFee(sg),
-                balance, debt(balance), status(sg, today).name(), sg.getDebtSince(),
-                sg.getNextPaymentDate(), sg.getNextPaymentAmount());
+                s.balance(), s.debt(), s.status().name(), s.debtSince(), b.next(), b.nextState());
         }).toList();
 
         List<AppDtos.PaymentItem> history = paymentRepository.findByStudentIdOrderByPaymentDateDesc(student.getId())
@@ -176,7 +173,7 @@ public class MiniAppQueryService {
             .toList();
 
         AppDtos.Support support = authService.support();
-        return new AppDtos.Payments(balance(sgs, today), fees, history,
+        return new AppDtos.Payments(balance(billings), fees, history,
             new AppDtos.HowToPay(false, support.address(), support.phone()));
     }
 
@@ -361,34 +358,69 @@ public class MiniAppQueryService {
 
     // ── Balans (billing snapshot, faqat o'qish) ─────────────────────────
 
-    private AppDtos.Balance balance(List<StudentGroup> sgs, LocalDate today) {
-        if (sgs.isEmpty()) {
-            return new AppDtos.Balance(BigDecimal.ZERO, BigDecimal.ZERO, null, null, null, null);
+    static final String NEXT_SCHEDULED = "SCHEDULED";
+    static final String NEXT_HOLD = "HOLD";
+    static final String NEXT_NONE = "NONE";
+
+    /** Yozilmaning billing holati va keyingi to'lov qarori. */
+    private record EnrollmentBilling(StudentGroup sg, BillingSnapshot snapshot, AppDtos.NextPayment next,
+                                     String nextState) {
+    }
+
+    /**
+     * Billing v2 snapshot'i ledger va davrlardan HOZIR hisoblanadi ({@link BillingStatusService#snapshot},
+     * yozuvsiz) — saqlangan {@code student_groups.next_payment_date} / {@code balance} ustunlari
+     * ishlatilmaydi: eski (v1) yozuvlarda ular yaratilish paytidagi qiymat bo'lib qolgan bo'lishi mumkin.
+     * Keyingi to'lov: {@code billing_hold} — HOLD; sana yo'q yoki bugundan oldin (qarz) — NONE.
+     */
+    private EnrollmentBilling billing(StudentGroup sg, LocalDate today) {
+        BillingSnapshot s = billingStatusService.snapshot(sg, today);
+        if (Boolean.TRUE.equals(sg.getBillingHold())) {
+            return new EnrollmentBilling(sg, s, null, NEXT_HOLD);
+        }
+        if (s.nextPaymentDate() == null || s.nextPaymentDate().isBefore(today)) {
+            return new EnrollmentBilling(sg, s, null, NEXT_NONE);
+        }
+        return new EnrollmentBilling(sg, s,
+            new AppDtos.NextPayment(s.nextPaymentDate(), nz(s.nextPaymentAmount())), NEXT_SCHEDULED);
+    }
+
+    /**
+     * Yig'indi: balans va qarz — yozilmalar bo'yicha; keyingi to'lov — SCHEDULED lar ichida eng yaqin sana
+     * va shu sanadagi summalar. SCHEDULED yo'q: biror yozilma HOLD bo'lsa — HOLD, aks holda NONE.
+     */
+    private AppDtos.Balance balance(List<EnrollmentBilling> billings) {
+        if (billings.isEmpty()) {
+            return new AppDtos.Balance(BigDecimal.ZERO, BigDecimal.ZERO, null, null, null, NEXT_NONE);
         }
         BigDecimal balance = BigDecimal.ZERO;
         BigDecimal debt = BigDecimal.ZERO;
         LocalDate debtSince = null;
         List<PaymentStatus> statuses = new ArrayList<>();
-        for (StudentGroup sg : sgs) {
-            BigDecimal b = nz(sg.getBalance());
-            balance = balance.add(b);
-            debt = debt.add(debt(b));
-            if (sg.getDebtSince() != null && (debtSince == null || sg.getDebtSince().isBefore(debtSince))) {
-                debtSince = sg.getDebtSince();
+        for (EnrollmentBilling b : billings) {
+            BillingSnapshot s = b.snapshot();
+            balance = balance.add(nz(s.balance()));
+            debt = debt.add(nz(s.debt()));
+            if (s.debtSince() != null && (debtSince == null || s.debtSince().isBefore(debtSince))) {
+                debtSince = s.debtSince();
             }
-            statuses.add(status(sg, today));
+            statuses.add(s.status());
         }
-        LocalDate nextDate = sgs.stream().map(StudentGroup::getNextPaymentDate).filter(Objects::nonNull)
-            .min(Comparator.naturalOrder()).orElse(null);
-        BigDecimal nextAmount = nextDate == null ? null : sgs.stream()
-            .filter(sg -> nextDate.equals(sg.getNextPaymentDate()))
-            .map(sg -> nz(sg.getNextPaymentAmount()))
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
-        return new AppDtos.Balance(balance, debt, aggregate(statuses).name(), debtSince, nextDate, nextAmount);
-    }
-
-    private PaymentStatus status(StudentGroup sg, LocalDate today) {
-        return billingStatusService.displayStatus(sg, nz(sg.getBalance()), sg.getDebtSince(), today);
+        LocalDate nextDate = billings.stream().map(EnrollmentBilling::next).filter(Objects::nonNull)
+            .map(AppDtos.NextPayment::date).min(Comparator.naturalOrder()).orElse(null);
+        AppDtos.NextPayment next = null;
+        String state;
+        if (nextDate != null) {
+            next = new AppDtos.NextPayment(nextDate, billings.stream()
+                .map(EnrollmentBilling::next)
+                .filter(n -> n != null && nextDate.equals(n.date()))
+                .map(AppDtos.NextPayment::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
+            state = NEXT_SCHEDULED;
+        } else {
+            state = billings.stream().anyMatch(b -> NEXT_HOLD.equals(b.nextState())) ? NEXT_HOLD : NEXT_NONE;
+        }
+        return new AppDtos.Balance(balance, debt, aggregate(statuses).name(), debtSince, next, state);
     }
 
     /** Qarz ustun: OVERDUE → PENDING; qarz yo'q — hammasi FROZEN/TRIAL bo'lsa o'sha, aks holda PAID. */
@@ -416,20 +448,70 @@ public class MiniAppQueryService {
 
     // ── Davomat yig'indisi ───────────────────────────────────────────────
 
-    private AppDtos.AttendanceSummary attendanceSummary(Long studentId, YearMonth ym) {
+    /** Oy bo'yicha davomat: belgilangan yozuvlar sanog'i va belgilanmagan darslar. */
+    private record MonthAttendance(YearMonth month, int present, int late, int absent, int excused,
+                                   List<Attendance> rows, List<AppDtos.UnmarkedLesson> unmarked) {
+        int total() {
+            return present + late + absent + excused;
+        }
+
+        /** Faqat belgilangan darslar bo'yicha; belgilangan 0 — null. */
+        Integer rate() {
+            return MiniAppQueryService.rate(present + late, total());
+        }
+    }
+
+    /**
+     * {@code total}/{@code rate} — faqat davomat yozuvi bor darslar. Belgilanmagan dars — jadval bo'yicha
+     * bo'lgan (PLANNED/EXTRA, bekor/ko'chirilgan/bayram emas), o'tgan yoki bugun boshlangan, lekin shu guruh va
+     * sana uchun yozuv yo'q dars; ular {@code rate} ga kirmaydi.
+     */
+    private MonthAttendance monthAttendance(Long studentId, YearMonth ym, LocalDateTime now) {
+        List<Attendance> rows = attendanceRepository.findByStudentIdAndAttendanceDateBetweenOrderByAttendanceDateAsc(
+            studentId, ym.atDay(1), ym.atEndOfMonth());
         int present = 0, late = 0, absent = 0, excused = 0;
-        for (Attendance a : attendanceRepository.findByStudentIdAndAttendanceDateBetweenOrderByAttendanceDateAsc(
-                studentId, ym.atDay(1), ym.atEndOfMonth())) {
+        java.util.Set<Long> marked = new java.util.HashSet<>();
+        for (Attendance a : rows) {
             switch (status(a)) {
                 case "PRESENT" -> present++;
                 case "LATE" -> late++;
                 case "EXCUSED" -> excused++;
                 default -> absent++;
             }
+            marked.add(key(a.getGroup().getId(), a.getAttendanceDate()));
         }
-        int total = present + late + absent + excused;
-        return new AppDtos.AttendanceSummary(ym.toString(), present, late, absent, excused, total,
-            rate(present + late, total));
+
+        List<AppDtos.UnmarkedLesson> unmarked = new ArrayList<>();
+        LocalDate today = now.toLocalDate();
+        LocalDate to = ym.atEndOfMonth().isBefore(today) ? ym.atEndOfMonth() : today;
+        if (!ym.atDay(1).isAfter(to)) {
+            for (AppDtos.Lesson l : lessons(attendanceEnrollments(studentId), ym.atDay(1), to, now)) {
+                boolean held = "PLANNED".equals(l.status()) || "EXTRA".equals(l.status());
+                if (held && started(l, now) && !marked.contains(key(l.groupId(), l.date()))) {
+                    unmarked.add(new AppDtos.UnmarkedLesson(l.date(), l.groupId(), l.groupName()));
+                }
+            }
+        }
+        return new MonthAttendance(ym, present, late, absent, excused, rows, unmarked);
+    }
+
+    /** Ochiq yozilmalar va chiqish sanasi ma'lum yopilganlari (o'tgan oylar uchun) — sanalar {@code inEnrollment} da. */
+    private List<StudentGroup> attendanceEnrollments(Long studentId) {
+        return studentGroupRepository.findByStudentIdOrderByJoinDateDesc(studentId).stream()
+            .filter(sg -> BillingStatusService.isOpen(sg) || sg.getLeaveDate() != null)
+            .toList();
+    }
+
+    /** O'tgan kun — ha; bugun — boshlanish vaqti o'tgan bo'lsa (vaqt noma'lum — ha). */
+    private static boolean started(AppDtos.Lesson l, LocalDateTime now) {
+        if (l.date().isBefore(now.toLocalDate()) || l.startTime() == null) {
+            return true;
+        }
+        try {
+            return !LocalTime.parse(l.startTime()).isAfter(now.toLocalTime());
+        } catch (DateTimeParseException e) {
+            return true;
+        }
     }
 
     /** EXCUSED holati yoki "sababli" belgisi — EXCUSED; o'qituvchining ichki izohi ({@code notes}) berilmaydi. */
@@ -503,9 +585,5 @@ public class MiniAppQueryService {
 
     private static BigDecimal nz(BigDecimal v) {
         return v != null ? v : BigDecimal.ZERO;
-    }
-
-    private static BigDecimal debt(BigDecimal balance) {
-        return balance.signum() < 0 ? balance.negate() : BigDecimal.ZERO;
     }
 }
