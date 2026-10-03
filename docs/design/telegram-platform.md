@@ -1,6 +1,6 @@
 # Telegram platformasi: bitta bot, uch vazifa (dizayn hujjati)
 
-> **Holat:** loyiha, kod yozilmagan (2026-10-02, `billing-v2` branch).
+> **Holat:** loyiha (2026-10-02, `billing-v2` branch). **Bosqich 2 (Mini App MVP) qurildi — 2026-10-03, V66**; amaldagi shartnoma va hujjatdan farqlar (bitta `POST /api/app/auth`, bog'lash faqat botda, CHOOSE o'rniga hammasi bitta identity + almashtirgich, domen `webapp.adizone.uz`, env `TELEGRAM_APP_JWT_SECRET`) — [miniapp-api.md](miniapp-api.md).
 > **Manba:**
 > - maket: [mockups/telegram-miniapp-mockup.html](mockups/telegram-miniapp-mockup.html) — ekranlar: hisobni ulash, bosh sahifa, jadval, davomat, to'lov, profil;
 > - [phase5-audit.md](../audit/phase5-audit.md) §9 (chat), §13 (Q1, Q11, Q13, Q16);

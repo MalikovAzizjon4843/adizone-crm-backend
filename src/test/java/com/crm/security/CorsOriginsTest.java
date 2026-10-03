@@ -30,6 +30,18 @@ class CorsOriginsTest extends Phase5ItBase {
         allowed("https://adizone-admin-git-main.vercel.app");
     }
 
+    /** Telegram Mini App (docs/design/miniapp-api.md): admin API ham, app zanjiri ham. */
+    @Test
+    void preflight_allowsMiniAppOrigin_onBothChains() throws Exception {
+        allowed("https://webapp.adizone.uz");
+        mvc.perform(options("/api/app/auth")
+                .header(HttpHeaders.ORIGIN, "https://webapp.adizone.uz")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Content-Type"))
+            .andExpect(status().isOk())
+            .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "https://webapp.adizone.uz"));
+    }
+
     @Test
     void preflight_rejectsForeignOrigin() throws Exception {
         mvc.perform(options("/api/leads")

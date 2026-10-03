@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V65 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V66 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V65 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V66 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
@@ -22,7 +22,7 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V65 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V66 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
@@ -303,7 +303,17 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V65', 'column', 'homeworks', 'attachment_name'),
     ('V65', 'table', 'group_transfer_batches', NULL),
     ('V65', 'index', 'group_transfer_batches', 'uk_group_transfer_batches_key'),
-    ('V65', 'index', 'group_transfer_batches', 'idx_group_transfer_batches_from')
+    ('V65', 'index', 'group_transfer_batches', 'idx_group_transfer_batches_from'),
+    ('V66', 'table', 'telegram_updates', NULL),
+    ('V66', 'index', 'telegram_updates', 'idx_telegram_updates_received'),
+    ('V66', 'table', 'app_identities', NULL),
+    ('V66', 'index', 'app_identities', 'ux_app_identities_telegram_user'),
+    ('V66', 'index', 'app_identities', 'idx_app_identities_phone'),
+    ('V66', 'table', 'app_identity_students', NULL),
+    ('V66', 'index', 'app_identity_students', 'ux_app_identity_students'),
+    ('V66', 'index', 'app_identity_students', 'idx_app_identity_students_student'),
+    ('V66', 'table', 'app_link_attempts', NULL),
+    ('V66', 'index', 'app_link_attempts', 'idx_app_link_attempts_user')
 ), checked AS (
     SELECT w.*,
            CASE w.kind
@@ -430,7 +440,22 @@ SELECT 'V64 teachers.user_id: yagona FK fk_teachers_user [NO ACTION]',
           FROM pg_constraint c
           JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
          WHERE c.conrelid = to_regclass('public.teachers') AND c.contype = 'f'
-           AND a.attname = 'user_id');
+           AND a.attname = 'user_id')
+UNION ALL
+SELECT 'V66 app_identities UNIQUE(telegram_user_id)',
+       EXISTS (SELECT 1 FROM phase5_uniq WHERE tbl = 'app_identities' AND cols = ARRAY['telegram_user_id'])
+UNION ALL
+SELECT 'V66 app_identity_students UNIQUE(identity_id, student_id)',
+       EXISTS (SELECT 1 FROM phase5_uniq WHERE tbl = 'app_identity_students'
+                 AND cols = ARRAY['identity_id','student_id'])
+UNION ALL
+-- V66: identity_id → app_identities va student_id → students FK lari, ON DELETE CASCADE
+SELECT 'V66 app_identity_students FK lar (identity, student) CASCADE',
+       (SELECT COUNT(DISTINCT a.attname) = 2 AND bool_and(c.confdeltype = 'c')
+          FROM pg_constraint c
+          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+         WHERE c.conrelid = to_regclass('public.app_identity_students') AND c.contype = 'f'
+           AND a.attname IN ('identity_id', 'student_id'));
 
 -- V58: sequence mavjud CTR-YYYY-NNNNN raqamlaridan oldindami (sequence bo'lsa)
 SELECT 'contract_number_seq' AS sequence,

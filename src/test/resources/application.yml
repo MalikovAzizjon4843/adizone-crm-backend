@@ -32,6 +32,13 @@ meta:
 
 telegram:
   enabled: false
+  # Faqat testlar uchun (MiniApp*Test initData ni shu token bilan imzolaydi) — haqiqiy botga aloqasi yo'q
+  bot-token: "123456:TEST-ONLY-bot-token-not-real"
+  webhook-secret: test-webhook-secret-0123456789abcdef
+  webhook-url: https://api.example.test/api/telegram/webhook
+  webapp-url: https://webapp.example.test
+  app:
+    jwt-secret: test-only-app-jwt-secret-0123456789-abcdefghij
 
 jwt:
   secret: f4ba5620b4a9e1f27d78beb236150ec150b59cf04fc234858d24b68128159e32  # faqat testlar uchun, prod kalitiga aloqasi yo'q

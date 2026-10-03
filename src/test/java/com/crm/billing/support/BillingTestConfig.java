@@ -23,6 +23,13 @@ public class BillingTestConfig {
         return new MutableClock();
     }
 
+    /** {@code HttpTelegramBotApi} o'rniga — bitta kontekst, Telegram'ga so'rov yo'q. */
+    @Bean
+    @Primary
+    public RecordingTelegramBotApi recordingTelegramBotApi() {
+        return new RecordingTelegramBotApi();
+    }
+
     @Bean
     public BillingFixtures billingFixtures(
             CourseRepository courseRepository,

@@ -55,7 +55,9 @@ public class BillingFixtures {
         "exam_results", "exam_registrations", "exams", "contracts", "contract_templates",
         "contract_number_counters", "notice_reads", "notice_target_roles", "notices",
         "lesson_substitutions", "leave_requests", "attendance_unlock_requests",
-        "homework_submissions", "homeworks", "group_transfer_batches", "expenses");
+        "homework_submissions", "homeworks", "group_transfer_batches", "expenses",
+        "app_identity_students", "app_identities", "app_link_attempts", "telegram_updates",
+        "student_parents", "parents");
 
     private final CourseRepository courseRepository;
     private final GroupRepository groupRepository;

@@ -25,4 +25,7 @@ public interface ParentRepository extends JpaRepository<Parent, Long> {
            "LOWER(p.fullName) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
            "COALESCE(p.phone,'') LIKE CONCAT('%', :search, '%'))")
     Page<Parent> searchParents(@Param("search") String search, Pageable pageable);
+
+    /** Mini App bog'lash (telegram-platform §3.4). */
+    List<Parent> findByPhoneInAndIsActiveTrue(java.util.Collection<String> phones);
 }

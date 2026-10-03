@@ -47,6 +47,8 @@ public class SecurityConfig {
             // Yangi admin panel (adizone-admin) pilot domeni — docs/ops/deploy-v2.md §5
             "https://crm.adizone.uz",
             "https://app.adizone.uz",
+            // O'quvchi/ota-ona Telegram Mini App (docs/design/miniapp-api.md)
+            "https://webapp.adizone.uz",
             "https://adizone.uz",
             "https://www.adizone.uz",
             "https://*.vercel.app",
@@ -94,6 +96,9 @@ public class SecurityConfig {
                 // qolgan /api/meta/** ostidagi sozlash endpointlari
                 // quyida ADMIN bilan cheklangan.
                 .requestMatchers("/api/meta/webhook").permitAll()
+                // Telegram bot webhook: himoya — X-Telegram-Bot-Api-Secret-Token sarlavhasi
+                // (TelegramWebhookController). /api/app/** bu zanjirda emas — AppSecurityConfig (@Order 1).
+                .requestMatchers(HttpMethod.POST, "/api/telegram/webhook").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/files/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/leads/public").permitAll()
                 // Faqat shu bitta yo'l ochiq — login sahifasi o'quv yilini ko'rsatadi.

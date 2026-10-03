@@ -26,7 +26,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return "OPTIONS".equalsIgnoreCase(request.getMethod());
+        // /api/app/** — Mini App zanjiri (AppJwtFilter, boshqa kalit). Bu filtr @Component bo'lgani uchun
+        // servlet darajasida ham ishlaydi: app tokenini admin kaliti bilan ochishga urinib, har so'rovda
+        // ERROR log yozmasin.
+        return "OPTIONS".equalsIgnoreCase(request.getMethod())
+            || request.getRequestURI().startsWith(request.getContextPath() + "/api/app/");
     }
 
     @Override

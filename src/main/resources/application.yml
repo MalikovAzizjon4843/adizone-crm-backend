@@ -135,3 +135,16 @@ telegram:
   bot-token: "${TELEGRAM_BOT_TOKEN:}"
   # Token bo'sh bo'lsa Telegram o'chiq ishlaydi (xabar yuborilmaydi, xato yo'q) — TelegramService.
   enabled: ${TELEGRAM_ENABLED:true}
+  # Bot webhook (docs/design/telegram-platform.md §1). Sir — faqat env, ≥ 32 belgi [A-Za-z0-9_-].
+  # Bo'sh bo'lsa POST /api/telegram/webhook har doim 401 (himoyasiz ishlamaydi).
+  webhook-secret: "${TELEGRAM_WEBHOOK_SECRET:}"
+  # POST /api/admin/telegram/set-webhook shu manzilni Telegram'ga beradi.
+  webhook-url: ${TELEGRAM_WEBHOOK_URL:https://api.adizone.uz/api/telegram/webhook}
+  # /start dagi "Ilovani ochish" (web_app) tugmasi.
+  webapp-url: ${TELEGRAM_WEBAPP_URL:https://webapp.adizone.uz}
+  # O'quvchi/ota-ona Mini App (docs/design/miniapp-api.md). JWT kaliti admin JWT_SECRET dan ALOHIDA;
+  # bo'sh yoki < 32 bayt bo'lsa POST /api/app/auth → 503 app.auth.notConfigured.
+  app:
+    jwt-secret: "${TELEGRAM_APP_JWT_SECRET:}"
+    token-ttl: 30m
+    init-data-max-age: 1h

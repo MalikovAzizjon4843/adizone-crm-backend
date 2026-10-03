@@ -144,4 +144,12 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
     List<Object[]> countMarkedGroupedByUser(
         @Param("from") LocalDate from,
         @Param("to") LocalDate to);
+
+    /** Mini App davomati (telegram-platform §3.5). */
+    List<Attendance> findByStudentIdAndAttendanceDateBetweenOrderByAttendanceDateAsc(
+        Long studentId, LocalDate from, LocalDate to);
+
+    /** Oxirgi qoldirilgan dars (ABSENT) — Mini App davomat ekrani; sababli belgisi servisda tekshiriladi. */
+    List<Attendance> findTop10ByStudentIdAndStatusAndAttendanceDateLessThanEqualOrderByAttendanceDateDesc(
+        Long studentId, AttendanceStatus status, LocalDate upTo);
 }

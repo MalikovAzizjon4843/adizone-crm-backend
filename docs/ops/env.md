@@ -14,6 +14,12 @@ sirsiz yoki eski sir bilan jimgina ishga tushib qolmasin.
 | `META_VERIFY_TOKEN` | `meta.verify-token` | Webhook obunasini tasdiqlash (GET qo'l berish) | Faqat `meta.enabled: false` bo'lsa |
 | `TELEGRAM_BOT_TOKEN` | `telegram.bot-token` | Ota-onalarga davomat/to'lov xabarlari, direktor digest | **Ha, default bo'sh** — berilmasa (yoki e'lon qilinmasa) Telegram o'chiq ishlaydi: xabar yuborilmaydi, startda bitta WARN |
 | `TELEGRAM_ENABLED` | `telegram.enabled` | Telegramni butunlay o'chirish | Ha, default `true` (token bo'lmasa baribir o'chiq) |
+| `TELEGRAM_WEBHOOK_SECRET` | `telegram.webhook-secret` | Bot webhook himoyasi: Telegram har so'rovda `X-Telegram-Bot-Api-Secret-Token` sarlavhasida qaytaradi. **≥ 32 belgi, faqat `A-Z a-z 0-9 _ -`** (`openssl rand -hex 32`) | Ha, default bo'sh — lekin unda `POST /api/telegram/webhook` **har doim 401** (bot javob bermaydi) |
+| `TELEGRAM_WEBHOOK_URL` | `telegram.webhook-url` | `POST /api/admin/telegram/set-webhook` Telegram'ga beradigan manzil (https) | Ha, default `https://api.adizone.uz/api/telegram/webhook` |
+| `TELEGRAM_WEBAPP_URL` | `telegram.webapp-url` | Mini App manzili — bot /start dagi "Ilovani ochish" tugmasi | Ha, default `https://webapp.adizone.uz` |
+| `TELEGRAM_APP_JWT_SECRET` | `telegram.app.jwt-secret` | O'quvchi/ota-ona Mini App tokenlarini imzolash (HS256). **`JWT_SECRET` dan boshqa qiymat**, kamida 32 bayt (`openssl rand -base64 48`) | Ha, default bo'sh — lekin unda `POST /api/app/auth` → 503 `app.auth.notConfigured` |
+
+**Telegram Mini App** (docs/design/miniapp-api.md) uchun `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_APP_JWT_SECRET` uchalasi kerak: bot tokeni webhook javoblari va `initData` HMAC tekshiruvi uchun ham ishlatiladi. Qo'yilgandan va V66 bajarilgandan keyin SUPER_ADMIN bir marta `POST /api/admin/telegram/set-webhook` chaqiradi (tanasiz); BotFather'da Mini App domeni `webapp.adizone.uz`.
 
 "Bo'sh" deganda o'zgaruvchi e'lon qilinadi, lekin qiymatsiz: `META_VERIFY_TOKEN=`.
 Umuman e'lon qilinmasa ilova ishga tushmaydi (`TELEGRAM_*` dan tashqari — ularda default bor).
@@ -36,7 +42,7 @@ DB_PASSWORD=... mvn test -Dspring.profiles.active=pgtest
 `application-pgtest.yml`: baza `adizone_test` (`PGTEST_DB_URL` bilan o'zgartiriladi),
 foydalanuvchi `crm_user` (`PGTEST_DB_USER`), parol faqat `DB_PASSWORD`. Sxema
 `create-drop` — har ishga tushishda jadvallar qayta yaratiladi, so'ng
-`db/migration/V52…V63` (billing v2, dashboard, payroll v2, qarorlar, eski cheklovlar, qoida ustma-ustligi, phase5 xavfsizlik, shartnoma raqami, e'lon auditoriyasi, ta'til/o'rinbosar, imtihon to'lovi, rekvizitlar/shartnoma) aynan o'zi bajariladi. Prod deploy tartibi — [deploy-v2.md](deploy-v2.md).
+`db/migration/V52…V66` (billing v2, dashboard, payroll v2, qarorlar, eski cheklovlar, qoida ustma-ustligi, phase5 xavfsizlik, shartnoma raqami, e'lon auditoriyasi, ta'til/o'rinbosar, imtihon to'lovi, rekvizitlar/shartnoma, FK dublikati, uy vazifasi/ko'chirish, Telegram Mini App) aynan o'zi bajariladi. Prod deploy tartibi — [deploy-v2.md](deploy-v2.md).
 **Ishchi bazaga ulamang.**
 
 ## systemd bilan o'rnatish
@@ -61,6 +67,8 @@ foydalanuvchi `crm_user` (`PGTEST_DB_USER`), parol faqat `DB_PASSWORD`. Sxema
    META_APP_SECRET=
    META_VERIFY_TOKEN=
    TELEGRAM_BOT_TOKEN=
+   TELEGRAM_WEBHOOK_SECRET=
+   TELEGRAM_APP_JWT_SECRET=
    ```
 
    Qiymatda `$`, `"`, `\` yoki bo'shliq bo'lsa, butun qiymatni bitta
@@ -104,7 +112,9 @@ almashtirilishi kerak**. Almashtirilgandan keyin tarixni tozalash
 | `META_SYSTEM_USER_TOKEN` | Meta Business Suite → Business Settings → Users → System users → tegishli system user → **Generate new token** (lead/page ruxsatlari bilan); eskisini **Revoke** | Yangi token berilguncha lid ma'lumotlarini olish ishlamaydi; webhook eventlari navbatda qoladi va qayta uriniladi |
 | `META_APP_SECRET` | developers.facebook.com → App → Settings → Basic → App Secret → **Reset** | Reset bilan `crm.env` yangilanishi orasidagi webhook eventlari imzo xatosi bilan rad etiladi — Meta ularni qayta yuboradi |
 | `META_VERIFY_TOKEN` | O'zingiz yaratasiz: `openssl rand -hex 24`. So'ng App → Webhooks → Page → Edit subscription da yangi verify token bilan qayta tasdiqlang | Faqat obunani tasdiqlashda ishlatiladi; ishlab turgan webhookga ta'sir qilmaydi |
-| `TELEGRAM_BOT_TOKEN` | Telegram `@BotFather` → `/revoke` → botni tanlang (yangi token beriladi) | Eski token darhol o'ladi; `crm.env` yangilanguncha xabarlar yuborilmaydi |
+| `TELEGRAM_BOT_TOKEN` | Telegram `@BotFather` → `/revoke` → botni tanlang (yangi token beriladi) | Eski token darhol o'ladi; `crm.env` yangilanguncha xabarlar yuborilmaydi. Webhook yangi token bilan qayta o'rnatiladi (`set-webhook`). Mini App: ochiq sessiyalarning initData si yaroqsiz bo'ladi — ilovani qayta ochish kerak |
+| `TELEGRAM_WEBHOOK_SECRET` | O'zingiz yaratasiz: `openssl rand -hex 32`, so'ng restart va SA `POST /api/admin/telegram/set-webhook` | Restart va set-webhook orasidagi update'lar 401 oladi — Telegram ularni qayta yuboradi |
+| `TELEGRAM_APP_JWT_SECRET` | O'zingiz yaratasiz: `openssl rand -base64 48` | Barcha Mini App tokenlari yaroqsiz — ilova keyingi so'rovda o'zi qayta auth qiladi (foydalanuvchi sezmaydi) |
 
 Rotatsiyadan keyin tekshirish:
 - `GET /actuator/health` → `UP`

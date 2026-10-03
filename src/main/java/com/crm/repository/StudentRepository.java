@@ -141,4 +141,9 @@ public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpec
     boolean existsActiveInTeacherGroups(
         @Param("studentId") Long studentId,
         @Param("teacherId") Long teacherId);
+
+    /** Mini App bog'lash (telegram-platform §3.4): telefon variantlaridan biri bilan, berilgan holatdan tashqari. */
+    List<Student> findByPhoneInAndStatusNot(java.util.Collection<String> phones, StudentStatus status);
+
+    List<Student> findByParentPhoneInAndStatusNot(java.util.Collection<String> phones, StudentStatus status);
 }
