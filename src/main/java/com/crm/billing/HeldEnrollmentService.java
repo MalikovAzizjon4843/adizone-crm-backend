@@ -60,7 +60,9 @@ public class HeldEnrollmentService {
     public record HeldRow(
         Long studentGroupId, Long studentId, String studentName, String phone, Long groupId, String groupName,
         LocalDate joinDate, LocalDate paymentStartDate, long paymentsCount, BigDecimal paymentsSum,
+        BigDecimal paidNet, BigDecimal otherLedger,
         String category, List<MigrationPlanner.PlannedPeriod> periods, BigDecimal charges, BigDecimal migrationAmount,
+        BigDecimal netAdjustment,
         BigDecimal balanceBefore, BigDecimal balanceAfter, BigDecimal debtAfter, LocalDate debtSinceAfter,
         String statusAfter, LocalDate nextPaymentDateAfter, SortedSet<String> anomalies, boolean blocking,
         String planHash) {
@@ -169,7 +171,7 @@ public class HeldEnrollmentService {
 
     // ── yordamchilar ────────────────────────────────────────────────────
 
-    /** Hold'dagi SG lar qo'llangan run parametrlari (T, G, A14) bilan rejalanadi — eng oxirgi qo'llangan run. */
+    /** Hold'dagi SG lar eng oxirgi qo'llangan run parametrlari (T, G) bilan, sof hisobda (§9.7.1) rejalanadi. */
     BillingMigrationRun latestAppliedRun() {
         return runRepository.findAllByOrderByIdDesc().stream()
             .filter(r -> r.getAppliedAt() != null
@@ -180,7 +182,7 @@ public class HeldEnrollmentService {
     }
 
     private static MigrationPlanner.Options options(BillingMigrationRun run) {
-        return new MigrationPlanner.Options(run.getCutoverDate(), run.getGoLiveDate(), run.isA14UsePayable());
+        return new MigrationPlanner.Options(run.getCutoverDate(), run.getGoLiveDate(), run.isA14UsePayable()).asHeldNet();
     }
 
     private StudentGroup requireHeld(Long sgId) {
@@ -201,8 +203,9 @@ public class HeldEnrollmentService {
             sg.getId(), p.studentId(), p.studentName(),
             sg.getStudent() != null ? sg.getStudent().getPhone() : null,
             p.groupId(), p.groupName(), sg.getJoinDate(), sg.getPaymentStartDate(),
-            payments.size(), Money.normalize(sum),
+            payments.size(), Money.normalize(sum), p.paidNet(), p.keptLedger(),
             p.category(), p.periods(), Money.normalize(p.charges()), Money.normalize(p.migrationAmount()),
+            p.netAdjustment(),
             Money.normalize(p.storedBalance()), Money.normalize(p.target()), Money.normalize(p.newDebt()),
             p.newDebtSince(), p.newStatus(), p.newNextPaymentDate(), p.anomalies(), p.blocking(),
             planHash(sg, p));
@@ -216,6 +219,7 @@ public class HeldEnrollmentService {
                 .append(':').append(Money.normalize(pp.amount()).toPlainString());
         }
         sb.append('|').append(Money.normalize(p.migrationAmount()).toPlainString())
+            .append('|').append(Money.normalize(p.netAdjustment()).toPlainString())
             .append('|').append(Money.normalize(p.target()).toPlainString())
             .append('|').append(p.anomalies());
         try {

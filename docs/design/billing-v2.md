@@ -989,6 +989,24 @@ Migratsiyada `override == course.monthlyPrice` bo'lgan SG lar uchun `override = 
 - `billing_periods` (CHARGED, MIGRATED) shu run'niki o'chiriladi — yagona DELETE istisnosi, faqat `migration_run_id` bo'yicha;
 - SG `MIGRATION_PENDING` holatiga o'tadi (accrual o'tkazib yuboradi) va qo'lda qayta qo'llanadi.
 
+### 9.7.1 Hold'dagi SG — sof hisob (2026-10-04)
+Hold'dagi SG (`apply-sg`, `/api/admin/billing/held*`) bulk formulasi (`target = l + legacyPC − ta'mir − Σc_n`, A14 bilan
+`c_n = payable`) bilan EMAS, sof hisob bilan rejalanadi (`MigrationPlanner.Options.heldNet`):
+
+```
+davrlar  = R..T (R — §9.2 dagidek), har biri CHARGED, c_n = fee (A14 almashtirish yo'q)
+paidNet  = Σ PAID to'lovlar (amount [gross] − balance_used)      -- chegirma kredit sifatida
+kept     = Σ BONUS, PENALTY, REFUND_PAYOUT, TRANSFER_IN/OUT, MANUAL_ADJUST (ta'mir emas), billing_period_id li v2 davr yozuvlari (+ REVERSAL'lari)
+target   = paidNet + kept − Σ c_n
+MIGRATION       = −Σ neytral oila (v1 PERIOD_CHARGE, ledger-repair, eski MIGRATION — REVERSAL'lari bilan)
+MANUAL_ADJUST   = paidNet + kept − (l − Σ neytral)     -- "[held-net]" izohi, neytral EMAS, migration_run_id bilan
+```
+Sabab (prod sg 4, 6, 46, 47): v1 ko'p oylik chegirmali to'lovda `PERIOD_CHARGE = oylar × fee − chegirma` bitta yozuv;
+A14 shu payable'ni bitta davrga qo'yardi (1-davr > fee), qolgan oylar yana fee bilan → qarz (oylar − 1) × fee ga
+oshardi; 100% chegirmada (naqd 0, debet yo'q) chegirma umuman hisobga olinmasdi. Neytral oila yig'indisi apply'dan
+keyin 0 — `debtSince` v2 davridan (§4.1). Bulk dry-run/apply o'zgarmagan (hash ham). Qo'llangan SG lar tekshiruvi —
+docs/ops/held-review.md.
+
 ---
 
 ## 10. O'zgaradigan endpointlar va o'lik kod

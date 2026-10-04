@@ -59,8 +59,26 @@ public class MigrationPlanner {
     private final BillingProperties properties;
     private final Clock billingClock;
 
-    public record Options(LocalDate cutover, LocalDate goLive, boolean a14UsePayable) {
+    /**
+     * @param heldNet hold'dagi SG uchun sof hisob (§9.7.1): davr narxi to'liq fee, kredit = PAID to'lovlar
+     *                (gross − balansdan qoplangan) — v1 ledger kreditlari/debetlari emas; bulk dry-run/apply'da false
+     */
+    public record Options(LocalDate cutover, LocalDate goLive, boolean a14UsePayable, boolean heldNet) {
+        public Options(LocalDate cutover, LocalDate goLive, boolean a14UsePayable) {
+            this(cutover, goLive, a14UsePayable, false);
+        }
+
+        public Options asHeldNet() {
+            return new Options(cutover, goLive, a14UsePayable, true);
+        }
     }
+
+    /** Sof hisobda o'zgarishsiz qoladigan ledger turlari (va {@code billing_period_id} li v2 davr yozuvlari). */
+    static final Set<BalanceTransactionType> NET_KEPT = Set.of(
+        BalanceTransactionType.BONUS, BalanceTransactionType.PENALTY, BalanceTransactionType.REFUND_PAYOUT,
+        BalanceTransactionType.TRANSFER_IN, BalanceTransactionType.TRANSFER_OUT, BalanceTransactionType.MANUAL_ADJUST);
+    /** Sof hisob tuzatmasining izoh prefiksi ({@code MANUAL_ADJUST}, neytral emas). */
+    public static final String HELD_NET_PREFIX = "[held-net]";
 
     public record PlannedPeriod(LocalDate start, LocalDate end, BillingPeriodStatus status,
                                 BigDecimal fee, BigDecimal amount) {
@@ -77,12 +95,13 @@ public class MigrationPlanner {
         String oldStatus, LocalDate oldNextPaymentDate, BigDecimal oldDebt,
         String newStatus, BigDecimal newDebt, LocalDate newDebtSince,
         LocalDate newNextPaymentDate, BigDecimal newNextPaymentAmount,
-        SortedSet<String> anomalies, boolean blocking, boolean alreadyMigrated) {
+        SortedSet<String> anomalies, boolean blocking, boolean alreadyMigrated,
+        BigDecimal paidNet, BigDecimal keptLedger, BigDecimal netAdjustment) {
 
-        /** Apply nimani yozadi: davrlar yoki MIGRATION yozuvi bor-yo'qligi. */
+        /** Apply nimani yozadi: davrlar, MIGRATION yoki sof hisob tuzatmasi bor-yo'qligi. */
         public boolean writes() {
             return "M".equals(category) && !alreadyMigrated
-                && (!periods.isEmpty() || migrationAmount.signum() != 0);
+                && (!periods.isEmpty() || migrationAmount.signum() != 0 || netAdjustment.signum() != 0);
         }
     }
 
@@ -215,6 +234,9 @@ public class MigrationPlanner {
         LocalDate r = null;
         BigDecimal charges = BigDecimal.ZERO;
         BigDecimal migration = BigDecimal.ZERO;
+        BigDecimal paidNet = BigDecimal.ZERO;
+        BigDecimal kept = BigDecimal.ZERO;
+        BigDecimal netAdjustment = BigDecimal.ZERO;
 
         switch (category) {
             case "L" -> {
@@ -241,7 +263,9 @@ public class MigrationPlanner {
                 }
 
                 AccrualCalculator.State state = AccrualCalculator.State.of(sg);
-                Map<LocalDate, BigDecimal> payableByStart = o.a14UsePayable() ? payableByPeriod(anchor, payments) : Map.of();
+                // Sof hisobda A14 almashtirish yo'q: chegirma to'lov tomonida (gross) hisoblanadi
+                Map<LocalDate, BigDecimal> payableByStart = o.a14UsePayable() && !o.heldNet()
+                    ? payableByPeriod(anchor, payments) : Map.of();
                 int charged = 0;
                 for (int n = 0; ; n++) {
                     LocalDate start = BillingCalendar.start(anchor, n);
@@ -266,11 +290,21 @@ public class MigrationPlanner {
                     charges = charges.add(c);
                     charged++;
                 }
-                migration = legacyPc.subtract(repair);
+                if (o.heldNet()) {
+                    // §9.7.1: neytral oila (v1 PERIOD_CHARGE, ta'mir, eski MIGRATION) to'liq neytrallanadi;
+                    // qolgan ledger (v1 PAYMENT/DISCOUNT ...) to'lovlar jadvalidagi sof summaga tenglashtiriladi
+                    NetLedger net = netLedger(ledger);
+                    paidNet = paidNet(payments);
+                    kept = net.kept();
+                    migration = net.neutral().negate();
+                    netAdjustment = paidNet.add(kept).subtract(l.subtract(net.neutral()));
+                } else {
+                    migration = legacyPc.subtract(repair);
+                }
             }
         }
 
-        BigDecimal target = l.add(migration).subtract(charges);
+        BigDecimal target = l.add(migration).add(netAdjustment).subtract(charges);
         if ("M".equals(category) && fee.signum() > 0 && target.subtract(l).abs().compareTo(fee) > 0) {
             anomalies.add("A12");
         }
@@ -280,6 +314,9 @@ public class MigrationPlanner {
         List<LocalDate> plannedStarts = new ArrayList<>();
         if (migration.signum() != 0) {
             planned.add(new FifoDebt.Line(null, migration, t, null, true));      // MIGRATION — neytral juftlik
+        }
+        if (netAdjustment.signum() != 0) {
+            planned.add(new FifoDebt.Line(null, netAdjustment, t, null));         // sof hisob tuzatmasi — oddiy kredit/debet
         }
         for (PlannedPeriod p : periods) {
             plannedStarts.add(p.start());
@@ -309,7 +346,42 @@ public class MigrationPlanner {
             Money.normalize(stored.signum() < 0 ? stored.negate() : BigDecimal.ZERO),
             newStatus.name(), Money.normalize(after.debt()), after.debtSince(),
             after.nextPaymentDate(), after.nextPaymentAmount() != null ? Money.normalize(after.nextPaymentAmount()) : null,
-            anomalies, blocking, alreadyMigrated);
+            anomalies, blocking, alreadyMigrated,
+            Money.normalize(paidNet), Money.normalize(kept), Money.normalize(netAdjustment));
+    }
+
+    /** Ledger yig'indilari ildiz yozuv turi bo'yicha (REVERSAL — asl yozuvining oilasida). */
+    record NetLedger(BigDecimal neutral, BigDecimal kept) {
+    }
+
+    static NetLedger netLedger(List<BalanceTransaction> ledger) {
+        Map<Long, BalanceTransaction> byId = new HashMap<>();
+        ledger.forEach(tx -> byId.put(tx.getId(), tx));
+        BigDecimal neutral = BigDecimal.ZERO;
+        BigDecimal kept = BigDecimal.ZERO;
+        for (BalanceTransaction tx : ledger) {
+            BalanceTransaction root = tx;
+            for (int guard = 0; root.getRelatedTxId() != null && byId.containsKey(root.getRelatedTxId()) && guard < 16; guard++) {
+                root = byId.get(root.getRelatedTxId());
+            }
+            if (PeriodCoverageService.isNeutral(root)) {
+                neutral = neutral.add(tx.getAmount());
+            } else if (NET_KEPT.contains(root.getType()) || root.getBillingPeriodId() != null) {   // + mavjud v2 davr yozuvlari
+                kept = kept.add(tx.getAmount());
+            }
+        }
+        return new NetLedger(neutral, kept);
+    }
+
+    /** Sof to'lovlar: PAID to'lovlar gross summasi (chegirma — kredit) minus balansdan qoplangan qism. */
+    static BigDecimal paidNet(List<Payment> payments) {
+        BigDecimal sum = BigDecimal.ZERO;
+        for (Payment p : payments) {
+            BigDecimal gross = p.getAmount() != null ? p.getAmount()
+                : Money.nz(p.getPayableAmount()).add(Money.nz(p.getDiscountAmount()));
+            sum = sum.add(gross).subtract(Money.nz(p.getBalanceUsed()));
+        }
+        return sum;
     }
 
     static String category(StudentGroup sg) {

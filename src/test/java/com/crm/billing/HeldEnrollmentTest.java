@@ -17,14 +17,21 @@ import com.crm.repository.PaymentRepository;
 import com.crm.repository.StudentGroupRepository;
 import com.crm.repository.StudentRepository;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -40,6 +47,7 @@ class HeldEnrollmentTest extends AbstractBillingIT {
     private static final LocalDate T = LocalDate.of(2026, 10, 5);
 
     @Autowired HeldEnrollmentService held;
+    @Autowired MigrationPlanner planner;
     @Autowired BillingMigrationService migration;
     @Autowired BillingProperties properties;
     @Autowired StudentGroupRepository sgRepo;
@@ -97,6 +105,192 @@ class HeldEnrollmentTest extends AbstractBillingIT {
         properties.setEnabled(true);
         assertThat(inTx(() -> sgRepo.findById(heldOne.sg()).orElseThrow()).getBillingHold()).isTrue();
         return heldOne;
+    }
+
+    private Ids enrollment(String anchor) {
+        Long student = fixtures.student();
+        Long group = fixtures.group(fixtures.course(700_000));
+        return new Ids(student, group, fixtures.enrollment(student, group).start(d(anchor)).save());
+    }
+
+    /**
+     * v1 to'lovi va uning ledger yozuvlari — eski PaymentService kabi: PAYMENT = naqd (gross − chegirma),
+     * PERIOD_CHARGE = −(oylar × fee − chegirma), {@code periodCharge = 0} — debet yozilmagan.
+     */
+    private void v1Payment(Ids ids, long gross, long discount, String date, long periodCharge) {
+        long payable = gross - discount;
+        inTx(() -> paymentRepo.save(Payment.builder()
+            .student(studentRepo.findById(ids.student()).orElseThrow())
+            .group(groupRepo.findById(ids.group()).orElseThrow())
+            .studentGroup(sgRepo.findById(ids.sg()).orElseThrow())
+            .amount(BigDecimal.valueOf(gross)).discountAmount(BigDecimal.valueOf(discount))
+            .payableAmount(BigDecimal.valueOf(payable)).cashAmount(BigDecimal.valueOf(payable))
+            .paymentDate(d(date)).periodStart(d(date))
+            .receiptNumber("OLD-" + ids.sg() + "-" + gross + "-" + date).status(PaymentStatus.PAID).build()));
+        if (payable > 0) {
+            v1Tx(ids.sg(), BalanceTransactionType.PAYMENT, payable, date);
+        }
+        if (periodCharge > 0) {
+            v1Tx(ids.sg(), BalanceTransactionType.PERIOD_CHARGE, -periodCharge, date);
+        }
+        jdbc.update("UPDATE student_groups SET balance = (SELECT COALESCE(SUM(amount), 0) FROM balance_transactions"
+            + " WHERE student_group_id = ?) WHERE id = ?", ids.sg(), ids.sg());
+    }
+
+    private void v1Tx(Long sg, BalanceTransactionType type, long amount, String date) {
+        inTx(() -> {
+            StudentGroup e = sgRepo.findById(sg).orElseThrow();
+            txRepo.save(BalanceTransaction.builder().studentGroup(e).student(e.getStudent())
+                .type(type).amount(BigDecimal.valueOf(amount)).balanceAfter(BigDecimal.ZERO)
+                .effectiveDate(d(date)).note("v1").createdAt(d(date).atTime(10, 0)).build());
+        });
+    }
+
+    private MigrationPlanner.SgPlan plan(Ids ids, MigrationPlanner.Options o) {
+        return inTx(() -> planner.planOne(sgRepo.findById(ids.sg()).orElseThrow(), o));
+    }
+
+    /**
+     * Prod misollari (fee 700 000, T = 05.10, A14 tasdiqlangan run): eski reja v1 ko'p oylik chegirmali to'lov
+     * payable'ini bitta davrga qo'yib, qolgan oylarni yana fee bilan hisoblardi. Hold rejasi — sof hisob:
+     * to'lovlar (gross) − davrlar × fee.
+     */
+    @Test
+    void heldPlan_isNet_prodExamples() {
+        clock.setDate(T);
+        legacy();                                                         // oddiy SG — migratsiya qilinadi
+        Ids sg4 = enrollment("03.08.2026");
+        v1Payment(sg4, 1_400_000, 399_999, "03.08.2026", 1_000_001);       // 2 oy, payable 1 000 001
+        v1Payment(sg4, 700_000, 0, "03.10.2026", 0);                       // debetsiz — balans +700 000
+        Ids sg6 = enrollment("29.08.2026");
+        v1Payment(sg6, 1_400_000, 100_000, "29.08.2026", 1_300_000);       // 2 oy
+        Ids sg46 = enrollment("01.09.2026");
+        v1Payment(sg46, 700_000, 700_000, "01.09.2026", 0);               // 100% chegirma: naqd 0, debet yo'q
+        Ids sg47 = enrollment("01.06.2026");
+        v1Payment(sg47, 2_800_000, 200_000, "01.06.2026", 2_600_000);      // 4 oy
+        List<Ids> heldOnes = List.of(sg4, sg6, sg46, sg47);
+
+        // Eski (bulk, A14) reja — prod'dagi raqamlar takrorlanadi
+        MigrationPlanner.Options bulk = new MigrationPlanner.Options(T, properties.getMigrationGoLive(), true);
+        MigrationPlanner.SgPlan old4 = plan(sg4, bulk);
+        assertThat(old4.periods()).extracting(MigrationPlanner.PlannedPeriod::amount)
+            .usingElementComparator(BigDecimal::compareTo)
+            .containsExactly(new BigDecimal("1000001"), new BigDecimal("700000"), new BigDecimal("700000"));
+        assertThat(old4.migrationAmount()).isEqualByComparingTo("1000001");
+        assertThat(old4.storedBalance()).isEqualByComparingTo("700000");
+        assertThat(old4.newDebt()).isEqualByComparingTo("700000");
+        assertThat(old4.anomalies()).contains("A12", "A14");
+        assertThat(plan(sg6, bulk).newDebt()).isEqualByComparingTo("700000");
+        MigrationPlanner.SgPlan old46 = plan(sg46, bulk);
+        assertThat(old46.migrationAmount()).isEqualByComparingTo("0");
+        assertThat(old46.storedBalance()).isEqualByComparingTo("0");
+        assertThat(old46.newDebt()).isEqualByComparingTo("1400000");
+        assertThat(plan(sg47, bulk).newDebt()).isEqualByComparingTo("2800000");
+
+        // Run qo'llangan, 4 tasi chetlatilgan → hold
+        fixtures.loginAs(UserRole.SUPER_ADMIN);
+        MigrationPlanner.Report r = migration.dryRun(T, true);
+        Long runId = migration.approve(T, true, r.reportHash(), "Egasi", null).getId();
+        properties.setEnabled(false);
+        migration.apply(runId, "APPLY-" + runId, heldOnes.stream().map(Ids::sg).toList(), false);
+        properties.setEnabled(true);
+
+        Map<Long, HeldEnrollmentService.HeldRow> rows = held.list().rows().stream()
+            .collect(Collectors.toMap(HeldEnrollmentService.HeldRow::studentGroupId, x -> x));
+        assertThat(rows).containsOnlyKeys(sg4.sg(), sg6.sg(), sg46.sg(), sg47.sg());
+
+        HeldEnrollmentService.HeldRow r4 = rows.get(sg4.sg());
+        assertThat(r4.periods()).extracting(MigrationPlanner.PlannedPeriod::start)
+            .containsExactly(d("03.08.2026"), d("03.09.2026"), d("03.10.2026"));
+        assertThat(r4.periods()).extracting(MigrationPlanner.PlannedPeriod::amount)
+            .allSatisfy(a -> assertThat(a).isEqualByComparingTo("700000"));
+        assertThat(r4.paymentsSum()).isEqualByComparingTo("2100000");
+        assertThat(r4.paidNet()).isEqualByComparingTo("2100000");
+        assertThat(r4.migrationAmount()).isEqualByComparingTo("1000001");   // v1 PERIOD_CHARGE to'liq neytrallanadi
+        assertThat(r4.netAdjustment()).isEqualByComparingTo("399999");      // chegirma — kredit (ledgerda yo'q edi)
+        assertThat(r4.balanceAfter()).isEqualByComparingTo("0");
+        assertThat(r4.debtAfter()).isEqualByComparingTo("0");
+
+        HeldEnrollmentService.HeldRow r6 = rows.get(sg6.sg());
+        assertThat(r6.periods()).hasSize(2);
+        assertThat(r6.debtAfter()).isEqualByComparingTo("0");
+
+        HeldEnrollmentService.HeldRow r46 = rows.get(sg46.sg());
+        assertThat(r46.periods()).extracting(MigrationPlanner.PlannedPeriod::start)
+            .containsExactly(d("01.09.2026"), d("01.10.2026"));
+        assertThat(r46.debtAfter()).isEqualByComparingTo("700000");
+        assertThat(r46.debtSinceAfter()).isEqualTo(d("01.10.2026"));
+
+        HeldEnrollmentService.HeldRow r47 = rows.get(sg47.sg());
+        assertThat(r47.periods()).hasSize(5);
+        assertThat(r47.charges()).isEqualByComparingTo("3500000");
+        assertThat(r47.debtAfter()).isEqualByComparingTo("700000");
+        assertThat(r47.debtSinceAfter()).isEqualTo(d("01.10.2026"));
+
+        // Apply yozgani = reja; neytral juftlik yig'indisi 0 → debtSince v2 davridan
+        HeldEnrollmentService.ApplyResult a4 = held.apply(sg4.sg(), "k-4", "Sof hisob", null, r4.planHash());
+        assertThat(inTx(() -> sgRepo.findById(sg4.sg()).orElseThrow()).getBalance()).isEqualByComparingTo("0");
+        assertThat(a4.after().debtAfter()).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject("SELECT amount FROM balance_transactions WHERE student_group_id = ?"
+            + " AND type = 'MANUAL_ADJUST' AND migration_run_id = ?", BigDecimal.class, sg4.sg(), runId))
+            .isEqualByComparingTo("399999");
+
+        HeldEnrollmentService.ApplyResult a47 = held.apply(sg47.sg(), "k-47", "Sof hisob", null, r47.planHash());
+        assertThat(inTx(() -> sgRepo.findById(sg47.sg()).orElseThrow()).getBalance()).isEqualByComparingTo("-700000");
+        assertThat(a47.after().debtSinceAfter()).isEqualTo(d("01.10.2026"));
+
+        // Qaytarish → qayta qo'llash: sof hisob tuzatmasi ham qaytariladi, natija o'sha
+        migration.revertSg(runId, sg47.sg(), "REVERT-" + runId + "-" + sg47.sg());
+        assertThat(inTx(() -> sgRepo.findById(sg47.sg()).orElseThrow()).getBalance()).isEqualByComparingTo("0");
+        assertThat(held.preview(sg47.sg(), null).debtAfter()).isEqualByComparingTo("700000");
+    }
+
+    /**
+     * docs/ops/held-review.sql (read-only) — bulk migratsiya qilingan SG larda xuddi shu xato: o'sha 4 misol hold'siz
+     * qo'llansa, so'rov ortiqcha qarzni va sababini ko'rsatadi; oddiy SG — OK.
+     */
+    @Test
+    void heldReviewSql_findsOverchargedMigrated() throws Exception {
+        Assumptions.assumeTrue(Boolean.TRUE.equals(jdbc.execute((ConnectionCallback<Boolean>) c ->
+            c.getMetaData().getDatabaseProductName().toLowerCase(Locale.ROOT).contains("postgres"))),
+            "held-review.sql — PostgreSQL (pgtest)");
+        clock.setDate(T);
+        Ids ok = legacy();
+        Ids sg4 = enrollment("03.08.2026");
+        v1Payment(sg4, 1_400_000, 399_999, "03.08.2026", 1_000_001);
+        v1Payment(sg4, 700_000, 0, "03.10.2026", 0);
+        Ids sg6 = enrollment("29.08.2026");
+        v1Payment(sg6, 1_400_000, 100_000, "29.08.2026", 1_300_000);
+        Ids sg46 = enrollment("01.09.2026");
+        v1Payment(sg46, 700_000, 700_000, "01.09.2026", 0);
+        Ids sg47 = enrollment("01.06.2026");
+        v1Payment(sg47, 2_800_000, 200_000, "01.06.2026", 2_600_000);
+        fixtures.loginAs(UserRole.SUPER_ADMIN);
+        MigrationPlanner.Report r = migration.dryRun(T, true);
+        Long runId = migration.approve(T, true, r.reportHash(), "Egasi", null).getId();
+        properties.setEnabled(false);
+        migration.apply(runId, "APPLY-" + runId, List.of(), false);
+        properties.setEnabled(true);
+
+        String sql = Files.readString(Path.of("docs/ops/held-review.sql"));
+        Map<Long, Map<String, Object>> rows = jdbc.queryForList(sql).stream()
+            .collect(Collectors.toMap(m -> ((Number) m.get("sg_id")).longValue(), m -> m));
+        assertThat(rows).containsOnlyKeys(ok.sg(), sg4.sg(), sg6.sg(), sg46.sg(), sg47.sg());
+        assertThat(rows.get(ok.sg())).containsEntry("reason", "OK");
+        assertReview(rows.get(sg4.sg()), "-700000", "0", "-700000", "A14_MULTI");
+        assertReview(rows.get(sg6.sg()), "-700000", "0", "-700000", "A14_MULTI");
+        assertReview(rows.get(sg46.sg()), "-1400000", "-700000", "-700000", "DISCOUNT_UNCREDITED");
+        assertReview(rows.get(sg47.sg()), "-2800000", "-700000", "-2100000", "A14_MULTI");
+        // apply paytidagi target_old = hozirgi balans (keyin yozuv yo'q)
+        assertThat((BigDecimal) rows.get(sg47.sg()).get("balance_now")).isEqualByComparingTo("-2800000");
+    }
+
+    private static void assertReview(Map<String, Object> row, String targetOld, String targetNet, String delta,
+                                     String reason) {
+        assertThat((BigDecimal) row.get("target_old")).isEqualByComparingTo(targetOld);
+        assertThat((BigDecimal) row.get("target_net")).isEqualByComparingTo(targetNet);
+        assertThat((BigDecimal) row.get("delta")).isEqualByComparingTo(delta);
+        assertThat(row.get("reason")).isEqualTo(reason);
     }
 
     private static void assertCode(Runnable call, String code) {

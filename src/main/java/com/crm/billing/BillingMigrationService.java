@@ -249,6 +249,19 @@ public class BillingMigrationService {
                         + plan.repairAdjustments().toPlainString() + ")")
                     .build());
             }
+            if (plan.netAdjustment().signum() != 0) {
+                // §9.7.1 (faqat hold sof hisobi): v1 ledger kreditlari → to'lovlar jadvalidagi sof summa
+                ledger.post(LedgerService.Entry.builder()
+                    .enrollment(sg)
+                    .type(BalanceTransactionType.MANUAL_ADJUST)
+                    .amount(plan.netAdjustment())
+                    .effectiveDate(o.cutover())
+                    .migrationRunId(runId)
+                    .note(MigrationPlanner.HELD_NET_PREFIX + " sof hisob: to'lovlar "
+                        + plan.paidNet().toPlainString() + ", boshqa yozuvlar " + plan.keptLedger().toPlainString()
+                        + ", davrlar " + plan.charges().toPlainString())
+                    .build());
+            }
         }
         if (EnrollmentLifecycleService.isFrozen(sg) && sg.getFrozenFrom() == null) {
             // Eski muzlatilgan SG: frozen_from to'ldiriladi (§6.7 modeli)
@@ -347,7 +360,7 @@ public class BillingMigrationService {
         if (!Boolean.TRUE.equals(current.getBillingHold())) {
             throw new ConflictException("migration.sgNotHeld");
         }
-        MigrationPlanner.Options o = options(run);
+        MigrationPlanner.Options o = options(run).asHeldNet();   // §9.7.1: hold — sof hisob
         if (planner.planOne(current, o).alreadyMigrated()) {
             throw new ConflictException("migration.sgAlreadyMigrated");
         }
