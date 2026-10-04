@@ -26,14 +26,23 @@ import java.util.Map;
  * ASL charge sanasidan qaytadi; muzlatish qaytarimi (PERIOD_REFUND) aynan o'sha davr
  * majburiyatini kamaytiradi. TRANSFER juftining aslı boshqa SG da — ro'yxatda
  * yo'q, shuning uchun o'z guruhi bo'ladi.
+ *
+ * <p><b>Migratsiya neytral juftligi</b> ({@link PeriodCoverageService#isNeutral}: v1 PERIOD_CHARGE, MIGRATION,
+ * ledger ta'miri): yig'indisi 0 bo'lsa (migratsiya qilingan SG) — sanani aniqlashda hisobga olinmaydi, balansga esa
+ * kiradi. Aks holda MIGRATION krediti FIFO bo'yicha eng eski v2 davrni "to'lab", v1 debetining sanasi
+ * {@code debtSince} bo'lib qolardi (PeriodCoverage bilan zid). Yig'indi 0 bo'lmasa (hold'dagi, migratsiya qilinmagan
+ * SG) — avvalgidek hammasi hisobga olinadi.
  */
 public final class FifoDebt {
 
     private FifoDebt() {
     }
 
-    /** FIFO uchun kerakli minimal yozuv. */
-    public record Line(Long id, BigDecimal amount, LocalDate effectiveDate, Long relatedTxId) {
+    /** FIFO uchun kerakli minimal yozuv. {@code neutral} — migratsiya neytral juftligiga tegishli. */
+    public record Line(Long id, BigDecimal amount, LocalDate effectiveDate, Long relatedTxId, boolean neutral) {
+        public Line(Long id, BigDecimal amount, LocalDate effectiveDate, Long relatedTxId) {
+            this(id, amount, effectiveDate, relatedTxId, false);
+        }
     }
 
     /** {@code debtSince} null ⇔ balans ≥ 0. */
@@ -60,9 +69,23 @@ public final class FifoDebt {
             balance = balance.add(Money.nz(l.amount()));
         }
 
+        // Migratsiya neytral juftligi to'liq (yig'indi 0) bo'lsa — sanani aniqlashdan chiqariladi
+        BigDecimal neutralSum = BigDecimal.ZERO;
+        boolean anyNeutral = false;
+        for (Map.Entry<Line, BigDecimal> e : net.entrySet()) {
+            if (e.getKey().neutral()) {
+                anyNeutral = true;
+                neutralSum = neutralSum.add(e.getValue());
+            }
+        }
+        boolean skipNeutral = anyNeutral && neutralSum.signum() == 0;
+
         BigDecimal funds = BigDecimal.ZERO;
         List<Map.Entry<Line, BigDecimal>> obligations = new ArrayList<>();
         for (Map.Entry<Line, BigDecimal> e : net.entrySet()) {
+            if (skipNeutral && e.getKey().neutral()) {
+                continue;
+            }
             if (e.getValue().signum() > 0) {
                 funds = funds.add(e.getValue());
             } else if (e.getValue().signum() < 0) {

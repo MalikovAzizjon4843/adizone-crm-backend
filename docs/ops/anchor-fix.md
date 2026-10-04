@@ -118,56 +118,54 @@ SELECT sg.id AS sg_id, sg.student_id, sg.group_id, sg.join_date, sg.trial_conver
 ## 6. Kalendar QAROR 1 (langar kuni 29–31) — keyingi davr qanday o'zgaradi
 
 [billing-v2.md §14.7](../design/billing-v2.md#147-billing-kuni-2931--qaror-1-04102026): keyingi davr = langar kuni (oyda
-yo'q bo'lsa oy oxiri; ilgari 29–31 → doim oy oxiri). Keyingi davr **boshi** o'zgarmaydi — u oxirgi yozilgan davrdan keyin
-(`oxirgi period_end + 1`); o'zgaradi — shu davrning **oxiri** va undan keyingi sanalar. Langar kuni 31 bo'lganlarda ikkala qoida
-bir xil (farq 0). Faqat o'qiydi; hech narsa o'zgartirilmaydi (kod ham avtomatik ravishda faqat keyingi davrlarga qo'llaydi).
+yo'q bo'lsa oy oxiri; ilgari 29–31 → doim oy oxiri). Keyingi davr — **oxirgi yozilgan davr boshidan keyingi birinchi
+langar-kuni sanasi**; eski qoida bilan saqlangan oxir (masalan 30.10) yangi davr yozilganda (yoki V76 bilan) qisqartiriladi.
+Langar kuni 31 bo'lganlarda farq yo'q. Faqat o'qiydi.
 
 ```sql
 WITH a AS (
     SELECT sg.id, sg.student_id, sg.group_id, sg.payment_start_date AS langar,
            EXTRACT(DAY FROM sg.payment_start_date)::int AS kun,
-           (SELECT MAX(p.period_end) FROM billing_periods p
-             WHERE p.student_group_id = sg.id AND p.period_start >= sg.payment_start_date) AS oxirgi_oxir
+           (SELECT MAX(p.period_start) FROM billing_periods p
+             WHERE p.student_group_id = sg.id AND p.period_start >= sg.payment_start_date) AS oxirgi_bosh,
+           (SELECT p.period_end FROM billing_periods p
+             WHERE p.student_group_id = sg.id AND p.period_start >= sg.payment_start_date
+             ORDER BY p.period_start DESC LIMIT 1) AS saqlangan_oxir
       FROM student_groups sg
      WHERE sg.is_active IS TRUE AND sg.frozen_from IS NULL AND sg.is_trial IS NOT TRUE
        AND COALESCE(sg.payment_type, 'MONTHLY') = 'MONTHLY'
        AND sg.payment_start_date IS NOT NULL
        AND EXTRACT(DAY FROM sg.payment_start_date) >= 29
-), n AS (
-    SELECT a.*, COALESCE(a.oxirgi_oxir + 1, a.langar) AS keyingi_bosh FROM a
 ), m AS (
-    SELECT n.*,
-           date_trunc('month', n.keyingi_bosh)::date                       AS m0,
-           (date_trunc('month', n.keyingi_bosh) + INTERVAL '1 month')::date AS m1
-      FROM n
+    SELECT a.*,
+           date_trunc('month', COALESCE(a.oxirgi_bosh, a.langar))::date                       AS m0,
+           (date_trunc('month', COALESCE(a.oxirgi_bosh, a.langar)) + INTERVAL '1 month')::date AS m1
+      FROM a
 ), c AS (
     SELECT m.*,
-           -- yangi: shu yoki keyingi oyda min(kun, oy uzunligi), keyingi_bosh dan keyin
            make_date(EXTRACT(YEAR FROM m0)::int, EXTRACT(MONTH FROM m0)::int,
-                     LEAST(kun, EXTRACT(DAY FROM (m0 + INTERVAL '1 month' - INTERVAL '1 day'))::int)) AS yangi0,
+                     LEAST(kun, EXTRACT(DAY FROM (m0 + INTERVAL '1 month' - INTERVAL '1 day'))::int)) AS y0,
            make_date(EXTRACT(YEAR FROM m1)::int, EXTRACT(MONTH FROM m1)::int,
-                     LEAST(kun, EXTRACT(DAY FROM (m1 + INTERVAL '1 month' - INTERVAL '1 day'))::int)) AS yangi1,
-           -- eski: oy oxiri
-           (m0 + INTERVAL '1 month' - INTERVAL '1 day')::date                                     AS eski0,
-           (m1 + INTERVAL '1 month' - INTERVAL '1 day')::date                                     AS eski1
+                     LEAST(kun, EXTRACT(DAY FROM (m1 + INTERVAL '1 month' - INTERVAL '1 day'))::int)) AS y1
       FROM m
 )
 SELECT c.id AS sg_id, c.student_id,
        TRIM(COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, '')) AS oquvchi,
-       g.group_name AS guruh, c.langar, c.kun, c.oxirgi_oxir, c.keyingi_bosh,
-       (CASE WHEN c.eski0 > c.keyingi_bosh THEN c.eski0 ELSE c.eski1 END) - 1   AS eski_qoida_davr_oxiri,
-       (CASE WHEN c.yangi0 > c.keyingi_bosh THEN c.yangi0 ELSE c.yangi1 END) - 1 AS yangi_qoida_davr_oxiri,
-       (CASE WHEN c.yangi0 > c.keyingi_bosh THEN c.yangi0 ELSE c.yangi1 END)
-         - (CASE WHEN c.eski0 > c.keyingi_bosh THEN c.eski0 ELSE c.eski1 END) AS farq_kun   -- < 0: keyingi to'lov ertaroq
+       g.group_name AS guruh, c.langar, c.kun, c.oxirgi_bosh, c.saqlangan_oxir,
+       c.saqlangan_oxir + 1                                                       AS eski_keyingi,
+       CASE WHEN c.oxirgi_bosh IS NULL THEN c.langar
+            WHEN c.y0 > c.oxirgi_bosh THEN c.y0 ELSE c.y1 END                     AS yangi_keyingi,
+       (CASE WHEN c.oxirgi_bosh IS NULL THEN c.langar
+             WHEN c.y0 > c.oxirgi_bosh THEN c.y0 ELSE c.y1 END) - (c.saqlangan_oxir + 1) AS farq_kun
   FROM c
   JOIN students s ON s.id = c.student_id
   JOIN groups g ON g.id = c.group_id
- ORDER BY farq_kun, c.id;
+ ORDER BY farq_kun NULLS LAST, c.id;
 ```
 
 **O'qish:**
-- `keyingi_bosh` — navbatdagi yoziladigan davr boshi (ikkala qoidada bir xil, ustma-ust yo'q).
-- `yangi_qoida_davr_oxiri` — shu davr endi qachon tugaydi; keyingi to'lov (navbatdagi davr) = shu sana + 1.
-- `farq_kun` — keyingi to'lov sanasi eski qoidaga nisbatan necha kun siljiydi (manfiy — ertaroq; masalan langar 29.08,
-  `keyingi_bosh = 31.10`: eski 30.11, yangi 29.11 → −1). Langar 31 — 0.
-- `oxirgi_oxir` bo'sh — yozilmada hali davr yo'q, birinchi davr langardan boshlanadi; keyingilari darhol yangi qoida bo'yicha.
+- `eski_keyingi` — eski qoida (saqlangan oxir + 1) bo'yicha keyingi davr / kutilayotgan sana; `yangi_keyingi` — endi.
+- `farq_kun` — manfiy: keyingi to'lov ertaroq (masalan langar 29.09, saqlangan oxir 30.10: eski 31.10, yangi 29.10 → −2);
+  0 — o'zgarmaydi; bo'sh — yozilmada hali davr yo'q (birinchi davr langardan, keyingilari darhol yangi qoida bo'yicha).
+- `farq_kun < 0` bo'lgan qatorlarda saqlangan oxir V76 bilan `yangi_keyingi − 1` ga qisqartiriladi (yoki keyingi davr
+  yozilganda avtomatik).

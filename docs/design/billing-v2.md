@@ -193,8 +193,8 @@ end(n)          = start(n+1) − 1 kun
 | 30.01.2028 | 30.01, 29.02 (kabisa), 30.03 | 30.01–28.02 (30), 29.02–29.03 (30) |
 | 29.09.2026 | 29.09, 29.10, 29.11 | buyurtmachi misoli (§14.2) |
 
-Keyingi yoziladigan davr panjaradan emas, **oxirgi yozilgan davr oxiridan** topiladi (§14.7 zanjiri) — eski qoida bilan
-yozilgan davrlardan keyin ustma-ust davr ochilmaydi.
+Keyingi yoziladigan davr **oxirgi yozilgan davr boshidan keyingi langar kuni** (§14.7 zanjiri); eski qoida bilan saqlangan
+oxir yangi davr yozilganda qisqartiriladi — ustma-ust davr bo'lmaydi.
 
 Proratsiya YO'Q — birinchi davr `paymentStartDate` dan boshlanadi va to'liq narx olinadi (hozirgi "yubiley" mantiqi saqlanadi, audit §6 A.9).
 
@@ -1405,19 +1405,23 @@ qo'shilgan sanada ochiladi va to'lanmasa — o'sha kundan qarzdor.
 **Qoida:** keyingi davr = langar kuni; oyda u kun bo'lmasa — oyning oxirgi kuni (29.09 → 29.10; 31.01 → 28/29.02 → 31.03;
 29.01 → 28.02 → 29.03). `BillingCalendar.dayOf = min(langar kuni, oy uzunligi)`.
 
-**Ustma-ust davr yo'q — zanjir.** Keyingi yoziladigan davr panjarada "yozilmagan birinchi `start(n)`" sifatida emas,
-**oxirgi yozilgan davrdan** topiladi (`BillingCalendar.firstUnbilledStart`): langardan keyin (`period_start ≥ langar`) yozilgan
-davr bo'lsa — eng kech tugaganining saqlangan `period_end` + 1 kun, bo'lmasa — langar. Davr oxiri — panjaradagi navbatdagi
-langar kunidan bir kun oldin (`endOf`). Accrual, to'lov preview'i, snapshot `nextPaymentDate` va kutilayotganlar — hammasi shu.
+**Zanjir (tuzatish 2026-10-04, prod sg 68/73).** Keyingi yoziladigan davr panjarada "yozilmagan birinchi `start(n)`"
+sifatida emas, **oxirgi yozilgan davr BOSHIDAN** topiladi (`BillingCalendar.firstUnbilledStart`): langardan keyin
+(`period_start ≥ langar`) yozilgan davr bo'lsa — eng oxirgisining boshidan keyingi birinchi langar-kuni sanasi, bo'lmasa — langar.
+Saqlangan `period_end` ga qaralmaydi (birinchi versiya `period_end + 1` dan davom etardi — eski qoida bilan saqlangan
+29.09–30.10 dan keyin 31.10 chiqardi). Davr oxiri — panjaradagi navbatdagi langar kunidan bir kun oldin (`endOf`).
+Accrual, to'lov preview'i, snapshot `nextPaymentDate` va kutilayotganlar — hammasi shu.
 
 ```
-Langar 29.08, eski qoida bilan yozilgan:  29.08–29.09, 30.09–30.10
-Yangi qoida:                               31.10–28.11  (bitta o'tish davri, to'liq narx), 29.11–28.12, 29.12–28.01 …
+Langar 29.09, eski qoida bilan saqlangan:  29.09–30.10
+Yangi qoida:                                keyingi davr 29.10; uni yozganda 29.09 davri oxiri 30.10 → 28.10
+Langar 29.08, eski:                         29.08–29.09, 30.09–30.10  →  keyingisi 29.10 (30.09 davri oxiri → 28.10), 29.11 …
 ```
 
-- Panjara bilan mos davrlarda (langar kuni 1–28 yoki 31) natija avvalgidek — farq faqat 29/30 langarli, eski qoida bilan
-  yozilgan davri bor yozilmalarda va faqat **bitta** o'tish davri (28–31 kun) bilan.
-- Oldin yozilgan davrga hech qachon qaytilmaydi; bo'shliq ham yo'q (`start(i) = end(i−1) + 1`).
+- Ustma-ust yo'q: yangi davr yozilganda oldingi (eski qoidali) davr oxiri `yangi boshi − 1` ga qisqartiriladi
+  (`AccrualService`); summa, ledger, holat o'zgarmaydi. Mavjud saqlangan oxirlar — `V76__period_end_anchor_day.sql`.
+- Panjara bilan mos davrlarda (langar kuni 1–28 yoki 31) natija avvalgidek.
+- Oldin yozilgan davr boshidan oldinga hech qachon qaytilmaydi.
 - Ta'sir ro'yxati (prod, read-only): [`docs/ops/anchor-fix.md` §6](../ops/anchor-fix.md).
 - Guruhga ko'chirishda yangi SG langari = eski SG oxirgi davr oxiri + 1 (§6.8, o'zgarmagan) — o'tish davridan keyin
   ko'chirilsa, yangi SG billing kuni shu sana bo'ladi.

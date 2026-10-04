@@ -22,6 +22,41 @@ class FifoDebtTest {
         return LocalDate.of(Integer.parseInt(p[2]), Integer.parseInt(p[1]), Integer.parseInt(p[0]));
     }
 
+    private static FifoDebt.Line neutral(long id, long amount, String date) {
+        return new FifoDebt.Line(id, BigDecimal.valueOf(amount), d(date), null, true);
+    }
+
+    /**
+     * Prod sg 15 holati: v2 davri 19.09 (−700 000), v1 PERIOD_CHARGE 30.09 (−700 000, neytral), MIGRATION 03.10
+     * (+700 000, neytral). Qarz — 19.09 davri; ilgari MIGRATION krediti 19.09 ni "yopib", debtSince 30.09 chiqardi.
+     */
+    @Test
+    void migrationNeutralPair_ignoredForDebtSince_balanceUnchanged() {
+        FifoDebt.Result r = FifoDebt.compute(List.of(
+            neutral(1, -700_000, "30.09.2026"),
+            l(2, -700_000, "19.09.2026", null),
+            neutral(3, 700_000, "03.10.2026")));
+        assertThat(r.balance()).isEqualByComparingTo("-700000");
+        assertThat(r.debtSince()).isEqualTo(d("19.09.2026"));
+
+        // Bayroqsiz (eski xulq) — v1 debet sanasi
+        FifoDebt.Result old = FifoDebt.compute(List.of(
+            l(1, -700_000, "30.09.2026", null),
+            l(2, -700_000, "19.09.2026", null),
+            l(3, 700_000, "03.10.2026", null)));
+        assertThat(old.debtSince()).isEqualTo(d("30.09.2026"));
+    }
+
+    /** Hold'dagi (migratsiya qilinmagan) SG: v1 debet bor, MIGRATION yo'q — yig'indi 0 emas, hammasi hisobga olinadi. */
+    @Test
+    void incompleteNeutralPair_countsAsBefore() {
+        FifoDebt.Result r = FifoDebt.compute(List.of(
+            neutral(1, -700_000, "30.09.2026"),
+            l(2, 300_000, "01.10.2026", null)));
+        assertThat(r.balance()).isEqualByComparingTo("-400000");
+        assertThat(r.debtSince()).isEqualTo(d("30.09.2026"));
+    }
+
     @Test
     void noLedger_noDebt() {
         FifoDebt.Result r = FifoDebt.compute(List.of());

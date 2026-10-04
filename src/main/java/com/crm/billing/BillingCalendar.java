@@ -16,11 +16,10 @@ import java.util.Collection;
  * end(n)          = start(n+1) − 1 kun
  * </pre>
  *
- * <p><b>Davr zanjiri.</b> Keyingi yoziladigan davr panjaradan emas, oxirgi YOZILGAN davrdan topiladi
- * ({@link #firstUnbilledStart}): langardan keyin yozilgan davr bo'lsa — uning saqlangan oxiridan keyingi kun, davr
- * oxiri — panjaradagi navbatdagi boshdan bir kun oldin ({@link #endOf}). Panjara bilan mos davrlarda bu aynan
- * {@code start(n+1)}; eski qoida (29–31 → oy oxiri) bilan yozilgan davrdan keyin esa bitta "o'tish" davri
- * ({@code oxirgi oxir + 1 … navbatdagi langar kuni − 1}) va undan keyin langar kuni bo'yicha — ustma-ust ham, bo'shliq ham yo'q.
+ * <p><b>Davr zanjiri.</b> Keyingi yoziladigan davr oxirgi YOZILGAN davr boshidan keyingi birinchi langar-kuni sanasi
+ * ({@link #firstUnbilledStart}); davr oxiri — panjaradagi navbatdagi boshdan bir kun oldin ({@link #endOf}). Panjara
+ * bilan mos davrlarda bu aynan {@code start(n+1)}. Eski qoida (29–31 → oy oxiri) bilan yozilgan oxirgi davr
+ * (29.09–30.10) dan keyin — 29.10; eski davr oxiri yangi davr yozilganda {@code 28.10} ga qisqartiriladi (ustma-ust yo'q).
  *
  * <p>Proratsiya yo'q: birinchi davr langardan boshlanadi va to'liq narx olinadi.
  */
@@ -57,19 +56,21 @@ public final class BillingCalendar {
     }
 
     /**
-     * Keyingi yoziladigan davr boshi: langardan keyin ({@code start ≥ anchor}) yozilgan davrlar bo'lsa — eng kech
-     * tugaganining saqlangan oxiridan keyingi kun; bo'lmasa — langar. Oldingi langarning davrlari (re-anchor,
-     * unfreeze — {@code start < anchor}) hisobga olinmaydi.
+     * Keyingi yoziladigan davr boshi (QAROR 1, §14.7): langardan keyin ({@code start ≥ anchor}) yozilgan davrlar bo'lsa —
+     * eng oxirgisining BOSHIDAN keyingi birinchi langar-kuni sanasi; bo'lmasa — langar. Saqlangan {@code period_end}
+     * ga qaralmaydi: eski qoida (29–31 → oy oxiri) bilan yozilgan davr oxiri (masalan 29.09–30.10) panjarani surmaydi —
+     * keyingisi 29.10 (eski davr oxiri yozishda {@code AccrualService} tomonidan 28.10 ga qisqartiriladi).
+     * Oldingi langarning davrlari (re-anchor, unfreeze — {@code start < anchor}) hisobga olinmaydi.
      */
     public static LocalDate firstUnbilledStart(LocalDate anchor, Collection<Span> billed) {
-        LocalDate lastEnd = null;
+        LocalDate lastStart = null;
         for (Span s : billed) {
-            if (s.start() != null && s.end() != null && !s.start().isBefore(anchor)
-                    && (lastEnd == null || s.end().isAfter(lastEnd))) {
-                lastEnd = s.end();
+            if (s.start() != null && !s.start().isBefore(anchor)
+                    && (lastStart == null || s.start().isAfter(lastStart))) {
+                lastStart = s.start();
             }
         }
-        return lastEnd != null ? lastEnd.plusDays(1) : anchor;
+        return lastStart != null ? following(anchor, lastStart) : anchor;
     }
 
     /** {@code start} dan boshlanadigan davr oxiri: panjaradagi {@code start} dan keyingi birinchi boshdan bir kun oldin. */

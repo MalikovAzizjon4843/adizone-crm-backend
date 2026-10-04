@@ -140,7 +140,8 @@ public class BillingStatusService {
         List<FifoDebt.Line> lines = new ArrayList<>();
         if (sg.getId() != null) {
             for (BalanceTransaction t : transactionRepository.findLedgerForFifo(sg.getId())) {
-                lines.add(new FifoDebt.Line(t.getId(), t.getAmount(), t.getEffectiveDate(), t.getRelatedTxId()));
+                lines.add(new FifoDebt.Line(t.getId(), t.getAmount(), t.getEffectiveDate(), t.getRelatedTxId(),
+                    PeriodCoverageService.isNeutral(t)));
             }
         }
         lines.addAll(plannedLines);

@@ -144,6 +144,21 @@
 
 Hali grace ichida va to'lanmagan davr (`periodsPending`) maxrajga kirmaydi. To'lov davri o'qituvchisi — `billing_periods.teacher_id` (davr yozilgandagi), bo'lmasa guruhning hozirgisi. `billing_hold`, qaytarilgan va PER_LESSON (davrsiz) hisobga olinmaydi — direktor dashboardi "Muddati kelgan to'lovlar" bilan bir xil ta'rif.
 
+## Yangilanishlar (2026-10-04, hold'dagi yozilmalar CRM'dan — V77)
+
+> Migratsiya qo'llanmagan (hold) yozilmalar — mavjud `POST /api/admin/billing/migration/apply-sg` mantiqi CRM uchun.
+> Reja eng oxirgi qo'llangan migratsiya run parametrlari (T, G, A14) bilan; run yo'q — 409 `migration.notApplied`.
+> Har qo'llash `billing_held_applications` ga yoziladi (kalit, sabab, langar oldin/keyin, reja hash, kim, qachon).
+
+| Endpoint | Rollar | So'rov | Javob | Izoh |
+|---|---|---|---|---|
+| `GET /api/admin/billing/held` | **SA** | — | `ApiResponse<{migrationRunId, cutover, total, rows[]}>`; qator: `studentGroupId, studentId, studentName, phone, groupId, groupName, joinDate, paymentStartDate, paymentsCount, paymentsSum, category, periods[{start, end, status, fee, amount}], charges, migrationAmount, balanceBefore, balanceAfter, debtAfter, debtSinceAfter, statusAfter, nextPaymentDateAfter, anomalies[], blocking, planHash` | Faqat o'qiydi (dry-run) |
+| `POST /api/admin/billing/held/{sgId}/preview` | **SA** | body (ixt.) `{paymentStartDate}` | `ApiResponse<HeldRow>` (yuqoridagi qator) | Hech narsa yozmaydi; `paymentStartDate` — shu langar bilan reja. Hold emas — 409 `migration.sgNotHeld` |
+| `POST /api/admin/billing/held/{sgId}/apply` | **SA** | header **`Idempotency-Key`** (majburiy, ≤ 100); body `{reason (majburiy, ≤ 1000), paymentStartDate?, expectedPlanHash?}` | `ApiResponse<{studentGroupId, migrationRunId, anchorBefore, anchorAfter, reason, replay, after: HeldRow}>` | `paymentStartDate` berilsa — avval langar o'rnatiladi, keyin apply-sg (davrlar, MIGRATION, hold olinadi, bugungacha accrual). `expectedPlanHash` ≠ joriy reja → 409 `billing.held.planChanged`. O'sha kalit bilan takror → o'sha natija (`replay: true`), boshqa SG uchun → 409 `billing.held.idempotencyConflict`. 400 `billing.held.idempotencyKeyRequired` / `billing.held.reasonRequired` |
+
+Qo'lda bajariladigan skriptlar: **V76** (eski qoida bilan saqlangan oxirgi davr oxiri → langar kuni panjarasi, faqat qisqartiradi,
+qaytarilganlarga tegmaydi), **V77** (`billing_held_applications`, UNIQUE `idempotency_key`).
+
 ## Yangilanishlar (2026-10-04, buyurtmachi billing qoidalari R1–R5)
 
 > To'liq: [billing-v2.md §14](../design/billing-v2.md). Javob shakllari o'zgarmagan (faqat `expected` da yangi `debt`); o'zgargani — ma'no.
@@ -157,7 +172,8 @@ Hali grace ichida va to'lanmagan davr (`periodsPending`) maxrajga kirmaydi. To'l
 | `POST /api/payments` (sinovdagi o'quvchi) | **R5:** to'lovliga o'tkazishda langar = bugun (o'tkazilgan kun), `paymentDate` emas |
 | Telegram qarz eslatmasi, direktor "bugun yangi qarzdor" | Qarzdor bo'lgan kun (grace 0 da — muddat kuni), keyin har 3 kunda |
 | Mavjud langarlar (`payment_start_date ≠ join_date`) | Avtomatik o'zgartirilmaydi — [docs/ops/anchor-fix.md](../ops/anchor-fix.md) |
-| Davr kalendari (accrual, preview, `nextPaymentDate`, `expected`) | **QAROR 1 (§14.7):** keyingi davr = langar kuni, oyda yo'q bo'lsa oy oxiri (29.09 → 29.10; ilgari 29–31 → oy oxiri). Keyingi davr oxirgi yozilgan davr oxiridan davom etadi — eski qoida bilan yozilgan davrdan keyin bitta o'tish davri, ustma-ust yo'q |
+| Davr kalendari (accrual, preview, `nextPaymentDate`, `expected`) | **QAROR 1 (§14.7):** keyingi davr = langar kuni, oyda yo'q bo'lsa oy oxiri (29.09 → 29.10; ilgari 29–31 → oy oxiri). Keyingi davr — oxirgi yozilgan davr boshidan keyingi langar kuni; eski qoida bilan saqlangan oxir (29.09–30.10) yangi davr yozilganda qisqartiriladi (tuzatish: avval saqlangan oxir + 1 → 31.10 chiqardi). Mavjud oxirlar — V76 |
+| Qarz sanasi (`debtSince`, `daysOverdue`) | Migratsiya qilingan SG da v1 PERIOD_CHARGE + MIGRATION neytral juftligi (yig'indi 0) FIFO sanasiga ta'sir qilmaydi — qarz v2 davri sanasidan (ilgari v1 debet sanasi chiqishi mumkin edi). Summa o'zgarmaydi |
 | V75 | **QAROR 2:** `billing_periods.grace_until = due_date` (mavjud qatorlar, eski +3) — "o'z vaqtida to'lov" (dashboard, KPI) muddat kunigacha. Keyin yopilgan oylar uchun `POST /api/teachers/kpi/snapshots?month=` |
 
 ## Yangilanishlar (2026-10-04, belgilanmagan davomat; V74)

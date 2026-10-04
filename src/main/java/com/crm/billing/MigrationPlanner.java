@@ -279,7 +279,7 @@ public class MigrationPlanner {
         List<FifoDebt.Line> planned = new ArrayList<>();
         List<LocalDate> plannedStarts = new ArrayList<>();
         if (migration.signum() != 0) {
-            planned.add(new FifoDebt.Line(null, migration, t, null));
+            planned.add(new FifoDebt.Line(null, migration, t, null, true));      // MIGRATION — neytral juftlik
         }
         for (PlannedPeriod p : periods) {
             plannedStarts.add(p.start());

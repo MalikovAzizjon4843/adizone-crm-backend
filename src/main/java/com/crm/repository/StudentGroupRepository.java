@@ -35,6 +35,14 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
         """)
     List<StudentGroup> findExpectedCandidates();
 
+    /** Hold'dagi yozilmalar (migratsiya qo'llanmagan, §9.7) — CRM ro'yxati uchun. */
+    @Query("""
+        SELECT sg FROM StudentGroup sg JOIN FETCH sg.student JOIN FETCH sg.group
+        WHERE sg.billingHold = true
+        ORDER BY sg.id
+        """)
+    List<StudentGroup> findHeldWithStudentAndGroup();
+
     /** Ro'yxatlar uchun batch: o'quvchilarning barcha yozilmalari (guruh bilan). */
     @Query("SELECT sg FROM StudentGroup sg JOIN FETCH sg.group WHERE sg.student.id IN :studentIds")
     List<StudentGroup> findWithGroupByStudentIds(@Param("studentIds") Collection<Long> studentIds);

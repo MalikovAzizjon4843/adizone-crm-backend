@@ -74,6 +74,9 @@ public class AccrualService {
     @Transactional(propagation = Propagation.MANDATORY)
     public AccrualResult accrueLocked(StudentGroup sg, LocalDate asOf) {
         AccrualCalculator.Result due = plan(sg, asOf);
+        if (!due.charges().isEmpty()) {
+            trimOverlappingPrevious(sg, due.charges().get(0).periodStart());
+        }
 
         List<BillingPeriod> created = new ArrayList<>();
         for (AccrualCalculator.DueCharge charge : due.charges()) {
@@ -129,6 +132,24 @@ public class AccrualService {
             .stream().map(p -> new BillingCalendar.Span(p.getPeriodStart(), p.getPeriodEnd())).toList();
         return AccrualCalculator.dueChargesAfter(
             AccrualCalculator.State.of(sg), existing, asOf, properties.getMaxCatchUp());
+    }
+
+    /**
+     * QAROR 1 (§14.7): eski qoida (29–31 → oy oxiri) bilan yozilgan oxirgi davr (masalan 29.09–30.10) yangi davr boshi
+     * (29.10) bilan ustma-ust tushsa — uning oxiri {@code newStart − 1} ga qisqartiriladi. Summa, ledger, holat o'zgarmaydi
+     * (proratsiya yo'q); faqat chegara — muzlatish qaytarimi va re-anchor cheklovi to'g'ri hisoblansin.
+     */
+    private void trimOverlappingPrevious(StudentGroup sg, LocalDate newStart) {
+        LocalDate anchor = sg.getPaymentStartDate();
+        for (BillingPeriod p : periodRepository.findByStudentGroupIdOrderByPeriodStartAsc(sg.getId())) {
+            if (anchor != null && !p.getPeriodStart().isBefore(anchor) && p.getPeriodStart().isBefore(newStart)
+                    && p.getPeriodEnd() != null && !p.getPeriodEnd().isBefore(newStart)) {
+                log.info("Davr chegarasi qisqartirildi sg={} davr={} {} → {} (kalendar QAROR 1)",
+                    sg.getId(), p.getId(), p.getPeriodEnd(), newStart.minusDays(1));
+                p.setPeriodEnd(newStart.minusDays(1));
+                periodRepository.save(p);
+            }
+        }
     }
 
     private static Long currentTeacherId(StudentGroup sg) {

@@ -224,8 +224,8 @@ class CustomerRulesTest extends AbstractBillingIT {
     }
 
     /**
-     * Prod holati: langar 29.08, davrlar eski qoida (29 → oy oxiri) bilan yozilgan — 29.08–29.09, 30.09–30.10.
-     * Yangi qoida 29.09 / 29.10 ni qayta ochmaydi: keyingisi 31.10–28.11 (o'tish), keyin 29.11 dan langar kuni.
+     * Langar 29.08, davrlar eski qoida (29 → oy oxiri) bilan yozilgan — 29.08–29.09, 30.09–30.10. Keyingisi oxirgi davr
+     * boshidan (30.09) keyingi langar kuni — 29.10; 30.09 davri oxiri 28.10 ga qisqartiriladi (ustma-ust yo'q).
      */
     @Test
     void calendar_existingOldRulePeriods_continueWithoutOverlap() {
@@ -244,12 +244,40 @@ class CustomerRulesTest extends AbstractBillingIT {
         accrueOn(ids, "30.11.2026");
         List<BillingPeriod> periods = inTx(() -> periodRepo.findByStudentGroupIdOrderByPeriodStartAsc(ids.sg()));
         assertThat(periods).extracting(BillingPeriod::getPeriodStart).containsExactly(
-            d("29.08.2026"), d("30.09.2026"), d("31.10.2026"), d("29.11.2026"));
+            d("29.08.2026"), d("30.09.2026"), d("29.10.2026"), d("29.11.2026"));
+        assertThat(periods.get(1).getPeriodEnd()).isEqualTo(d("28.10.2026"));        // eski oxir 30.10 → 28.10
         assertThat(periods.get(2).getPeriodEnd()).isEqualTo(d("28.11.2026"));
         for (int i = 1; i < periods.size(); i++) {             // ustma-ust ham, bo'shliq ham yo'q
             assertThat(periods.get(i).getPeriodStart()).isEqualTo(periods.get(i - 1).getPeriodEnd().plusDays(1));
         }
-        assertThat(sg(ids.sg()).getNextPaymentDate()).isEqualTo(d("31.10.2026"));   // qarz: eng eski to'lanmagan davr
+        assertThat(sg(ids.sg()).getNextPaymentDate()).isEqualTo(d("29.10.2026"));   // qarz: eng eski to'lanmagan davr
+    }
+
+    /**
+     * Prod xatosi (sg 68, 73): langar 29.09 (va 30.09), yagona davr eski qoida bilan 29.09–30.10 saqlangan; to'lagan.
+     * Kutilayotgan 29.10 (30.10) bo'lishi kerak, 31.10 emas; 29.10 da accrual eski davr oxirini 28.10 ga qisqartiradi.
+     */
+    @Test
+    void calendar_prodCase_anchor29and30_singleOldRulePeriod() {
+        for (String[] c : new String[][]{{"29.09.2026", "29.10.2026", "25"}, {"30.09.2026", "30.10.2026", "26"}}) {
+            Ids ids = monthly(c[0]);
+            accrueOn(ids, c[0]);
+            inTx(() -> {                                          // eski qoida bilan saqlangan oxir
+                BillingPeriod p = periodRepo.findByStudentGroupIdOrderByPeriodStartAsc(ids.sg()).get(0);
+                p.setPeriodEnd(d("30.10.2026"));
+                periodRepo.save(p);
+            });
+            pay(ids, 630_000, c[0]);
+
+            assertThat(sg(ids.sg()).getNextPaymentDate()).as(c[0]).isEqualTo(d(c[1]));
+            assertThat(expected(ids, "04.10.2026")).as(c[0]).singleElement()
+                .satisfies(e -> assertThat(e.getDaysUntil()).isEqualTo(Long.parseLong(c[2])));
+
+            accrueOn(ids, c[1]);
+            List<BillingPeriod> periods = inTx(() -> periodRepo.findByStudentGroupIdOrderByPeriodStartAsc(ids.sg()));
+            assertThat(periods).extracting(BillingPeriod::getPeriodStart).as(c[0]).containsExactly(d(c[0]), d(c[1]));
+            assertThat(periods.get(0).getPeriodEnd()).as(c[0]).isEqualTo(d(c[1]).minusDays(1));
+        }
     }
 
     // ── R3: guruh tugashi ────────────────────────────────────────────────

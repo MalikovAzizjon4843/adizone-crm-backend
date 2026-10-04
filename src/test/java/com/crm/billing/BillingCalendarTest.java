@@ -81,9 +81,9 @@ class BillingCalendarTest {
         assertThat(BillingCalendar.start(d(2028, 1, 31), 1)).isEqualTo(d(2028, 2, 29));
     }
 
-    /** Zanjir: yozilgan davr yo'q — langar; bor — oxirgi oxiridan keyingi kun; oldingi langar davrlari hisobga olinmaydi. */
+    /** Zanjir: yozilgan davr yo'q — langar; bor — oxirgi davr boshidan keyingi langar kuni; oldingi langar davrlari hisobga olinmaydi. */
     @Test
-    void firstUnbilledStart_chainsFromLastStoredEnd() {
+    void firstUnbilledStart_nextAnchorDayAfterLastStart() {
         LocalDate a = d(2026, 9, 15);
         assertThat(BillingCalendar.firstUnbilledStart(a, java.util.List.of())).isEqualTo(a);
         assertThat(BillingCalendar.firstUnbilledStart(a, java.util.List.of(
@@ -95,20 +95,33 @@ class BillingCalendarTest {
     }
 
     /**
-     * Eski qoida (29 → oy oxiri) bilan yozilgan davrdan keyin: langar 29.08, yozilgan 30.09–30.10 (eski). Yangi panjara
-     * 29.10 ni bermaydi (ustma-ust bo'lardi): o'tish davri 31.10–28.11, keyin 29.11 dan langar kuni bo'yicha.
+     * Prod (sg 68, 73): langar 29.09, yagona davr eski qoida bilan 29.09–30.10 saqlangan. Saqlangan oxir panjarani
+     * surmaydi — keyingi davr 29.10 (31.10 emas); langar 30.09 (eski 30.09–30.10) → 30.10.
      */
     @Test
-    void transitionAfterOldRulePeriod_noOverlapNoGap() {
+    void oldRuleStoredEnd_doesNotShiftNextStart() {
+        LocalDate a29 = d(2026, 9, 29);
+        assertThat(BillingCalendar.firstUnbilledStart(a29, java.util.List.of(
+            new BillingCalendar.Span(a29, d(2026, 10, 30))))).isEqualTo(d(2026, 10, 29));
+        LocalDate a30 = d(2026, 9, 30);
+        assertThat(BillingCalendar.firstUnbilledStart(a30, java.util.List.of(
+            new BillingCalendar.Span(a30, d(2026, 10, 30))))).isEqualTo(d(2026, 10, 30));
+    }
+
+    /**
+     * Eski qoida bilan yozilgan, panjaradan tashqari boshli davrdan keyin: langar 29.08, yozilgan 30.09–30.10 (eski).
+     * Keyingisi 30.09 dan keyingi birinchi langar kuni — 29.10 (oxirgi davr boshidan oldinga qaytmaydi), keyin 29.11.
+     */
+    @Test
+    void afterOffGridOldPeriod_nextIsAnchorDayAfterItsStart() {
         LocalDate a = d(2026, 8, 29);
         java.util.List<BillingCalendar.Span> old = java.util.List.of(
             new BillingCalendar.Span(d(2026, 8, 29), d(2026, 9, 29)),
             new BillingCalendar.Span(d(2026, 9, 30), d(2026, 10, 30)));
         LocalDate next = BillingCalendar.firstUnbilledStart(a, old);
-        assertThat(next).isEqualTo(d(2026, 10, 31));
+        assertThat(next).isEqualTo(d(2026, 10, 29));
         assertThat(BillingCalendar.endOf(a, next)).isEqualTo(d(2026, 11, 28));
         assertThat(BillingCalendar.following(a, next)).isEqualTo(d(2026, 11, 29));
-        assertThat(BillingCalendar.following(a, d(2026, 11, 29))).isEqualTo(d(2026, 12, 29));
     }
 
     @Test
