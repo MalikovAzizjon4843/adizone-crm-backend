@@ -176,13 +176,13 @@ public class PaymentPlanner {
             register = requireRegister(r, cashMethod, cash);
         }
 
-        // 3–4. Kutilayotgan accrual; sinovdagi o'quvchi to'lasa — to'lovli qilinadi (§13 #8)
+        // 3–4. Kutilayotgan accrual; sinovdagi o'quvchi to'lasa — to'lovli qilinadi (§13 #8), langar = bugun (R5, §14.5)
         boolean convertTrial = Boolean.TRUE.equals(sg.getIsTrial());
-        StudentGroup billingView = convertTrial ? asConverted(sg, payDate) : sg;
-        List<LocalDate> existingStarts = periodRepository.findByStudentGroupIdOrderByPeriodStartAsc(sg.getId())
-            .stream().map(p -> p.getPeriodStart()).toList();
-        AccrualCalculator.Result due = AccrualCalculator.dueCharges(
-            AccrualCalculator.State.of(billingView), existingStarts, today, properties.getMaxCatchUp());
+        StudentGroup billingView = convertTrial ? asConverted(sg, today) : sg;
+        List<BillingCalendar.Span> existing = periodRepository.findByStudentGroupIdOrderByPeriodStartAsc(sg.getId())
+            .stream().map(p -> new BillingCalendar.Span(p.getPeriodStart(), p.getPeriodEnd())).toList();
+        AccrualCalculator.Result due = AccrualCalculator.dueChargesAfter(
+            AccrualCalculator.State.of(billingView), existing, today, properties.getMaxCatchUp());
         if (due.catchUpLimitReached()) {
             warnings.add("billing.catchUp.limit");
         }

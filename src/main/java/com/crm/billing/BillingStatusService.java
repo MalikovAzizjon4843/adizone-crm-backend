@@ -33,8 +33,8 @@ import java.util.Set;
  * <pre>
  * days = today − debtSince
  * B ≥ 0                 → PAID
- * B < 0 && days ≤ grace → PENDING
- * B < 0 && days > grace → OVERDUE
+ * B < 0 && days < grace → PENDING
+ * B < 0 && days ≥ grace → OVERDUE      // grace standarti 0: muddat kuni to'lanmagan — qarzdor (§14.1, R1)
  * </pre>
  * Qarzdor (§4.5) — kamida bitta SG si OVERDUE bo'lgan o'quvchi.
  */
@@ -56,9 +56,12 @@ public class BillingStatusService {
         return properties.getGraceDays();
     }
 
-    /** OVERDUE ⇔ {@code debtSince < overdueBefore(today)} (ya'ni {@code today − debtSince > grace}). */
+    /**
+     * OVERDUE ⇔ {@code debtSince < overdueBefore(today)}, ya'ni {@code debtSince ≤ today − grace}
+     * ({@code today − debtSince ≥ grace}). grace = 0 da {@code today + 1}: bugun yoki undan oldin muddati kelgan qarz.
+     */
     public LocalDate overdueBefore(LocalDate today) {
-        return today.minusDays(properties.getGraceDays());
+        return today.minusDays(properties.getGraceDays()).plusDays(1);
     }
 
     public PaymentStatus statusOf(BigDecimal balance, LocalDate debtSince, LocalDate today) {
@@ -66,7 +69,7 @@ public class BillingStatusService {
             return PaymentStatus.PAID;
         }
         long days = ChronoUnit.DAYS.between(debtSince, today);
-        return days > properties.getGraceDays() ? PaymentStatus.OVERDUE : PaymentStatus.PENDING;
+        return days >= properties.getGraceDays() ? PaymentStatus.OVERDUE : PaymentStatus.PENDING;
     }
 
     /** Saqlangan snapshot ustida — {@link #overdue(LocalDate)} bilan bir xil shart. */
@@ -78,7 +81,7 @@ public class BillingStatusService {
         return statusOf(sg.getBalance(), sg.getDebtSince(), today) == PaymentStatus.PENDING;
     }
 
-    /** SQL: {@code balance < 0 AND debt_since < today − grace}. */
+    /** SQL: {@code balance < 0 AND debt_since ≤ today − grace}. */
     public Specification<StudentGroup> overdue(LocalDate today) {
         LocalDate before = overdueBefore(today);
         return (root, query, cb) -> cb.and(
@@ -87,7 +90,7 @@ public class BillingStatusService {
             cb.lessThan(root.get("debtSince"), before));
     }
 
-    /** SQL: {@code balance < 0 AND debt_since ≥ today − grace}. */
+    /** SQL: {@code balance < 0 AND debt_since > today − grace} (faqat grace > 0 da bo'sh emas). */
     public Specification<StudentGroup> pending(LocalDate today) {
         LocalDate before = overdueBefore(today);
         return (root, query, cb) -> cb.and(
@@ -143,10 +146,17 @@ public class BillingStatusService {
         lines.addAll(plannedLines);
         FifoDebt.Result fifo = FifoDebt.compute(lines);
 
-        Set<LocalDate> billedStarts = new HashSet<>(plannedPeriodStarts);
+        // Yozilgan davrlar — saqlangan chegaralar bilan; rejadagilari — zanjir oxiri panjaradan (§14.7)
+        List<BillingCalendar.Span> billed = new ArrayList<>();
         if (sg.getId() != null) {
             for (BillingPeriod p : periodRepository.findByStudentGroupIdOrderByPeriodStartAsc(sg.getId())) {
-                billedStarts.add(p.getPeriodStart());
+                billed.add(new BillingCalendar.Span(p.getPeriodStart(), p.getPeriodEnd()));
+            }
+        }
+        LocalDate anchor = sg.getPaymentStartDate();
+        for (LocalDate start : plannedPeriodStarts) {
+            if (anchor != null && !start.isBefore(anchor)) {
+                billed.add(new BillingCalendar.Span(start, BillingCalendar.endOf(anchor, start)));
             }
         }
 
@@ -154,7 +164,7 @@ public class BillingStatusService {
         PaymentStatus status = displayStatus(sg, balance, fifo.debtSince(), today);
         BigDecimal fee = isPerLesson(sg) ? EnrollmentPricing.effectiveLessonPrice(sg)
             : EnrollmentPricing.effectiveMonthlyFee(sg);
-        NextPayment next = nextPayment(sg, balance, fifo.debtSince(), fee, billedStarts, today);
+        NextPayment next = nextPayment(sg, balance, fifo.debtSince(), fee, billed, today);
         return new BillingSnapshot(balance, fifo.debt(), fifo.debtSince(), status,
             next.date(), next.amount(), fee);
     }
@@ -184,7 +194,7 @@ public class BillingStatusService {
      * qoplashi va keyingi davr boshi.
      */
     private NextPayment nextPayment(StudentGroup sg, BigDecimal balance, LocalDate debtSince,
-                                    BigDecimal fee, Set<LocalDate> billedStarts, LocalDate today) {
+                                    BigDecimal fee, Collection<BillingCalendar.Span> billed, LocalDate today) {
         if (!isBillingOpen(sg)) {
             return NextPayment.NONE;
         }
@@ -199,22 +209,78 @@ public class BillingStatusService {
 
         if (isPerLesson(sg)) {
             LocalDate lesson = nthUpcomingLesson(sg, (int) Math.min(k + 1, 1000), today);
-            return lesson != null ? new NextPayment(lesson, amount) : NextPayment.NONE;
+            return lesson != null ? capByGroupEnd(sg, new NextPayment(lesson, amount)) : NextPayment.NONE;
         }
 
         LocalDate anchor = sg.getPaymentStartDate();
-        if (anchor == null) {
+        if (anchor == null || k > 10_000) {
             return NextPayment.NONE;
         }
-        int n = 0;
-        while (billedStarts.contains(BillingCalendar.start(anchor, n))) {
-            n++;
+        // Hali yozilmagan birinchi davr (zanjir, §14.7), undan k ta oldindan qoplangan davr keyin
+        LocalDate start = BillingCalendar.firstUnbilledStart(anchor, billed);
+        for (long i = 0; i < k; i++) {
+            start = BillingCalendar.following(anchor, start);
         }
-        long target = n + k;
-        if (target > 10_000) {
-            return NextPayment.NONE;
+        return capByGroupEnd(sg, new NextPayment(start, amount));
+    }
+
+    /**
+     * R3 (§14.3): guruh tugagach to'lov kutilmaydi — MONTHLY davr boshi ≥ {@code end_date} (shu kuni boshlanadigan
+     * davr ham ochilmaydi, {@link AccrualCalculator#isAccruable}); PER_LESSON — {@code end_date} dan keyingi dars.
+     */
+    private static NextPayment capByGroupEnd(StudentGroup sg, NextPayment np) {
+        LocalDate end = sg.getGroup() != null ? sg.getGroup().getEndDate() : null;
+        if (end == null || np.date() == null) {
+            return np;
         }
-        return new NextPayment(BillingCalendar.start(anchor, (int) target), amount);
+        boolean after = isPerLesson(sg) ? np.date().isAfter(end) : !np.date().isBefore(end);
+        return after ? NextPayment.NONE : np;
+    }
+
+    /** Kutilayotgan to'lov (R2): sana va summa. */
+    public record Upcoming(LocalDate date, BigDecimal amount) {
+    }
+
+    /**
+     * R2 (§14.2) — kutilayotgan to'lov, yozilma uchun BITTA, sanasi bugundan keyin; bo'lmasa null.
+     * <ul>
+     *   <li>qarzsiz ({@code B ≥ 0}) — §4.3 bilan bir xil (oldindan qoplangan davrlardan keyingi birinchi davr);</li>
+     *   <li>qarzdor — bugundan keyingi birinchi hali ochilmagan davr, summa = joriy narx {@code c} (qarz alohida);
+     *       PER_LESSON — ertangi birinchi jadvaldagi dars, summa = {@code l};</li>
+     *   <li>guruh tugashidan keyin — yo'q (R3).</li>
+     * </ul>
+     *
+     * @param billed shu SG ning yozilgan davrlari — saqlangan chegaralar (chaqiruvchi batch'da o'qiydi)
+     */
+    public Upcoming upcoming(StudentGroup sg, Collection<BillingCalendar.Span> billed, LocalDate today) {
+        if (!isBillingOpen(sg)) {
+            return null;
+        }
+        BigDecimal balance = Money.nz(sg.getBalance());
+        BigDecimal fee = isPerLesson(sg) ? EnrollmentPricing.effectiveLessonPrice(sg)
+            : EnrollmentPricing.effectiveMonthlyFee(sg);
+        NextPayment np;
+        if (balance.signum() >= 0) {
+            np = nextPayment(sg, balance, null, fee, billed, today);
+        } else if (fee == null || fee.signum() <= 0) {
+            np = NextPayment.NONE;
+        } else if (isPerLesson(sg)) {
+            LocalDate lesson = nthUpcomingLesson(sg, 1, today);
+            np = lesson != null ? capByGroupEnd(sg, new NextPayment(lesson, fee)) : NextPayment.NONE;
+        } else if (sg.getPaymentStartDate() == null) {
+            np = NextPayment.NONE;
+        } else {
+            LocalDate anchor = sg.getPaymentStartDate();
+            LocalDate start = BillingCalendar.firstUnbilledStart(anchor, billed);
+            for (int i = 0; i < 10_000 && !start.isAfter(today); i++) {
+                start = BillingCalendar.following(anchor, start);
+            }
+            np = capByGroupEnd(sg, new NextPayment(start, fee));
+        }
+        if (np.date() == null || !np.date().isAfter(today)) {
+            return null;
+        }
+        return new Upcoming(np.date(), np.amount());
     }
 
     /** Jadval bo'yicha ertadan boshlab {@code n}-chi dars sanasi; jadval yo'q — null (§13 #28). */

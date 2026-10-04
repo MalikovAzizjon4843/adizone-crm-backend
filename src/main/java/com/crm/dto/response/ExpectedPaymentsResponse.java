@@ -49,6 +49,8 @@ public class ExpectedPaymentsResponse {
         private BigDecimal amount;
         /** PAID yoki PENDING (bugungi / grace ichidagi). */
         private String paymentStatus;
+        /** Shu yozilmadagi joriy qarz (R2: qarzdor ham keyingi davri bilan ro'yxatda); qarz yo'q — 0. */
+        private BigDecimal debt;
         private long daysUntil;
     }
 }

@@ -19,6 +19,22 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
 
     List<StudentGroup> findByStudentId(Long studentId);
 
+    /**
+     * Kutilayotgan to'lovlar (R2, billing-v2 §14.2): hisoblanadigan bo'lishi mumkin bo'lgan yozilmalar — faol,
+     * muzlatilmagan, sinovda emas, guruh ACTIVE/FORMING, o'quvchi ACTIVE. Aniq shart — {@code BillingStatusService.isBillingOpen}.
+     */
+    @Query("""
+        SELECT sg FROM StudentGroup sg
+        JOIN FETCH sg.student s
+        JOIN FETCH sg.group g
+        LEFT JOIN FETCH g.course
+        WHERE sg.isActive = true AND sg.frozenFrom IS NULL
+          AND (sg.isTrial = false OR sg.isTrial IS NULL)
+          AND g.status IN (com.crm.entity.enums.GroupStatus.ACTIVE, com.crm.entity.enums.GroupStatus.FORMING)
+          AND s.status = com.crm.entity.enums.StudentStatus.ACTIVE
+        """)
+    List<StudentGroup> findExpectedCandidates();
+
     /** Ro'yxatlar uchun batch: o'quvchilarning barcha yozilmalari (guruh bilan). */
     @Query("SELECT sg FROM StudentGroup sg JOIN FETCH sg.group WHERE sg.student.id IN :studentIds")
     List<StudentGroup> findWithGroupByStudentIds(@Param("studentIds") Collection<Long> studentIds);
@@ -250,15 +266,6 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
         """)
     List<StudentGroup> findWithDebt();
 
-    /** Kutilayotgan to'lovlar: snapshot bo'yicha keyingi sana oralig'ida. */
-    @Query("""
-        SELECT sg FROM StudentGroup sg
-        JOIN FETCH sg.student s
-        JOIN FETCH sg.group g
-        WHERE sg.nextPaymentDate IS NOT NULL
-          AND sg.nextPaymentDate BETWEEN :from AND :to
-        """)
-    List<StudentGroup> findWithNextPaymentBetween(@Param("from") LocalDate from, @Param("to") LocalDate to);
 
     @Query("SELECT sg FROM StudentGroup sg WHERE sg.isTrial = true AND sg.isActive = true")
     List<StudentGroup> findActiveTrials();

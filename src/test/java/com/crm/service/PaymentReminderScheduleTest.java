@@ -32,11 +32,14 @@ class PaymentReminderScheduleTest extends AbstractBillingIT {
         clock.setDate(d("15.10.2026"));
         accrual.accrueUpTo(sg, d("15.10.2026"));
 
-        for (String day : List.of("18.10.2026", "19.10.2026", "20.10.2026", "21.10.2026", "22.10.2026", "25.10.2026")) {
+        // R1: qarzdor bo'lgan kun — muddat kunining o'zi (15.10), keyin har 3 kunda
+        for (String day : List.of("15.10.2026", "16.10.2026", "17.10.2026", "18.10.2026", "19.10.2026", "21.10.2026",
+                "24.10.2026")) {
             clock.setDate(d(day));
             snapshots.refreshAllDue(d(day));
             List<DebtorsListResponse.DebtorStudent> due = reminders.dueToday(d(day));
-            boolean expected = day.equals("19.10.2026") || day.equals("22.10.2026") || day.equals("25.10.2026");
+            boolean expected = day.equals("15.10.2026") || day.equals("18.10.2026") || day.equals("21.10.2026")
+                || day.equals("24.10.2026");
             assertThat(due).as(day).hasSize(expected ? 1 : 0);
             if (expected) {
                 assertThat(due.get(0).getDebt()).isEqualByComparingTo("630000");

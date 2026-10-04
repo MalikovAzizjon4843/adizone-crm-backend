@@ -39,6 +39,7 @@ public class CollectionsMetricsService {
         Set.of(BillingPeriodStatus.CHARGED, BillingPeriodStatus.PARTIALLY_REFUNDED);
 
     private final DashboardQueries queries;
+    private final com.crm.billing.BillingProperties billingProperties;
 
     @Transactional(readOnly = true)
     public CollectionsSection summary(DashboardPeriod p) {
@@ -108,7 +109,7 @@ public class CollectionsMetricsService {
                 continue;
             }
             LocalDate due = bp.getDueDate() != null ? bp.getDueDate() : bp.getPeriodStart();
-            LocalDate grace = bp.getGraceUntil() != null ? bp.getGraceUntil() : due.plusDays(3);
+            LocalDate grace = bp.getGraceUntil() != null ? bp.getGraceUntil() : due.plusDays(billingProperties.getGraceDays());
             boolean paid = bp.getPaidOn() != null && !bp.getPaidOn().isAfter(asOf);
             String bucket;
             if (paid) {

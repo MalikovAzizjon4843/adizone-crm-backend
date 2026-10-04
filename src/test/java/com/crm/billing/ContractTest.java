@@ -162,7 +162,7 @@ class ContractTest extends AbstractBillingIT {
         assertThat(sg.getMonthlyPriceOverride()).isNull();
         assertThat(sg.getDiscountPercentage()).isEqualByComparingTo("0");
         assertThat(sg.getBalance()).isEqualByComparingTo("-700000");
-        assertThat(sg.getPaymentStatus().name()).isEqualTo("PENDING");
+        assertThat(sg.getPaymentStatus().name()).isEqualTo("OVERDUE");     // R1: muddat kuni to'lanmagan
     }
 
     @Test

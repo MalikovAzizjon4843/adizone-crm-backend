@@ -243,7 +243,7 @@ class LifecycleTest extends AbstractBillingIT {
         assertThat(after.getIsActive()).isTrue();
         assertThat(after.getFrozenFrom()).isNull();
         assertThat(after.getBalance()).isEqualByComparingTo("-273000");
-        assertThat(after.getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(after.getPaymentStatus()).isEqualTo(PaymentStatus.OVERDUE);     // R1: 20.10 davri shu kuni
         assertThat(after.getNextPaymentDate()).isEqualTo(d("20.10.2026"));
         assertThat(after.getNextPaymentAmount()).isEqualByComparingTo("273000");
         assertThat(periods(ids.sg())).extracting(BillingPeriod::getPeriodStart)

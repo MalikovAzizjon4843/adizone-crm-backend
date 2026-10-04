@@ -144,6 +144,22 @@
 
 Hali grace ichida va to'lanmagan davr (`periodsPending`) maxrajga kirmaydi. To'lov davri o'qituvchisi — `billing_periods.teacher_id` (davr yozilgandagi), bo'lmasa guruhning hozirgisi. `billing_hold`, qaytarilgan va PER_LESSON (davrsiz) hisobga olinmaydi — direktor dashboardi "Muddati kelgan to'lovlar" bilan bir xil ta'rif.
 
+## Yangilanishlar (2026-10-04, buyurtmachi billing qoidalari R1–R5)
+
+> To'liq: [billing-v2.md §14](../design/billing-v2.md). Javob shakllari o'zgarmagan (faqat `expected` da yangi `debt`); o'zgargani — ma'no.
+
+| Endpoint / joy | O'zgarish |
+|---|---|
+| Qarzdor ta'rifi (hamma joyda: `GET /api/payments/debtors`, `/debtors/summary`, dashboard, analitika, KPI, imtihon ruxsati, Telegram eslatma) | **R1:** `due_date ≤ bugun` va to'liq to'lanmagan (chala ham) — qarzdor. `app.billing.grace-days` standarti **0** (ilgari 3), qoida `today − debt_since ≥ grace`. `PENDING` holati faqat grace > 0 da |
+| `GET /api/payments/expected` | **R2:** har hisoblanadigan yozilma uchun bitta qator, sana > bugun, standart oraliq ertadan bugun+30 gacha. Qarzdor keyingi davri bilan ro'yxatda qoladi, `students[].debt` — joriy qarz (yangi maydon). Summa: qarzsizda §4.3, qarzdorda keyingi davr narxi |
+| Accrual, snapshot `nextPaymentDate`, `expected` | **R3:** davr boshi guruh `end_date` ga teng yoki keyin bo'lsa — davr ochilmaydi, kutilmaydi. Oxirgi qisman davr — to'liq narx (o'zgarmagan) |
+| `POST /api/groups/students`, lid konvertatsiyasi, import | **R5:** `paymentStartDate` berilmasa — `joinDate` (ilgari bugun) |
+| `POST /api/payments` (sinovdagi o'quvchi) | **R5:** to'lovliga o'tkazishda langar = bugun (o'tkazilgan kun), `paymentDate` emas |
+| Telegram qarz eslatmasi, direktor "bugun yangi qarzdor" | Qarzdor bo'lgan kun (grace 0 da — muddat kuni), keyin har 3 kunda |
+| Mavjud langarlar (`payment_start_date ≠ join_date`) | Avtomatik o'zgartirilmaydi — [docs/ops/anchor-fix.md](../ops/anchor-fix.md) |
+| Davr kalendari (accrual, preview, `nextPaymentDate`, `expected`) | **QAROR 1 (§14.7):** keyingi davr = langar kuni, oyda yo'q bo'lsa oy oxiri (29.09 → 29.10; ilgari 29–31 → oy oxiri). Keyingi davr oxirgi yozilgan davr oxiridan davom etadi — eski qoida bilan yozilgan davrdan keyin bitta o'tish davri, ustma-ust yo'q |
+| V75 | **QAROR 2:** `billing_periods.grace_until = due_date` (mavjud qatorlar, eski +3) — "o'z vaqtida to'lov" (dashboard, KPI) muddat kunigacha. Keyin yopilgan oylar uchun `POST /api/teachers/kpi/snapshots?month=` |
+
 ## Yangilanishlar (2026-10-04, belgilanmagan davomat; V74)
 
 > Davomat qaysi darslarga majburiy — yagona `AttendanceDueService`. Dars: jadval (yoki EXTRA / MOVED ning yangi kuni),
@@ -1711,7 +1727,7 @@ Shablon yuklab olish endpointi lid importi uchun YO'Q (amoCRM eksport fayli kuti
 | POST | `/api/payments/preview` | `previewPayment` (`:75-81`) | SA, A, ACC | body: `PaymentPreviewRequest` (`@Valid`) | `ApiResponse<PaymentPreviewResponse>` (200) | yo'q | Hech narsa saqlanmaydi; batafsil pastda |
 | POST | `/api/payments` | `createPayment` (`:83-88`) | SA, A, ACC | body: `PaymentRequest` (`@Valid`) | `ApiResponse<PaymentResponse>`, **201**, message `"Payment recorded"` | yo'q | Ledger, Income, kassa, bonus/jarima qo'llash, jadval qayta hisobi (`PaymentService.java:78-194`) |
 | GET | `/api/payments/student/{studentId}` | `getStudentPayments` (`:90-93`) | **SA, A, SALES_MANAGER, ACC** (faqat URL qoidasi — `@PreAuthorize` YO'Q) | path: `studentId:Long` | `ApiResponse<List<PaymentResponse>>` | yo'q; `paymentDate DESC` (`PaymentService.java:444-447`) | Mavjud bo'lmagan student → bo'sh ro'yxat |
-| GET | `/api/payments/expected` | `getExpected` (`:95-102`) | SA, A, ACC | query: `from:LocalDate?`, `to:LocalDate?` (ISO DATE, `@DateTimeFormat` → noto'g'ri → 400). Default: `from = bugun+1`, `to = joriy oy oxiri` (`config/PaymentScheduleConfig.java:18-25`) | `ApiResponse<ExpectedPaymentsResponse>` | yo'q | Faqat `nextPaymentDate > bugun` (`service/PaymentScheduleService.java:666`) |
+| GET | `/api/payments/expected` | `getExpected` (`:95-102`) | SA, A, ACC | query: `from:LocalDate?`, `to:LocalDate?` (ISO DATE, `@DateTimeFormat` → noto'g'ri → 400). Default: `from = ertaga`, `to = bugun + 30` | `ApiResponse<ExpectedPaymentsResponse>` | yo'q | **2026-10-04 (R2):** har yozilma bitta, sana > bugun; qarzdor ham keyingi davri bilan (`students[].debt`); guruh `end_date` dan keyin — yo'q. [billing-v2 §14.2](../design/billing-v2.md) |
 | GET | `/api/payments/debtors` | `getDebtors` (`:104-108`) | SA, A, ACC | — | `ApiResponse<DebtorsListResponse>` | yo'q | |
 | GET | `/api/payments/calculate-debt` | `calculateDebt` (`:110-117`) | SA, A, ACC | query: `studentId:Long` **required**, `groupId:Long` **required** | `ApiResponse<Map<String,Object>>` — pastda | yo'q | Eski formula (kun/30 × narx), ledger bilan mos emas |
 | GET | `/api/payments/debtors/summary` | `getDebtorsSummary` (`:119-124`) | SA, A, ACC | — | `ApiResponse<Map<String,Object>>`: `{totalDebtors:long, overdue7Plus:long, totalDebt:BigDecimal}` (`service/PaymentScheduleService.java:813-820`) | yo'q | |

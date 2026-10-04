@@ -114,8 +114,9 @@ public class StudentImportRowService {
 
     private void enrollInGroup(Student student, Group group, StudentRowData data) {
         LocalDate joinDate = data.admissionDate() != null ? data.admissionDate() : LocalDate.now();
+        // R5 (billing-v2 §14.5): standart langar — qo'shilgan sana
         LocalDate paymentStart = data.paymentStartDate() != null
-            ? data.paymentStartDate() : LocalDate.now();
+            ? data.paymentStartDate() : joinDate;
         boolean isTrial = Boolean.TRUE.equals(data.isTrial());
 
         BigDecimal courseMonthly = group.getCourse() != null

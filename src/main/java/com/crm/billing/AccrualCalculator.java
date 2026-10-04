@@ -32,7 +32,15 @@ public final class AccrualCalculator {
         LocalDate leaveDate,
         GroupStatus groupStatus,
         BigDecimal fee,
-        BigDecimal discountPercentage) {
+        BigDecimal discountPercentage,
+        /** Guruh tugash sanasi — shu kuni yoki keyin boshlanadigan davr ochilmaydi (R3, §14.3). null — cheklovsiz. */
+        LocalDate groupEndDate) {
+
+        /** Guruh tugash sanasisiz (eski chaqiruvlar, testlar). */
+        public State(PaymentType paymentType, boolean trial, boolean active, LocalDate anchor, LocalDate frozenFrom,
+                     LocalDate leaveDate, GroupStatus groupStatus, BigDecimal fee, BigDecimal discountPercentage) {
+            this(paymentType, trial, active, anchor, frozenFrom, leaveDate, groupStatus, fee, discountPercentage, null);
+        }
 
         public static State of(StudentGroup sg) {
             return new State(
@@ -44,7 +52,8 @@ public final class AccrualCalculator {
                 sg.getLeaveDate(),
                 sg.getGroup() != null ? sg.getGroup().getStatus() : null,
                 EnrollmentPricing.monthlyFee(sg),
-                EnrollmentPricing.discount(sg));
+                EnrollmentPricing.discount(sg),
+                sg.getGroup() != null ? sg.getGroup().getEndDate() : null);
         }
     }
 
@@ -71,6 +80,7 @@ public final class AccrualCalculator {
      *   && frozenFrom == null
      *   && (leaveDate == null || date ≤ leaveDate)
      *   && group.status ∈ {ACTIVE, FORMING}                (§13 #14)
+     *   && (group.endDate == null || date < group.endDate)  (R3, §14.3 — oxirgi qisman davr to'liq narx bilan)
      *   && fee > 0
      * </pre>
      * Qo'shimcha: nofaol, lekin {@code leaveDate} siz eski yozilma (nomuvofiq qator)
@@ -96,6 +106,9 @@ public final class AccrualCalculator {
         if (s.groupStatus() != GroupStatus.ACTIVE && s.groupStatus() != GroupStatus.FORMING) {
             return false;
         }
+        if (s.groupEndDate() != null && !date.isBefore(s.groupEndDate())) {
+            return false;
+        }
         return s.fee() != null && s.fee().signum() > 0;
     }
 
@@ -109,30 +122,43 @@ public final class AccrualCalculator {
         if (s.anchor() == null) {
             return Result.empty();
         }
-        BigDecimal d = EnrollmentPricing.validDiscount(s.discountPercentage());
-        Set<LocalDate> existing = new HashSet<>(existingStarts);
+        List<BillingCalendar.Span> spans = existingStarts.stream()
+            .filter(st -> !st.isBefore(s.anchor()))
+            .map(st -> new BillingCalendar.Span(st, BillingCalendar.endOf(s.anchor(), st)))
+            .toList();
+        return dueChargesAfter(s, spans, asOf, maxCatchUp);
+    }
 
-        int n = 0;
-        while (existing.contains(BillingCalendar.start(s.anchor(), n))) {
-            n++;
+    /**
+     * Davr zanjiri bo'yicha (§14.7, {@link BillingCalendar#firstUnbilledStart}): keyingi davr — oxirgi yozilgan davr
+     * oxiridan keyingi kun, oxiri — langar kuni panjarasi bo'yicha. {@code billed} — shu SG ning yozilgan davrlari
+     * (saqlangan {@code period_start / period_end}).
+     */
+    public static Result dueChargesAfter(State s, Collection<BillingCalendar.Span> billed,
+                                         LocalDate asOf, int maxCatchUp) {
+        if (s.anchor() == null) {
+            return Result.empty();
         }
+        BigDecimal d = EnrollmentPricing.validDiscount(s.discountPercentage());
+        Set<LocalDate> existing = new HashSet<>();
+        billed.forEach(b -> existing.add(b.start()));
 
         List<DueCharge> charges = new ArrayList<>();
         int k = 0;
+        LocalDate start = BillingCalendar.firstUnbilledStart(s.anchor(), billed);
         while (true) {
-            LocalDate start = BillingCalendar.start(s.anchor(), n);
             if (start.isAfter(asOf) || !isAccruable(s, start)) {
                 return new Result(charges, false);
             }
             if (k >= maxCatchUp) {
                 return new Result(charges, true);
             }
+            LocalDate end = BillingCalendar.endOf(s.anchor(), start);
             if (!existing.contains(start)) {
-                charges.add(new DueCharge(start, BillingCalendar.end(s.anchor(), n),
-                    s.fee(), d, Money.discounted(s.fee(), d)));
+                charges.add(new DueCharge(start, end, s.fee(), d, Money.discounted(s.fee(), d)));
                 k++;
             }
-            n++;
+            start = end.plusDays(1);
         }
     }
 }

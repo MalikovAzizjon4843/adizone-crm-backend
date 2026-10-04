@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V74 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V75 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V74 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V75 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
@@ -23,7 +23,7 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V74 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V75 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
@@ -535,6 +535,15 @@ SELECT 'V74 teacher_kpi_monthly: dublikat (teacher_id, month_start) yo''q',
             ELSE (xpath('/row/n/text()', query_to_xml(
                      'SELECT COUNT(*) AS n FROM (SELECT 1 FROM teacher_kpi_monthly'
                      || ' GROUP BY teacher_id, month_start HAVING COUNT(*) > 1) d',
+                     false, true, '')))[1]::text = '0'
+       END
+UNION ALL
+-- V75 (grace 0, billing-v2 §14.1): billing_periods.grace_until = due_date, due_date to'ldirilgan
+SELECT 'V75 billing_periods.grace_until = due_date',
+       CASE WHEN to_regclass('public.billing_periods') IS NULL THEN NULL
+            ELSE (xpath('/row/n/text()', query_to_xml(
+                     'SELECT COUNT(*) AS n FROM billing_periods'
+                     || ' WHERE due_date IS NULL OR grace_until IS DISTINCT FROM due_date',
                      false, true, '')))[1]::text = '0'
        END
 UNION ALL

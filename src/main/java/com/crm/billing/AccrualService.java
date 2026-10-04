@@ -125,9 +125,9 @@ public class AccrualService {
             // §9.7 MIGRATION_PENDING: migratsiya qo'lda qayta qo'llanguncha davr yozilmaydi
             return AccrualCalculator.Result.empty();
         }
-        List<LocalDate> existing = periodRepository.findByStudentGroupIdOrderByPeriodStartAsc(sg.getId())
-            .stream().map(BillingPeriod::getPeriodStart).toList();
-        return AccrualCalculator.dueCharges(
+        List<BillingCalendar.Span> existing = periodRepository.findByStudentGroupIdOrderByPeriodStartAsc(sg.getId())
+            .stream().map(p -> new BillingCalendar.Span(p.getPeriodStart(), p.getPeriodEnd())).toList();
+        return AccrualCalculator.dueChargesAfter(
             AccrualCalculator.State.of(sg), existing, asOf, properties.getMaxCatchUp());
     }
 

@@ -93,12 +93,12 @@ class TeacherKpiMonthlyTest extends AbstractBillingIT {
     }
 
     /**
-     * Sentabr 2026, o'qituvchi T, bitta guruh (630 000 / oy, grace 3 kun):
+     * Sentabr 2026, o'qituvchi T, bitta guruh (630 000 / oy, grace 0 — grace_until = muddat kuni (R1)):
      * <ul>
-     *   <li>a: muddat 01.09, to'lov 02.09 — o'z vaqtida;</li>
-     *   <li>b: muddat 05.09 (grace 08.09), to'lov 12.09 — kechikkan;</li>
-     *   <li>c: muddat 10.09 (grace 13.09), to'lanmagan — 15.09 da natijasi ma'lum (to'lanmadi);</li>
-     *   <li>e: muddat 14.09 (grace 17.09), to'lanmagan — 15.09 da hali kutilmoqda;</li>
+     *   <li>a: muddat 01.09, to'lov 01.09 (muddat kuni) — o'z vaqtida;</li>
+     *   <li>b: muddat 05.09, to'lov 12.09 — kechikkan;</li>
+     *   <li>c: muddat 10.09, to'lanmagan — 15.09 da natijasi ma'lum (to'lanmadi);</li>
+     *   <li>e: muddat 15.09 (bugun), to'lanmagan — kun tugamaguncha natijasi noma'lum (kutilmoqda);</li>
      *   <li>x: PER_LESSON (davr yo'q), 10.09 da narx sababli ketdi — churn.</li>
      * </ul>
      * Davomat: 2 keldi (PRESENT, LATE), 1 kelmadi.
@@ -109,13 +109,13 @@ class TeacherKpiMonthlyTest extends AbstractBillingIT {
         Long a = monthly("01.09.2026");
         Long b = monthly("05.09.2026");
         Long c = monthly("10.09.2026");
-        Long e = monthly("14.09.2026");
+        Long e = monthly("15.09.2026");
         accrueOn(a, "01.09.2026");
-        pay(a, 630_000, "02.09.2026");
+        pay(a, 630_000, "01.09.2026");
         accrueOn(b, "05.09.2026");
         pay(b, 630_000, "12.09.2026");
         accrueOn(c, "10.09.2026");
-        accrueOn(e, "14.09.2026");
+        accrueOn(e, "15.09.2026");
 
         Long xs = fixtures.student();
         Long x = fixtures.enrollment(xs, group).start(d("01.09.2026")).perLesson(50_000).save();
@@ -140,7 +140,7 @@ class TeacherKpiMonthlyTest extends AbstractBillingIT {
         assertThat(s.getAttendancePresent()).isEqualTo(2);
         assertThat(s.getAttendanceTotal()).isEqualTo(3);
         assertThat(s.getAttendanceRate()).isEqualTo(66.7);
-        // a, b, c natijasi ma'lum; e hali grace ichida
+        // a, b, c natijasi ma'lum; e muddati bugun — hali kutilmoqda
         assertThat(s.getPeriodsDecided()).isEqualTo(3);
         assertThat(s.getPeriodsPaid()).isEqualTo(2);
         assertThat(s.getPeriodsOnTime()).isEqualTo(1);
@@ -161,8 +161,8 @@ class TeacherKpiMonthlyTest extends AbstractBillingIT {
         Long t = fixtures.teacher();
         Long g = fixtures.group(fixtures.course(700_000), GroupStatus.ACTIVE, t);
         Long s = fixtures.student();
-        Long sg = fixtures.enrollment(s, g).start(d("14.09.2026")).discount("10").save();
-        accrueOn(sg, "14.09.2026");       // grace 17.09 gacha — hali hech narsa ma'lum emas
+        Long sg = fixtures.enrollment(s, g).start(d("15.09.2026")).discount("10").save();
+        accrueOn(sg, "15.09.2026");       // muddat bugun — kun tugamaguncha natijasi noma'lum
         clock.setDate(d("15.09.2026"));
 
         TeacherKpiScoresDto live = kpi.computeScores(t, d("01.09.2026"), d("15.09.2026"));
@@ -187,7 +187,7 @@ class TeacherKpiMonthlyTest extends AbstractBillingIT {
     void monthEndSnapshot_readForClosedMonth_recomputeBySuperAdmin() throws Exception {
         Long[] sgs = september();
 
-        // 1-oktabr 01:00 — job o'tgan oyni yozadi; endi e ning grace i (17.09) ham tugagan
+        // 1-oktabr 01:00 — job o'tgan oyni yozadi; endi e ning muddati (15.09) ham o'tgan
         clock.setDate(d("01.10.2026"));
         snapshots.monthly();
         TeacherKpiMonthly row = inTx(() -> monthlyRepo.findByTeacherIdAndMonthStart(teacher, d("01.09.2026")))

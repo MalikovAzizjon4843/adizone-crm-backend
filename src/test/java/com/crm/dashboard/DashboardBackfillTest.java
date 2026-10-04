@@ -247,7 +247,7 @@ class DashboardBackfillTest extends AbstractBillingIT {
             .satisfies(p -> {
                 assertThat(p.getPaidOn()).isEqualTo(d("17.09.2026"));
                 assertThat(p.getDueDate()).isEqualTo(d("15.09.2026"));
-                assertThat(p.getGraceUntil()).isEqualTo(d("18.09.2026"));
+                assertThat(p.getGraceUntil()).isEqualTo(d("15.09.2026"));     // grace 0 (R1)
             });
 
         DashboardBackfillService.Report again = backfill.run(true, null);

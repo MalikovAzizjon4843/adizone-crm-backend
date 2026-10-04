@@ -276,7 +276,7 @@ class PaymentFlowTest extends AbstractBillingIT {
 
         assertThat(shape(res.getLines())).containsExactly("PAYMENT 560000 2026-09-15");
         assertThat(balance(ids.sg())).isEqualByComparingTo("-70000");
-        assertThat(res.getStatusAfter()).isEqualTo("PENDING");
+        assertThat(res.getStatusAfter()).isEqualTo("OVERDUE");     // R1: chala to'lov — qarzdor
         assertThat(inTx(() -> bonusRepo.findById(b).orElseThrow()).getStatus()).isEqualTo(BonusPenaltyStatus.PENDING);
     }
 
@@ -362,7 +362,7 @@ class PaymentFlowTest extends AbstractBillingIT {
         assertThat(c.getCancelReason()).isEqualTo("Summa xato kiritildi");
         assertThat(shape(c.getReversalLines())).containsExactly("REVERSAL -630000 2026-09-15");
         assertThat(balance(ids.sg())).isEqualByComparingTo("-630000");
-        assertThat(c.getStatusAfter()).isEqualTo("PENDING");
+        assertThat(c.getStatusAfter()).isEqualTo("OVERDUE");     // R1: 15.09 dan qarz
         assertThat(register(reg).getCashBalance()).isEqualByComparingTo("0");
         assertThat(inTx(() -> paymentRepo.findById(p.getId()).orElseThrow()).getStatus())
             .isEqualTo(PaymentStatus.CANCELLED);
@@ -446,7 +446,7 @@ class PaymentFlowTest extends AbstractBillingIT {
         assertThat(shape(c.getReversalLines())).containsExactlyInAnyOrder(
             "REVERSAL -580000 2026-09-16", "REVERSAL -50000 2026-09-16");
         assertThat(balance(ids.sg())).isEqualByComparingTo("-630000");
-        assertThat(c.getStatusAfter()).isEqualTo("PENDING");
+        assertThat(c.getStatusAfter()).isEqualTo("OVERDUE");     // R1: 15.09 dan qarz
         BonusPenalty back = inTx(() -> bonusRepo.findById(b).orElseThrow());
         assertThat(back.getStatus()).isEqualTo(BonusPenaltyStatus.PENDING);
         assertThat(back.getAppliedToPaymentId()).isNull();

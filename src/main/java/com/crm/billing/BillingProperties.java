@@ -21,8 +21,11 @@ public class BillingProperties {
      */
     private boolean enabled = true;
 
-    /** Qarz shu kundan oshganda PENDING → OVERDUE. */
-    private int graceDays = 3;
+    /**
+     * {@code today − debtSince ≥ graceDays} bo'lsa OVERDUE (qarzdor). Buyurtmachi qoidasi R1 (billing-v2 §14.1):
+     * standart 0 — muddat kuni to'liq to'lanmagan bo'lsa qarzdor.
+     */
+    private int graceDays = 0;
 
     /** Kunlik accrual (Asia/Tashkent). */
     private String accrualCron = "0 10 0 * * *";

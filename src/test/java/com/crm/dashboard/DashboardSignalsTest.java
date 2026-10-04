@@ -322,7 +322,7 @@ class DashboardSignalsTest extends AbstractBillingIT {
         accrual.accrueUpTo(sg, d("15.09.2026"));
         BillingPeriod p0 = inTx(() -> periodRepo.findByStudentGroupIdOrderByPeriodStartAsc(sg).get(0));
         assertThat(p0.getDueDate()).isEqualTo(d("15.09.2026"));
-        assertThat(p0.getGraceUntil()).isEqualTo(d("18.09.2026"));
+        assertThat(p0.getGraceUntil()).isEqualTo(d("15.09.2026"));     // grace 0 (R1)
         assertThat(p0.getPaidOn()).isNull();
 
         fixtures.loginAs(UserRole.ACCOUNTANT);

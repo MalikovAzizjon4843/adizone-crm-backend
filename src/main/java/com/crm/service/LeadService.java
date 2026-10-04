@@ -679,9 +679,11 @@ public class LeadService {
             StudentGroupRequest groupRequest = new StudentGroupRequest();
             groupRequest.setStudentId(student.getId());
             groupRequest.setGroupId(body.getGroupId());
-            groupRequest.setJoinDate(LocalDate.now());
+            LocalDate joinDate = LocalDate.now();
+            groupRequest.setJoinDate(joinDate);
+            // R5 (billing-v2 §14.5): standart langar — qo'shilgan sana
             groupRequest.setPaymentStartDate(
-                body.getPaymentStartDate() != null ? body.getPaymentStartDate() : LocalDate.now());
+                body.getPaymentStartDate() != null ? body.getPaymentStartDate() : joinDate);
             groupRequest.setMonthlyFee(body.getMonthlyFee());
             groupRequest.setPaymentType(body.getPaymentType());
             groupRequest.setLessonPrice(body.getLessonPrice());

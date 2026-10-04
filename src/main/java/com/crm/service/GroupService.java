@@ -513,8 +513,9 @@ public class GroupService {
         }
 
         LocalDate joinDate = request.getJoinDate() != null ? request.getJoinDate() : LocalDate.now();
+        // R5 (billing-v2 §14.5): hisob boshlanishi standarti — guruhga qo'shilgan sana
         LocalDate paymentStart = request.getPaymentStartDate() != null
-            ? request.getPaymentStartDate() : LocalDate.now();
+            ? request.getPaymentStartDate() : joinDate;
         boolean isTrial = Boolean.TRUE.equals(request.getIsTrial());
         PaymentType paymentType = request.getPaymentType() != null
             ? request.getPaymentType() : PaymentType.MONTHLY;

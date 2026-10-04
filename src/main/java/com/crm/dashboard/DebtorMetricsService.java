@@ -55,7 +55,8 @@ public class DebtorMetricsService {
         DebtorService.Summary all = debtorService.debtorSummary(
             new DebtorService.Filter(DebtorService.Scope.ALL, null, null, null, null), today);
         List<Long> ids = list.getStudents().stream().map(DebtorsListResponse.DebtorStudent::getStudentId).toList();
-        int newDay = billingProperties.getGraceDays() + 1;
+        // Qarzdor bo'lgan kun: today − debtSince = grace (R1, billing-v2 §14.1)
+        int newDay = billingProperties.getGraceDays();
         long newToday = list.getStudents().stream().filter(s -> s.getDaysOverdue() == newDay).count();
         DebtorsSection yesterday = snapshot(today.minusDays(1));
         Long cleared = null;

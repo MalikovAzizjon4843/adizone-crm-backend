@@ -37,6 +37,7 @@ public class DebtorService {
 
     private final BillingStatusService statusService;
     private final StudentGroupRepository studentGroupRepository;
+    private final com.crm.repository.BillingPeriodRepository periodRepository;
 
     public enum Scope {
         /** Faol yoki muzlatilgan o'quvchining ochiq SG lari (default, §13 #4). */
@@ -194,32 +195,38 @@ public class DebtorService {
     // ── Kutilayotgan to'lovlar ─────────────────────────────────────────
 
     /**
-     * {@code GET /api/payments/expected} — SG {@code next_payment_date ∈ [from, to]},
-     * holati PAID yoki PENDING, summa — {@code next_payment_amount}. Default {@code from}
-     * — BUGUN (bugun yozilgan charge ham ko'rinadi, §4.3 #8).
+     * {@code GET /api/payments/expected} — R2 (billing-v2 §14.2): har hisoblanadigan yozilma uchun BITTA, sanasi
+     * bugundan keyin ({@link BillingStatusService#upcoming}). Qarzdor ham keyingi davri bilan kiradi (qarz — {@code debt}).
+     * Standart oraliq — ertadan bugun + 30 gacha. Guruh tugagach — yo'q (R3).
      */
     @Transactional(readOnly = true)
     public ExpectedPaymentsResponse expected(LocalDate from, LocalDate to, LocalDate today) {
-        LocalDate start = from != null ? from : today;
+        LocalDate start = from != null ? from : today.plusDays(1);
         LocalDate end = to != null ? to : today.plusDays(30);
+
+        List<StudentGroup> candidates = studentGroupRepository.findExpectedCandidates();
+        Map<Long, List<BillingCalendar.Span>> billed = new java.util.HashMap<>();
+        List<Long> ids = candidates.stream().map(StudentGroup::getId).toList();
+        for (int i = 0; i < ids.size(); i += 1000) {
+            for (Object[] row : periodRepository.findSpansByStudentGroupIds(ids.subList(i, Math.min(ids.size(), i + 1000)))) {
+                billed.computeIfAbsent((Long) row[0], k -> new ArrayList<>())
+                    .add(new BillingCalendar.Span((LocalDate) row[1], (LocalDate) row[2]));
+            }
+        }
 
         Map<LocalDate, List<ExpectedPaymentsResponse.ExpectedStudent>> byDate = new TreeMap<>();
         BigDecimal total = BigDecimal.ZERO;
         java.util.Set<Long> students = new java.util.HashSet<>();
-        for (StudentGroup sg : studentGroupRepository.findWithNextPaymentBetween(start, end)) {
-            if (!BillingStatusService.isBillingOpen(sg)) {
+        for (StudentGroup sg : candidates) {
+            BillingStatusService.Upcoming next = statusService.upcoming(sg, billed.getOrDefault(sg.getId(), List.of()), today);
+            if (next == null || next.date().isBefore(start) || next.date().isAfter(end)) {
                 continue;
             }
             PaymentStatus st = statusService.statusOf(sg.getBalance(), sg.getDebtSince(), today);
-            if (st == PaymentStatus.OVERDUE) {
-                continue;
-            }
             Student s = sg.getStudent();
-            if (s.getStatus() != StudentStatus.ACTIVE) {
-                continue;
-            }
-            BigDecimal amount = Money.nz(sg.getNextPaymentAmount());
-            byDate.computeIfAbsent(sg.getNextPaymentDate(), k -> new ArrayList<>())
+            BigDecimal amount = Money.nz(next.amount());
+            BigDecimal debt = Money.nz(sg.getBalance()).signum() < 0 ? Money.nz(sg.getBalance()).negate() : BigDecimal.ZERO;
+            byDate.computeIfAbsent(next.date(), k -> new ArrayList<>())
                 .add(ExpectedPaymentsResponse.ExpectedStudent.builder()
                     .studentId(s.getId())
                     .fullName(((s.getFirstName() != null ? s.getFirstName() : "") + " "
@@ -230,7 +237,8 @@ public class DebtorService {
                     .groupName(sg.getGroup().getGroupName())
                     .amount(amount)
                     .paymentStatus(st.name())
-                    .daysUntil(ChronoUnit.DAYS.between(today, sg.getNextPaymentDate()))
+                    .debt(Money.normalize(debt))
+                    .daysUntil(ChronoUnit.DAYS.between(today, next.date()))
                     .build());
             total = total.add(amount);
             students.add(s.getId());

@@ -99,29 +99,26 @@ class BillingStatusTest extends AbstractBillingIT {
 
     @Test
     void status_graceBoundary() {
+        // R1 (§14.1): grace standarti 0, OVERDUE ⇔ today − debtSince ≥ grace — muddat kunining o'zida
         LocalDate debtSince = d("15.10.2026");
         BigDecimal neg = BigDecimal.valueOf(-630_000);
-        assertThat(status.statusOf(neg, debtSince, d("15.10.2026"))).isEqualTo(PaymentStatus.PENDING);
-        assertThat(status.statusOf(neg, debtSince, d("18.10.2026"))).isEqualTo(PaymentStatus.PENDING);
+        assertThat(status.statusOf(neg, debtSince, d("14.10.2026"))).isEqualTo(PaymentStatus.PENDING);
+        assertThat(status.statusOf(neg, debtSince, d("15.10.2026"))).isEqualTo(PaymentStatus.OVERDUE);
         assertThat(status.statusOf(neg, debtSince, d("19.10.2026"))).isEqualTo(PaymentStatus.OVERDUE);
         assertThat(status.statusOf(BigDecimal.ZERO, null, d("19.10.2026"))).isEqualTo(PaymentStatus.PAID);
 
         int saved = properties.getGraceDays();
         properties.setGraceDays(5);
         try {
-            assertThat(status.statusOf(neg, debtSince, d("20.10.2026"))).isEqualTo(PaymentStatus.PENDING);
-            assertThat(status.statusOf(neg, debtSince, d("21.10.2026"))).isEqualTo(PaymentStatus.OVERDUE);
+            assertThat(status.statusOf(neg, debtSince, d("19.10.2026"))).isEqualTo(PaymentStatus.PENDING);
+            assertThat(status.statusOf(neg, debtSince, d("20.10.2026"))).isEqualTo(PaymentStatus.OVERDUE);
         } finally {
             properties.setGraceDays(saved);
         }
 
-        // saqlangan snapshot ham vaqt bilan o'zgaradi (kunlik job)
+        // saqlangan snapshot: charge yozilgan kuni — qarzdor
         Long sg = sg(630_000, "15.10.2026", "0");
         accrueOn(sg, "15.10.2026");
-        assertThat(sgNow(sg).getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
-        today("18.10.2026");
-        assertThat(sgNow(sg).getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
-        today("19.10.2026");
         assertThat(sgNow(sg).getPaymentStatus()).isEqualTo(PaymentStatus.OVERDUE);
         assertThat(sgNow(sg).getDebtSince()).isEqualTo(d("15.10.2026"));
     }
@@ -134,10 +131,10 @@ class BillingStatusTest extends AbstractBillingIT {
         credit(sg, 630_000, "16.09.2026");
         accrueOn(sg, "17.10.2026");
         assertThat(sgNow(sg).getDebtSince()).isEqualTo(d("15.10.2026"));
-        today("18.10.2026");
-        assertThat(sgNow(sg).getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
-        today("19.10.2026");
+        // quvib yetilgan charge — 15.10 dan qarz (R1: muddat kunidan)
         assertThat(sgNow(sg).getPaymentStatus()).isEqualTo(PaymentStatus.OVERDUE);
+        assertThat(debtors.debtors(DebtorService.Filter.defaults(), d("17.10.2026")).getStudents().get(0)
+            .getDaysOverdue()).isEqualTo(2);
     }
 
     // ── T2.2 / §6.1 ─────────────────────────────────────────────────────
@@ -182,7 +179,7 @@ class BillingStatusTest extends AbstractBillingIT {
         accrueOn(sg, "15.11.2026");
         assertThat(sgNow(sg).getNextPaymentDate()).isEqualTo(d("15.12.2026"));
         accrueOn(sg, "15.12.2026");
-        assertThat(sgNow(sg).getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(sgNow(sg).getPaymentStatus()).isEqualTo(PaymentStatus.OVERDUE);
         assertThat(sgNow(sg).getNextPaymentDate()).isEqualTo(d("15.12.2026"));
 
         Long sg2 = sg(700_000, "15.09.2026", "10");
@@ -210,7 +207,7 @@ class BillingStatusTest extends AbstractBillingIT {
         });
         StudentGroup s = sgNow(sg);
         assertThat(s.getDebtSince()).isEqualTo(d("15.09.2026"));
-        assertThat(s.getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(s.getPaymentStatus()).isEqualTo(PaymentStatus.OVERDUE);
     }
 
     // ── T2.4 — yagona manba ──────────────────────────────────────────────
@@ -221,7 +218,8 @@ class BillingStatusTest extends AbstractBillingIT {
         Long course = fixtures.course(630_000);
         clock.setDate(d("01.10.2026"));
 
-        // 2 ta OVERDUE (15.09 dan qarz), 1 ta PENDING (30.09), 1 ta PAID, 1 FROZEN + muddati o'tgan qarz, 1 TRIAL
+        // 2 ta OVERDUE (15.09 dan qarz), 1 ta kecha muddati kelgan (30.09 — R1: grace 0, u ham qarzdor),
+        // 1 ta PAID, 1 FROZEN + muddati o'tgan qarz, 1 TRIAL
         Long overdue1 = enroll(teacher, course, "15.09.2026", false);
         Long overdue2 = enroll(teacher, course, "15.09.2026", false);
         Long pending = enroll(teacher, course, "30.09.2026", false);
@@ -248,20 +246,21 @@ class BillingStatusTest extends AbstractBillingIT {
         long kpi = inTx(() -> sgRepo.countActivePaymentStatsGroupedByTeacher(status.overdueBefore(today)).stream()
             .mapToLong(r -> ((Number) r[4]).longValue()).sum());
 
-        assertThat(List.of(javaCount, sqlCount, summary, dash, anal, kpi)).containsOnly(3L);
-        assertThat(sgNow(pending).getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(List.of(javaCount, sqlCount, summary, dash, anal, kpi)).containsOnly(4L);
+        assertThat(sgNow(pending).getPaymentStatus()).isEqualTo(PaymentStatus.OVERDUE);
         assertThat(sgNow(frozen).getPaymentStatus()).isEqualTo(PaymentStatus.OVERDUE);
         assertThat(sgNow(trial).getPaymentStatus()).isEqualTo(PaymentStatus.TRIAL);
         assertThat(sgNow(paid).getPaymentStatus()).isEqualTo(PaymentStatus.PAID);
 
         DebtorsListResponse list = debtors.debtors(DebtorService.Filter.defaults(), today);
-        assertThat(list.getStudents()).hasSize(3);
+        assertThat(list.getStudents()).hasSize(4);
         DebtorsListResponse.DebtorStudent row = list.getStudents().get(0);
         assertThat(row.getDebt()).isEqualByComparingTo("630000");
         assertThat(row.getTotalDebt()).isEqualByComparingTo(row.getDebt());
         assertThat(row.getDebtSince()).isEqualTo(d("15.09.2026"));
         assertThat(row.getDaysOverdue()).isEqualTo(16);
-        assertThat(list.getTotalDebt()).isEqualByComparingTo("1890000");
+        assertThat(list.getStudents().get(3).getDaysOverdue()).isEqualTo(1);     // 30.09 dan
+        assertThat(list.getTotalDebt()).isEqualByComparingTo("2520000");
     }
 
     private Long enroll(Long teacher, Long course, String start, boolean trial) {
@@ -308,7 +307,7 @@ class BillingStatusTest extends AbstractBillingIT {
 
         accrueOn(b, "20.10.2026");
         s = inTx(() -> studentRepo.findById(vali).orElseThrow());
-        assertThat(s.getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(s.getPaymentStatus()).isEqualTo(PaymentStatus.OVERDUE);     // R1: muddat kuni
         assertThat(s.getNextPaymentDate()).isEqualTo(d("20.10.2026"));
         assertThat(s.getNextPaymentAmount()).isEqualByComparingTo("500000");
         assertThat(s.getDebt()).isEqualByComparingTo("500000");
@@ -328,18 +327,18 @@ class BillingStatusTest extends AbstractBillingIT {
 
     // ── /expected ──────────────────────────────────────────────────────
 
-    /** §4.3 #8: bugun yozilgan charge bugunoq "kutilayotgan"da (PENDING). */
+    /** R2 (§14.2): bugun muddati kelgan to'lanmagan davr — qarzdor; kutilayotganda keyingi davri bilan qoladi. */
     @Test
-    void expected_includesTodaysCharge() {
+    void expected_debtorKeepsNextPeriod() {
         Long sg = sg(630_000, "15.10.2026", "0");
         accrueOn(sg, "15.10.2026");
-        ExpectedPaymentsResponse r = debtors.expected(null, d("31.10.2026"), d("15.10.2026"));
+        ExpectedPaymentsResponse r = debtors.expected(null, d("15.11.2026"), d("15.10.2026"));
         assertThat(r.getDays()).hasSize(1);
-        assertThat(r.getDays().get(0).getDate()).isEqualTo(d("15.10.2026"));
+        assertThat(r.getDays().get(0).getDate()).isEqualTo(d("15.11.2026"));
         assertThat(r.getDays().get(0).getStudents().get(0).getAmount()).isEqualByComparingTo("630000");
-        assertThat(r.getDays().get(0).getStudents().get(0).getPaymentStatus()).isEqualTo("PENDING");
-        // OVERDUE bo'lgach — ro'yxatdan chiqadi (u qarzdorlar ro'yxatida)
-        today("19.10.2026");
-        assertThat(debtors.expected(d("15.10.2026"), d("31.10.2026"), d("19.10.2026")).getDays()).isEmpty();
+        assertThat(r.getDays().get(0).getStudents().get(0).getDebt()).isEqualByComparingTo("630000");
+        assertThat(r.getDays().get(0).getStudents().get(0).getPaymentStatus()).isEqualTo("OVERDUE");
+        // bugungi (muddati kelgan) sana kutilayotgan emas — oraliq bugundan boshlansa ham
+        assertThat(debtors.expected(d("15.10.2026"), d("31.10.2026"), d("15.10.2026")).getDays()).isEmpty();
     }
 }

@@ -180,7 +180,7 @@ Langar (anchor) — `sg.paymentStartDate`. U trial'dan chiqishda, unfreeze'da, `
 billingDay      = day(paymentStartDate)                      // 1..31
 start(0)        = paymentStartDate
 start(n), n ≥ 1 = dayOf(YearMonth.from(paymentStartDate).plusMonths(n), billingDay)
-dayOf(ym, d)    = d ≥ 29 ? ym.atEndOfMonth() : ym.atDay(d)   // 29–31 → oy oxiri
+dayOf(ym, d)    = ym.atDay(min(d, ym.lengthOfMonth()))       // 2026-10-04, QAROR 1 (§14.7): langar kuni; yo'q bo'lsa oy oxiri
 end(n)          = start(n+1) − 1 kun
 ```
 
@@ -189,10 +189,17 @@ end(n)          = start(n+1) − 1 kun
 | 15.09.2026 | 15.09, 15.10, 15.11, 15.12 | 15.09–14.10 (30), 15.10–14.11 (31), 15.11–14.12 (30) |
 | 01.10.2026 | 01.10, 01.11, 01.12 | 01.10–31.10 (31), 01.11–30.11 (30) |
 | 31.01.2027 | 31.01, 28.02, 31.03, 30.04 | 31.01–27.02 (28), 28.02–30.03 (31), 31.03–29.04 (30) |
-| 29.01.2027 | 29.01, 28.02, 31.03, 30.04 | birinchi davr haqiqiy sanadan; keyingilari oy oxiri |
-| 30.01.2028 | 30.01, 29.02 (kabisa), 31.03 | 30.01–28.02 (30), 29.02–30.03 (31) |
+| 29.01.2027 | 29.01, 28.02, 29.03, 29.04 | fevralda 29 yo'q — 28.02; keyin yana 29 (QAROR 1) |
+| 30.01.2028 | 30.01, 29.02 (kabisa), 30.03 | 30.01–28.02 (30), 29.02–29.03 (30) |
+| 29.09.2026 | 29.09, 29.10, 29.11 | buyurtmachi misoli (§14.2) |
+
+Keyingi yoziladigan davr panjaradan emas, **oxirgi yozilgan davr oxiridan** topiladi (§14.7 zanjiri) — eski qoida bilan
+yozilgan davrlardan keyin ustma-ust davr ochilmaydi.
 
 Proratsiya YO'Q — birinchi davr `paymentStartDate` dan boshlanadi va to'liq narx olinadi (hozirgi "yubiley" mantiqi saqlanadi, audit §6 A.9).
+
+> **2026-10-04:** langar standarti = `joinDate`, sinov to'lovida langar = o'tkazilgan kun (R5); guruh `end_date` dan
+> boshlanadigan davr ochilmaydi (R3) — [§14](#14-buyurtmachi-qoidalari-2026-10-04).
 
 ### 3.2 Hisoblanadigan yozilma (billable)
 ```
@@ -335,6 +342,9 @@ B < 0 && days ≤ grace  → PENDING
 B < 0 && days > grace  → OVERDUE        // grace = app.billing.grace-days = 3
 ```
 
+> **2026-10-04 (R1):** `days ≥ grace` → OVERDUE, grace standarti **0** — muddat kuni to'lanmagan bo'lsa qarzdor. Quyidagi
+> jadval va misollar eski (grace 3) qoidaga tegishli — [§14.1](#141-r1--qarzdor-muddati-kelgan-va-toliq-tolanmagan-grace--0).
+
 **SG ko'rsatish holati** (`sg.paymentStatus`, yuqoridan pastga birinchi mos):
 
 | # | Shart | Holat |
@@ -356,6 +366,9 @@ Misol: charge 15.10 da yozilgan, to'lov yo'q:
 `sg.paymentStatus` `String` dan `PaymentStatus` enumiga o'tkaziladi (`@Enumerated(STRING)`, ustun turi o'zgarmaydi — varchar). `"FROZEN"`, `"ARCHIVED"`, `"TRIAL"` literallari yo'qoladi.
 
 ### 4.3 nextPaymentDate va nextPaymentAmount
+
+> **2026-10-04:** guruh `end_date` dan keyingi sana qaytarilmaydi (R3); kutilayotganlar ro'yxati qarzdorda ham keyingi
+> davrni ko'rsatadi (R2) — [§14.2](#142-r2--kutilayotgan-tolovlar-har-yozilma-uchun-bitta-bugundan-keyingi).
 **MONTHLY**, faol, trial/frozen emas:
 ```
 if B < 0:
@@ -414,6 +427,7 @@ public BillingSnapshot snapshot(StudentGroup sg, LocalDate today);   // bitta SG
 ### 4.5 Qarzdor — yagona ta'rif
 
 > **Qarzdor = kamida bitta SG si `OVERDUE` bo'lgan o'quvchi** (`balance < 0` va `today − debt_since > grace`).
+> **2026-10-04 (R1, R2):** `today − debt_since ≥ grace`, grace = 0; kutilayotganlar — §14.2 (quyidagi `expected` ta'rifi eskirgan).
 > **Qarz summasi = Σ max(0, −sg.balance)** (shu o'quvchining OVERDUE va PENDING SG lari).
 
 | Iste'molchi | Hozir (audit) | v2 |
@@ -1217,6 +1231,8 @@ Har savol uchun **taklif** (default) berilgan edi. **01.10.2026 da qarorlar olin
 
 1. **"29–31 → oy oxiri" talqini.** Taklif: billing kuni 29, 30 yoki 31 bo'lsa, har oy oxirgi kuni olinadi (29.01 → 28.02 → **31.03** → 30.04). Muqobil: kunni oy uzunligi bilan cheklash (29.01 → 28.02 → **29.03**). Qaysi biri?
    **Qaror:** Taklif qabul qilindi — 29–31 → oy oxiri (29.01 → 28.02 → 31.03 → 30.04).
+   **Yangilanish (04.10.2026, QAROR 1):** buyurtmachi muqobilni tanladi — langar kuni, oyda yo'q bo'lsa oy oxiri
+   (29.01 → 28.02 → 29.03; 29.09 → 29.10). Mavjud davrlardan keyin — zanjir, §14.7.
 2. **Muzlatish sanasi o'tmishda bo'lishi mumkinmi?** (masalan, o'quvchi 01.10 dan kelmagan, admin 10.10 da muzlatadi). Taklif: `freezeDate ≤ bugun`, lekin oxirgi billable davomatdan oldin emas. 30 kundan eski bo'lmasin.
    **Qaror:** Taklif qabul qilindi — `freezeDate ≤ bugun`, oxirgi billable davomatdan oldin emas, 30 kundan eski emas.
 3. **Guruhdan chiqishda** (LEFT / GRADUATED / remove-student) joriy davrning ishlatilmagan qismi qaytariladimi? Taklif: yo'q (hozirgidek). Qaror 7 faqat muzlatishni qamraydi.
@@ -1231,6 +1247,7 @@ Har savol uchun **taklif** (default) berilgan edi. **01.10.2026 da qarorlar olin
    **Qaror:** Taklif qabul qilindi — >1 SG da `groupId` majburiy (400).
 8. **Sinovdagi o'quvchi to'g'ridan-to'g'ri to'lasa** (eski front "Qabul qilish"): taklif — avtomatik to'lovliga o'tkazish (`paymentStartDate = to'lov sanasi`, darhol charge). Muqobil: 400 "Avval to'lovli qiling".
    **Qaror:** Taklif qabul qilindi — avtomatik to'lovliga o'tkaziladi (`paymentStartDate = to'lov sanasi`).
+   **Yangilanish (04.10.2026, R5):** langar = o'tkazilgan kun (bugun), `paymentDate` emas — §14.5.
 9. **Kassasiz to'lov.** Hozir `cashRegisterId` siz to'lov faqat `Income` yozadi. Taklif: kassa majburiy (I5). Muqobil: sozlamada "default kassa".
    **Qaror:** Taklif qabul qilindi — kassa majburiy.
 10. **To'lovdagi bir martalik `discountAmount`** saqlanadimi? Taklif: ha — `DISCOUNT` kredit yozuvi, rollar SA, A, ACC, cheksiz. Muqobil: olib tashlash (faqat `discountPercentage` va `MANUAL_ADJUST`), yoki faqat SA/A, yoki maksimal foiz.
@@ -1257,6 +1274,7 @@ Har savol uchun **taklif** (default) berilgan edi. **01.10.2026 da qarorlar olin
    **Qaror:** **Dry-run hisobotini buyurtmachi (egasi) tasdiqlaydi**; apply faqat tasdiqlangan run bo'yicha. Rollback oynasi **72 soat** (§9.7 bilan bir xil).
 21. **Grace sozlamasi** `application.yml` da (o'zgartirish uchun qayta ishga tushirish kerak) yetarlimi yoki admin UI dan o'zgartiriladigan sozlama kerakmi? Taklif: yml, default 3.
    **Qaror:** Taklif qabul qilindi — `application.yml`, default 3.
+   **Yangilanish (04.10.2026, R1):** default **0**, qoida `days ≥ grace` — §14.1.
 22. **Bekor qilishda kassada pul yetmasa** (naqd 100 000, bekor 630 000): manfiyga ruxsat (xarajatdagi kabi) yoki 400? Taklif: ruxsat, javobda ogohlantirish.
    **Qaror:** Taklif qabul qilindi — kassa manfiyga tushishi mumkin, javobda ogohlantirish.
 23. **Eski to'lovni bekor qilish** (masalan o'tgan oy, payroll allaqachon PAID): ruxsatmi? O'qituvchi oyligidagi "to'lagan o'quvchi" soni qayta hisoblanmaydi. Taklif: ruxsat, payroll'ga ta'sir hisobotda ogohlantirish. Muqobil: N kundan eski to'lovni bekor qilish taqiqlanadi.
@@ -1273,4 +1291,134 @@ Har savol uchun **taklif** (default) berilgan edi. **01.10.2026 da qarorlar olin
    yopilgan davr (`paid_on`), o'qituvchi — `billing_periods.teacher_id` (accrual paytidagi).
 28. **PER_LESSON holati.** Grace (3 kun) dars sanasidan hisoblanadi, `nextPaymentDate` jadval bo'yicha. Jadvali yo'q guruhda `next = null` — qabulmi?
    **Qaror:** Taklif qabul qilindi — grace dars sanasidan; jadvalsiz guruhda `next = null`.
+
+---
+
+## 14. Buyurtmachi qoidalari 2026-10-04
+
+> Bu bo'lim §3.1, §3.2, §4.2, §4.3, §4.5, §13 #8 va #21 ning tegishli qismlarini **almashtiradi** (u yerlarda havola bor).
+> "Bugun" — Toshkent sanasi (`BillingStatusService.today()`, `billingClock`). Mavjud ledger, davrlar va balanslarga
+> tegilmaydi; o'zgaradi — holat ta'rifi, kutilayotganlar ro'yxati, yangi davr ochilishi va yangi yozilma langari.
+
+### 14.1 R1 — Qarzdor: muddati kelgan va to'liq to'lanmagan, grace = 0
+
+```
+debtSince = FIFO bo'yicha eng eski to'liq yopilmagan majburiyat sanasi (§4.1; davr uchun = due_date = period_start)
+days      = today − debtSince
+B ≥ 0                     → PAID
+B < 0 && days <  grace    → PENDING            // grace = app.billing.grace-days, STANDART 0
+B < 0 && days ≥  grace    → OVERDUE (qarzdor)  // grace = 0: muddat kuni (due_date ≤ bugun) to'lanmagan bo'lsa — qarzdor
+SQL: balance < 0 AND debt_since < overdueBefore(today),  overdueBefore = today − grace + 1   (ya'ni debt_since ≤ today − grace)
+```
+
+- Chala to'lov ham qarz: `B < 0` qoladi, `debtSince` o'sha davr sanasida turadi.
+- Ilgari `days > grace` (grace = 3) edi — 15.10 dagi davr 19.10 dan qarzdor bo'lardi. Endi 15.10 ning o'zida.
+- `grace > 0` sozlansa: `days ≥ grace` — masalan grace = 3 bo'lsa 18.10 dan (ilgari 19.10 dan). PENDING faqat grace > 0 da uchraydi.
+- Telegram eslatma (§13 #26) — qarzdor bo'lgan kun (`days = grace`) va keyin har 3 kunda; direktor "bugun yangi qarzdor" — `days = grace`.
+- `billing_periods.grace_until` (o'z vaqtida to'lov, KPI) yangi davrlarda `due_date + grace` (= `due_date`). Mavjud davrlarda
+  saqlangan qiymat (`+3`) — **QAROR 2 (04.10.2026): tuzatish tasdiqlandi** — `V75__grace_until_due_date.sql` (idempotent):
+  avval soni va oylar bo'yicha taqsimot (qaysilari "o'z vaqtida" dan "kechikkan" ga o'tadi), keyin `grace_until = due_date`
+  (`due_date` bo'sh qatorda — `period_start`, `PeriodCoverageService` qoidasi). Keyin yopilgan oylar KPI snapshot'ini qayta
+  hisoblash: `POST /api/teachers/kpi/snapshots?month=2026-09`.
+
+| Davr 15.10 (630 000), to'lov | Bugun | Holat |
+|---|---|---|
+| yo'q | 14.10 | davr hali ochilmagan — qarz yo'q |
+| yo'q | 15.10 | **OVERDUE** (qarzdor), qarz 630 000 |
+| 15.10 da 300 000 | 15.10 | **OVERDUE**, qarz 330 000 (chala) |
+| 15.10 da 630 000 | 15.10 | PAID |
+
+### 14.2 R2 — Kutilayotgan to'lovlar: har yozilma uchun bitta, bugundan keyingi
+
+`GET /api/payments/expected?from&to` — standart `from = ertaga`, `to = bugun + 30` (ertadan boshlab 30 kun).
+Har hisoblanadigan yozilma (faol, sinov/muzlatilgan emas, guruh ACTIVE/FORMING, o'quvchi ACTIVE) uchun **bitta** qator:
+
+```
+B ≥ 0 (qarzsiz):  §4.3 dagi kabi — oldindan qoplangan davrlardan keyingi birinchi davr boshi; summa c − (B − k·c)
+B < 0 (qarzdor):  bugundan keyingi (due > bugun) birinchi davr boshi; summa = c (o'sha davr narxi).
+                  Qarz alohida (`debt` maydoni, qarzdorlar ro'yxatida) — qarzdor kutilayotganlardan CHIQARILMAYDI.
+PER_LESSON:       B ≥ 0 — §4.3; B < 0 — ertadan boshlab birinchi jadvaldagi dars, summa = l
+R3:               sana guruh tugashidan keyin bo'lsa — qator yo'q
+```
+
+Snapshotdagi `next_payment_date` (o'quvchi ro'yxati, Mini App) qarzdorda avvalgidek `debtSince` ("to'lash kerak edi") — R2 faqat
+kutilayotganlar ro'yxatini o'zgartiradi.
+
+| Holat (bugun 04.10) | Kutilayotgan |
+|---|---|
+| Langar 28.09, to'lamagan (qarzdor 630 000) | **28.10 — 630 000** (qarzdorlarda ham bor) |
+| Langar 29.09, to'lamagan | **29.10 — 630 000** (QAROR 1, §14.7) |
+| Langar 15.09, 15.09 da 630 000 to'lagan | 15.10 — 630 000 |
+| Langar 15.09, 1 890 000 to'lagan (+1 260 000) | 15.12 — oynadan tashqarida, ko'rinmaydi |
+| Langar 20.09, 20.09 da to'lagan, guruh `end_date = 20.10` | **yo'q** (R3) |
+
+### 14.3 R3 — Guruh tugashi: keyingi davr ochilmaydi
+
+```
+isAccruable(sg, start) … && (group.end_date == null || start < group.end_date)
+```
+
+- Davr boshi `end_date` dan **oldin** bo'lsagina ochiladi. Davr boshi `end_date` ga teng bo'lsa ham ochilmaydi: buyurtmachi misoli —
+  langar 20.09, guruh 20.10 gacha → 20.10 dagi davr (bir kun uchun to'liq oylik) yo'q, kutilayotganda ham yo'q.
+- **Oxirgi qisman davr** (boshi `end_date` dan oldin, oxiri keyin) — mavjud qoida (§3.1, "Proratsiya YO'Q"): to'liq narx bilan ochiladi.
+  Masalan langar 05.09, `end_date = 20.10`: 05.10–04.11 davri 05.10 da 630 000 bilan ochiladi; 05.11 dagi davr — yo'q.
+- Kutilayotgan (R2) va snapshotdagi keyingi to'lov sanasi ham shu chegarada to'xtaydi (MONTHLY: sana ≥ `end_date` — yo'q;
+  PER_LESSON: `end_date` dan keyingi dars — yo'q).
+- `end_date` keyin o'zgartirilsa — yozilgan davrlar o'zgarmaydi; faqat keyingi accrual yangi qiymatni ko'radi.
+
+### 14.4 R4 — Sinovdan keyin qo'shilib to'lamaganlar — qarzdor
+
+R1 + R5 natijasi: sinovdan keyin guruhga qo'shilgan (yangi to'lovli yozilma yoki "to'lovli qilish") o'quvchining birinchi davri
+qo'shilgan sanada ochiladi va to'lanmasa — o'sha kundan qarzdor.
+
+| Hodisa | Ledger | Holat |
+|---|---|---|
+| 15.09 sinov darsi | — | TRIAL |
+| 17.09 guruhga qo'shildi (to'lovli), to'lamadi | PERIOD_CHARGE −630 000, `due = 17.09` | 17.09 dan **qarzdor**; kutilayotgan 17.10 |
+| 20.09 630 000 to'ladi | PAYMENT +630 000 | PAID; davrlar har oy **17** da (17.10, 17.11 …) |
+
+### 14.5 R5 — Langar = guruhga qo'shilgan sana; to'lov sanasi langarga ta'sir qilmaydi
+
+- Yangi yozilmada `paymentStartDate` berilmasa — **`joinDate`** (ilgari: bugun). Shunday qilinadi: `POST /api/groups/students`,
+  lid konvertatsiyasi, Excel importi. Frontend formasi standart qiymatni `joinDate` dan oladi; `POST /api/groups/{id}/students/create-and-add`
+  da maydon majburiy (o'zgarmagan) — standart qiymat formaning ishi.
+- **Sinovdagi o'quvchi to'g'ridan-to'g'ri to'lasa** (§13 #8 o'rniga): to'lovliga o'tkaziladi, langar = **o'tkazilgan kun (bugun)**,
+  `paymentDate` emas. To'lov sanasi (`paymentDate`, orqaga yoki oldinga) langarni hech qachon o'zgartirmaydi.
+- To'lovli yozilmaga to'lov — langarga tegmaydi (avval ham shunday).
+- Langarni o'zgartirish yo'llari o'zgarmaydi: `PATCH /payment-start-date` (sinovdan chiqarish ham), unfreeze (§3.6).
+- **Mavjud yozilmalar** (`payment_start_date ≠ join_date`) avtomatik o'zgartirilmaydi — tahlil va qo'lda tuzatish yo'li:
+  [`docs/ops/anchor-fix.md`](../ops/anchor-fix.md).
+
+### 14.6 Hozirgi xulq → yangi xulq
+
+| Qoida | Hozir | Yangi |
+|---|---|---|
+| R1 | Qarzdor `today − debt_since > 3`; muddat kuni va keyingi 3 kun PENDING | Qarzdor `due_date ≤ bugun` va to'liq to'lanmagan (grace 0) |
+| R1 | Eslatma / "yangi qarzdor" — 4-kun | Qarzdor bo'lgan kun |
+| R2 | Kutilayotgan: snapshot `next_payment_date ∈ [bugun, +30]`, OVERDUE chiqarib tashlanadi | Har yozilma bitta, `due > bugun`, standart [ertaga, bugun+30]; qarzdor keyingi davri bilan kiradi |
+| R3 | `end_date` hisobga olinmaydi — guruh tugagach ham davr ochiladi va kutilayotganda chiqadi | Davr boshi ≥ `end_date` — ochilmaydi, kutilmaydi; oxirgi qisman davr — to'liq narx |
+| R4 | Qo'shilgan, to'lamagan o'quvchi 3 kun PENDING; `paymentStartDate` keyinroq berilsa — umuman qarzdor emas | Qo'shilgan kundan qarzdor |
+| R5 | `paymentStartDate` standart = bugun (join_date dan farqli bo'lishi mumkin); sinov to'lovida langar = `paymentDate` | Standart = `joinDate`; sinov to'lovida langar = o'tkazilgan kun |
+
+### 14.7 Billing kuni 29–31 — QAROR 1 (04.10.2026)
+
+**Qoida:** keyingi davr = langar kuni; oyda u kun bo'lmasa — oyning oxirgi kuni (29.09 → 29.10; 31.01 → 28/29.02 → 31.03;
+29.01 → 28.02 → 29.03). `BillingCalendar.dayOf = min(langar kuni, oy uzunligi)`.
+
+**Ustma-ust davr yo'q — zanjir.** Keyingi yoziladigan davr panjarada "yozilmagan birinchi `start(n)`" sifatida emas,
+**oxirgi yozilgan davrdan** topiladi (`BillingCalendar.firstUnbilledStart`): langardan keyin (`period_start ≥ langar`) yozilgan
+davr bo'lsa — eng kech tugaganining saqlangan `period_end` + 1 kun, bo'lmasa — langar. Davr oxiri — panjaradagi navbatdagi
+langar kunidan bir kun oldin (`endOf`). Accrual, to'lov preview'i, snapshot `nextPaymentDate` va kutilayotganlar — hammasi shu.
+
+```
+Langar 29.08, eski qoida bilan yozilgan:  29.08–29.09, 30.09–30.10
+Yangi qoida:                               31.10–28.11  (bitta o'tish davri, to'liq narx), 29.11–28.12, 29.12–28.01 …
+```
+
+- Panjara bilan mos davrlarda (langar kuni 1–28 yoki 31) natija avvalgidek — farq faqat 29/30 langarli, eski qoida bilan
+  yozilgan davri bor yozilmalarda va faqat **bitta** o'tish davri (28–31 kun) bilan.
+- Oldin yozilgan davrga hech qachon qaytilmaydi; bo'shliq ham yo'q (`start(i) = end(i−1) + 1`).
+- Ta'sir ro'yxati (prod, read-only): [`docs/ops/anchor-fix.md` §6](../ops/anchor-fix.md).
+- Guruhga ko'chirishda yangi SG langari = eski SG oxirgi davr oxiri + 1 (§6.8, o'zgarmagan) — o'tish davridan keyin
+  ko'chirilsa, yangi SG billing kuni shu sana bo'ladi.
 

@@ -147,11 +147,11 @@ public class PaymentBookingService {
 
         List<BillingLineDto> written = new ArrayList<>();
 
-        // Sinov → to'lovli (langar = to'lov sanasi), keyin rejadagi accrual
+        // Sinov → to'lovli: langar = o'tkazilgan kun (bugun), to'lov sanasi emas (R5, billing-v2 §14.5); keyin accrual
         if (plan.convertTrial()) {
             sg.setIsTrial(false);
-            sg.setPaymentStartDate(plan.paymentDate());
-            com.crm.dashboard.TrialTracking.markConverted(sg, plan.paymentDate());
+            sg.setPaymentStartDate(today);
+            com.crm.dashboard.TrialTracking.markConverted(sg, today);
         }
         AccrualService.AccrualResult accrued = accrualService.accrueLocked(sg, today);
         accrued.created().forEach(p -> {

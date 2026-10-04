@@ -16,6 +16,10 @@ public interface BillingPeriodRepository extends JpaRepository<BillingPeriod, Lo
 
     List<BillingPeriod> findByStudentGroupIdOrderByPeriodStartAsc(Long studentGroupId);
 
+    /** Batch: [studentGroupId, periodStart, periodEnd] — kutilayotganlar ro'yxati uchun (N+1 yo'q). */
+    @Query("SELECT p.studentGroupId, p.periodStart, p.periodEnd FROM BillingPeriod p WHERE p.studentGroupId IN :ids")
+    List<Object[]> findSpansByStudentGroupIds(@Param("ids") java.util.Collection<Long> ids);
+
     Optional<BillingPeriod> findByStudentGroupIdAndPeriodStart(Long studentGroupId, LocalDate periodStart);
 
     boolean existsByStudentGroupIdAndPeriodStart(Long studentGroupId, LocalDate periodStart);

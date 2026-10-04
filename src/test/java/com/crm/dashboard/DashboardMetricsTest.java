@@ -259,10 +259,11 @@ class DashboardMetricsTest extends AbstractBillingIT {
         assertThat(dayView.due().amount()).isEqualByComparingTo("1890000");
         assertThat(dayView.collected().count()).isEqualTo(1);
         assertThat(dayView.onTime().count()).isEqualTo(1);
-        assertThat(dayView.pending().count()).isEqualTo(2);
-        assertThat(dayView.unpaid().count()).isZero();
+        // grace 0 (R1): grace_until = 15.09 — 16.09 da to'lanmaganlar UNPAID (kutilmoqda emas)
+        assertThat(dayView.pending().count()).isZero();
+        assertThat(dayView.unpaid().count()).isEqualTo(2);
 
-        pay(ids[2], ids[3], 630_000, "20.09.2026");                // grace 18.09 dan keyin → LATE (5 kun)
+        pay(ids[2], ids[3], 630_000, "20.09.2026");                // muddat 15.09 dan keyin → LATE (5 kun)
         clock.setDate(d("25.09.2026"));
 
         CollectionsSection month = collections.summary(DashboardPeriod.of("MONTH", d("15.09.2026"), null, null,
@@ -311,17 +312,17 @@ class DashboardMetricsTest extends AbstractBillingIT {
         Long sg1 = fixtures.enrollment(s1, g).start(d("15.09.2026")).save();
         accrual.accrueUpTo(sg1, d("15.09.2026"));
         Long s2 = fixtures.student();
-        Long sg2 = fixtures.enrollment(s2, g).start(d("10.09.2026")).save();
-        accrual.accrueUpTo(sg2, d("10.09.2026"));
-        clock.setDate(d("19.09.2026"));
+        Long sg2 = fixtures.enrollment(s2, g).start(d("05.09.2026")).save();
+        accrual.accrueUpTo(sg2, d("05.09.2026"));
+        clock.setDate(d("15.09.2026"));
         jdbc.update("UPDATE student_groups SET payment_status = 'OVERDUE'");
 
-        DebtorsSection live = debtors.summary(day("19.09.2026"));
+        DebtorsSection live = debtors.summary(day("15.09.2026"));
 
         assertThat(live.count()).isEqualTo(2);
         assertThat(live.amount()).isEqualByComparingTo("1400000");
-        assertThat(live.newToday()).isEqualTo(1);        // 15.09 + 3 + 1 = 19.09
-        assertThat(live.overdue7Plus()).isEqualTo(1);    // 10.09 → 9 kun
+        assertThat(live.newToday()).isEqualTo(1);        // R1: 15.09 — muddat kunining o'zida qarzdor
+        assertThat(live.overdue7Plus()).isEqualTo(1);    // 05.09 → 10 kun
         assertThat(live.source()).isEqualTo("LIVE");
         assertThat(live.studentIds()).isNull();
     }

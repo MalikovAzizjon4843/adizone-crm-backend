@@ -6,7 +6,7 @@ import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** §3.1 jadvali va T1.5 — oy oxiri qoidasi (§13 #1 qarori). */
+/** §3.1, §14.7 (QAROR 1): keyingi davr = langar kuni; oyda u kun bo'lmasa — oyning oxirgi kuni. */
 class BillingCalendarTest {
 
     private static LocalDate d(int y, int m, int day) {
@@ -46,24 +46,69 @@ class BillingCalendarTest {
         assertThat(BillingCalendar.lengthInDays(a, 2)).isEqualTo(30);
     }
 
-    /** T1.5: 29.01.2027 → 28.02, 31.03 (oy oxiri, 29.03 emas). */
+    /** QAROR 1: 29.01.2027 → 28.02 → 29.03 → 29.04 (oy oxiri emas). */
     @Test
-    void endOfMonthRule_29() {
+    void anchorDay_29() {
         LocalDate a = d(2027, 1, 29);
         assertThat(BillingCalendar.start(a, 0)).isEqualTo(d(2027, 1, 29));
         assertThat(BillingCalendar.start(a, 1)).isEqualTo(d(2027, 2, 28));
-        assertThat(BillingCalendar.start(a, 2)).isEqualTo(d(2027, 3, 31));
-        assertThat(BillingCalendar.start(a, 3)).isEqualTo(d(2027, 4, 30));
+        assertThat(BillingCalendar.start(a, 2)).isEqualTo(d(2027, 3, 29));
+        assertThat(BillingCalendar.start(a, 3)).isEqualTo(d(2027, 4, 29));
+        // buyurtmachi misoli: 29.09 → 29.10
+        assertThat(BillingCalendar.start(d(2026, 9, 29), 1)).isEqualTo(d(2026, 10, 29));
     }
 
-    /** T1.5: kabisa yili — 30.01.2028 → 29.02.2028. */
+    /** QAROR 1: 30.01.2027 → 28.02 → 30.03 → 30.04. */
+    @Test
+    void anchorDay_30() {
+        LocalDate a = d(2027, 1, 30);
+        assertThat(BillingCalendar.start(a, 1)).isEqualTo(d(2027, 2, 28));
+        assertThat(BillingCalendar.start(a, 2)).isEqualTo(d(2027, 3, 30));
+        assertThat(BillingCalendar.start(a, 3)).isEqualTo(d(2027, 4, 30));
+        assertThat(BillingCalendar.end(a, 1)).isEqualTo(d(2027, 3, 29));
+    }
+
+    /** Kabisa yili: 30.01.2028 → 29.02.2028 → 30.03; 29.01.2028 → 29.02 → 29.03. */
     @Test
     void leapYear() {
         LocalDate a = d(2028, 1, 30);
         assertThat(BillingCalendar.start(a, 1)).isEqualTo(d(2028, 2, 29));
-        assertThat(BillingCalendar.start(a, 2)).isEqualTo(d(2028, 3, 31));
-        assertThat(BillingCalendar.lengthInDays(a, 0)).isEqualTo(30);
-        assertThat(BillingCalendar.lengthInDays(a, 1)).isEqualTo(31);
+        assertThat(BillingCalendar.start(a, 2)).isEqualTo(d(2028, 3, 30));
+        assertThat(BillingCalendar.lengthInDays(a, 0)).isEqualTo(30);     // 30.01–28.02
+        assertThat(BillingCalendar.lengthInDays(a, 1)).isEqualTo(30);     // 29.02–29.03
+        assertThat(BillingCalendar.start(d(2028, 1, 29), 1)).isEqualTo(d(2028, 2, 29));
+        assertThat(BillingCalendar.start(d(2028, 1, 29), 2)).isEqualTo(d(2028, 3, 29));
+        assertThat(BillingCalendar.start(d(2028, 1, 31), 1)).isEqualTo(d(2028, 2, 29));
+    }
+
+    /** Zanjir: yozilgan davr yo'q — langar; bor — oxirgi oxiridan keyingi kun; oldingi langar davrlari hisobga olinmaydi. */
+    @Test
+    void firstUnbilledStart_chainsFromLastStoredEnd() {
+        LocalDate a = d(2026, 9, 15);
+        assertThat(BillingCalendar.firstUnbilledStart(a, java.util.List.of())).isEqualTo(a);
+        assertThat(BillingCalendar.firstUnbilledStart(a, java.util.List.of(
+            new BillingCalendar.Span(d(2026, 9, 15), d(2026, 10, 14)),
+            new BillingCalendar.Span(d(2026, 10, 15), d(2026, 11, 14))))).isEqualTo(d(2026, 11, 15));
+        // re-anchor: eski langarning davri (start < anchor) zanjirga kirmaydi
+        assertThat(BillingCalendar.firstUnbilledStart(a, java.util.List.of(
+            new BillingCalendar.Span(d(2026, 8, 20), d(2026, 9, 19))))).isEqualTo(a);
+    }
+
+    /**
+     * Eski qoida (29 → oy oxiri) bilan yozilgan davrdan keyin: langar 29.08, yozilgan 30.09–30.10 (eski). Yangi panjara
+     * 29.10 ni bermaydi (ustma-ust bo'lardi): o'tish davri 31.10–28.11, keyin 29.11 dan langar kuni bo'yicha.
+     */
+    @Test
+    void transitionAfterOldRulePeriod_noOverlapNoGap() {
+        LocalDate a = d(2026, 8, 29);
+        java.util.List<BillingCalendar.Span> old = java.util.List.of(
+            new BillingCalendar.Span(d(2026, 8, 29), d(2026, 9, 29)),
+            new BillingCalendar.Span(d(2026, 9, 30), d(2026, 10, 30)));
+        LocalDate next = BillingCalendar.firstUnbilledStart(a, old);
+        assertThat(next).isEqualTo(d(2026, 10, 31));
+        assertThat(BillingCalendar.endOf(a, next)).isEqualTo(d(2026, 11, 28));
+        assertThat(BillingCalendar.following(a, next)).isEqualTo(d(2026, 11, 29));
+        assertThat(BillingCalendar.following(a, d(2026, 11, 29))).isEqualTo(d(2026, 12, 29));
     }
 
     @Test

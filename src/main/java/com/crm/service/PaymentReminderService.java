@@ -58,7 +58,8 @@ public class PaymentReminderService {
 
     /** Bugun eslatma oladiganlar (testlanadi). */
     List<DebtorsListResponse.DebtorStudent> dueToday(LocalDate today) {
-        int firstOverdueDay = billingStatusService.graceDays() + 1;
+        // Qarzdor bo'lgan kun (today − debtSince = grace, R1) va keyin har 3 kunda (§13 #26)
+        int firstOverdueDay = billingStatusService.graceDays();
         return debtorService.debtors(DebtorService.Filter.defaults(), today).getStudents().stream()
             .filter(d -> studentRepository.findById(d.getStudentId())
                 .map(s -> s.getStatus() != StudentStatus.FROZEN).orElse(false))
