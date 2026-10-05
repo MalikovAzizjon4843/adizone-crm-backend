@@ -45,6 +45,7 @@ class ExamFeeTest extends LecItBase {
     private Long register;
     private User accountant;
     private User admin;
+    private User superAdmin;
 
     @BeforeEach
     void setUp() {
@@ -53,6 +54,7 @@ class ExamFeeTest extends LecItBase {
         register = fixtures.cashRegister(false);
         accountant = newUser(UserRole.ACCOUNTANT);
         admin = newUser(UserRole.ADMIN);
+        superAdmin = newUser(UserRole.SUPER_ADMIN);
     }
 
     private Long exam(long fee, LocalDate date) {
@@ -224,13 +226,20 @@ class ExamFeeTest extends LecItBase {
         mvc.perform(post(cancelUrl).with(as(teacher.user())).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"reason\":\"Kasal\"}"))
             .andExpect(status().isForbidden());
-        mvc.perform(post(cancelUrl).with(as(accountant)).contentType(MediaType.APPLICATION_JSON).content("{}"))
+        mvc.perform(post(cancelUrl).with(as(superAdmin)).contentType(MediaType.APPLICATION_JSON).content("{}"))
             .andExpect(status().isBadRequest())
             .andExpect(jsonPath("$.code").value("exam.registration.reasonRequired"));
+        // 2026-10-05: to'langan yozilishni bekor qilish = to'lovni bekor qilish — faqat SA
+        for (User notSa : new User[]{accountant, admin}) {
+            mvc.perform(post(cancelUrl).with(as(notSa)).contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"reason\":\"Imtihonga kela olmaydi\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("payment.edit.superAdminOnly"));
+        }
 
         // Kassada pul qolmagan — REVERSAL baribir yoziladi, ogohlantirish bilan
         jdbc.update("UPDATE cash_registers SET cash_balance = 0, balance = 0 WHERE id = ?", register);
-        JsonNode cancelled = data(mvc.perform(post(cancelUrl).with(as(accountant)).contentType(MediaType.APPLICATION_JSON)
+        JsonNode cancelled = data(mvc.perform(post(cancelUrl).with(as(superAdmin)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"reason\":\"Imtihonga kela olmaydi\"}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.status").value("CANCELLED"))
@@ -261,7 +270,7 @@ class ExamFeeTest extends LecItBase {
             .exam(examRepository.findById(examId).orElseThrow())
             .student(studentRepository.findById(s[0]).orElseThrow())
             .marksObtained(BigDecimal.valueOf(70)).build()));
-        mvc.perform(post("/api/exams/" + examId + "/registrations/" + again + "/cancel").with(as(admin))
+        mvc.perform(post("/api/exams/" + examId + "/registrations/" + again + "/cancel").with(as(superAdmin))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Xato\"}"))
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.code").value("exam.registration.hasResult"));
@@ -284,7 +293,7 @@ class ExamFeeTest extends LecItBase {
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.code").value("exam.hasRegistrations"));
 
-        mvc.perform(post("/api/exams/" + examId + "/registrations/" + regId + "/cancel").with(as(admin))
+        mvc.perform(post("/api/exams/" + examId + "/registrations/" + regId + "/cancel").with(as(superAdmin))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Imtihon ko'chdi\"}"))
             .andExpect(status().isOk());
         mvc.perform(delete("/api/exams/" + examId).with(as(admin))).andExpect(status().isOk());

@@ -99,10 +99,7 @@ public class PaymentPlanner {
                 throw CodedException.badRequest("payment.discount.reasonRequired");
             }
         }
-        LocalDate payDate = r.getPaymentDate() != null ? r.getPaymentDate() : today;
-        if (payDate.isAfter(today)) {
-            throw CodedException.badRequest("payment.date.future");
-        }
+        PaymentDatePolicy.check(r.getPaymentDate(), today);     // kelajak — 400, o'tgan — faqat SA (403)
     }
 
     static String discountReason(PaymentRequest r) {

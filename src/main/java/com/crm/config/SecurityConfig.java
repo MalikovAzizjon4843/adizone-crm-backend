@@ -4,9 +4,11 @@ import com.crm.security.CustomUserDetailsService;
 import com.crm.security.jwt.JwtAuthenticationFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.crm.dto.response.ApiResponse;
+import com.crm.exception.ErrorResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -23,10 +25,15 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.servlet.LocaleResolver;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 
@@ -68,9 +75,29 @@ public class SecurityConfig {
     public static final String[] STAFF_ROLES =
         {"SUPER_ADMIN", "ADMIN", "SALES_HEAD", "SALES_MANAGER", "ACCOUNTANT", "TEACHER"};
 
+    /**
+     * To'lovni tahrirlash / bekor qilish (2026-10-05) — faqat SUPER_ADMIN; boshqalarga 403
+     * {@code payment.edit.superAdminOnly}. Servislar ham tekshiradi. To'langan imtihon yozilishini bekor qilish
+     * ({@code POST /api/exams/{id}/registrations/{regId}/cancel}) — URL bo'yicha ajratib bo'lmaydi, faqat servisda.
+     */
+    static final RequestMatcher PAYMENT_EDIT = new OrRequestMatcher(
+        new AntPathRequestMatcher("/api/payments/*/cancel", "POST"),
+        new AntPathRequestMatcher("/api/payments/**", "PUT"),
+        new AntPathRequestMatcher("/api/payments/**", "PATCH"),
+        new AntPathRequestMatcher("/api/payments/**", "DELETE"),
+        new AntPathRequestMatcher("/api/payroll/*/cancel", "POST"),
+        new AntPathRequestMatcher("/api/cash-registers/transactions/**", "PUT"),
+        new AntPathRequestMatcher("/api/cash-registers/transactions/**", "PATCH"),
+        new AntPathRequestMatcher("/api/cash-registers/transactions/**", "DELETE"),
+        new AntPathRequestMatcher("/api/cash-registers/*/transactions/**", "PUT"),
+        new AntPathRequestMatcher("/api/cash-registers/*/transactions/**", "PATCH"),
+        new AntPathRequestMatcher("/api/cash-registers/*/transactions/**", "DELETE"));
+
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final CustomUserDetailsService userDetailsService;
     private final ObjectMapper objectMapper;
+    private final MessageSource messageSource;
+    private final LocaleResolver localeResolver;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -156,6 +183,8 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_HEAD")
                 .requestMatchers("/api/analytics/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
+                // To'lov / oylik / kassa yozuvini tahrirlash va bekor qilish — faqat SA (umumiy qoidalardan OLDIN)
+                .requestMatchers(PAYMENT_EDIT).hasRole("SUPER_ADMIN")
                 .requestMatchers("/api/finance/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
                 .requestMatchers("/api/expenses", "/api/expenses/**")
@@ -308,6 +337,18 @@ public class SecurityConfig {
                     response.setStatus(HttpServletResponse.SC_FORBIDDEN);
                     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
                     response.setCharacterEncoding("UTF-8");
+                    if (PAYMENT_EDIT.matches(request)) {
+                        // CodedException bilan bir xil shakl (GlobalExceptionHandler.handleCoded)
+                        String code = "payment.edit.superAdminOnly";
+                        objectMapper.writeValue(response.getOutputStream(), ErrorResponse.builder()
+                            .timestamp(LocalDateTime.now())
+                            .status(HttpServletResponse.SC_FORBIDDEN)
+                            .error("Forbidden")
+                            .message(messageSource.getMessage(code, null, localeResolver.resolveLocale(request)))
+                            .code(code)
+                            .build());
+                        return;
+                    }
                     objectMapper.writeValue(response.getOutputStream(),
                         ApiResponse.error("Ruxsat yo'q"));
                 })

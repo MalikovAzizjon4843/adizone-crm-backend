@@ -72,6 +72,7 @@ public class CashRegisterService {
     private final StudentRepository studentRepository;
     private final com.crm.billing.BillingLocks billingLocks;
     private final CashChannelService cashChannelService;
+    private final com.crm.billing.PaymentDatePolicy datePolicy;
 
     @Transactional(readOnly = true)
     public List<CashRegisterDto> getAll(String status) {
@@ -558,6 +559,7 @@ public class CashRegisterService {
         if (dto.getStudentId() != null) {
             throw CodedException.badRequest("cash.income.studentPaymentViaPayments");
         }
+        datePolicy.check(dto.getTransactionDate());     // kelajak — 400, o'tgan — faqat SA
 
         CashTransaction tx = recordIncome(
             cashRegisterId,
@@ -682,6 +684,7 @@ public class CashRegisterService {
         summary = "'Kassadan chiqim: ' + #dto.amount",
         entityId = "#cashRegisterId")
     public CashTransactionDto addExpense(Long cashRegisterId, ExpenseCreateDto dto) {
+        datePolicy.check(dto.getTransactionDate());     // kelajak — 400, o'tgan — faqat SA
         Student student = null;
         if (dto.getStudentId() != null) {
             student = findStudentById(dto.getStudentId());
@@ -710,6 +713,10 @@ public class CashRegisterService {
         summary = "'Kassa chiqimi o''chirildi'",
         entityId = "#transactionId")
     public void deleteExpense(Long transactionId) {
+        // Endpoint yo'q (2026-10-05 tekshiruvi); chaqirilsa ham — kassa yozuvini bekor qilish faqat SA
+        if (!com.crm.billing.BillingAuth.hasAnyRole("SUPER_ADMIN")) {
+            throw CodedException.forbidden("payment.edit.superAdminOnly");
+        }
         CashTransaction tx = cashTransactionRepository.findById(transactionId)
             .orElseThrow(() -> new ResourceNotFoundException("CashTransaction", transactionId));
 

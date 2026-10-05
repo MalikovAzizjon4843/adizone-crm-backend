@@ -40,6 +40,7 @@ public class FinanceService {
     private final PayrollRepository payrollRepository;
     private final com.crm.repository.CashTransactionRepository cashTransactionRepository;
     private final CashChannelService cashChannelService;
+    private final com.crm.billing.PaymentDatePolicy datePolicy;
 
     @Transactional(readOnly = true)
     public List<ExpenseResponse> getExpenses(LocalDate from, LocalDate to) {
@@ -90,6 +91,7 @@ public class FinanceService {
 
     @Transactional
     public ExpenseResponse createExpense(ExpenseRequest request) {
+        datePolicy.check(request.getExpenseDate());     // kelajak — 400, o'tgan — faqat SA
         Expense expense = Expense.builder()
             .category(request.getCategory())
             .title(request.getTitle())

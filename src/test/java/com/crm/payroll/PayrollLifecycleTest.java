@@ -159,7 +159,7 @@ class PayrollLifecycleTest extends PayrollItBase {
         assertThat(register(reg).getCashBalance()).isEqualByComparingTo("-3100000");
 
         fixtures.loginAs(UserRole.ADMIN);
-        assertCode(() -> payroll.cancel(id, "Xato hisob"), "payroll.cancel.forbidden");
+        assertCode(() -> payroll.cancel(id, "Xato hisob"), "payment.edit.superAdminOnly");
         fixtures.loginAs(UserRole.SUPER_ADMIN);
         assertCode(() -> payroll.cancel(id, " "), "payroll.cancel.reasonRequired");
 

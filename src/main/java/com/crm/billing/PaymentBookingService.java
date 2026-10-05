@@ -279,6 +279,10 @@ public class PaymentBookingService {
 
     @Transactional
     public Cancelled cancel(Long paymentId, String reason) {
+        // 2026-10-05: to'lovni tahrirlash/bekor qilish — faqat SA (SecurityConfig ham yopadi)
+        if (!BillingAuth.hasAnyRole("SUPER_ADMIN")) {
+            throw CodedException.forbidden("payment.edit.superAdminOnly");
+        }
         gate.requireWritable();
         String why = reason != null ? reason.trim() : "";
         if (why.length() < 3 || why.length() > 500) {
@@ -332,6 +336,9 @@ public class PaymentBookingService {
             warnings.add("cash.incomeNotFound");
         }
 
+        // Audit (@Audited PaymentService.cancelPayment): eski → yangi qiymatlar
+        AuditContext.change("status", payment.getStatus(), PaymentStatus.CANCELLED);
+        AuditContext.change("cancelReason", payment.getCancelReason(), why);
         payment.setStatus(PaymentStatus.CANCELLED);
         payment.setCancelledAt(LocalDateTime.now(billingClock));
         payment.setCancelledBy(currentUser());

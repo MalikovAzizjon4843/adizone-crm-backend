@@ -2,6 +2,7 @@ package com.crm.service;
 
 import com.crm.audit.AuditAction;
 import com.crm.audit.AuditContext;
+import com.crm.billing.BillingAuth;
 import com.crm.billing.BillingLocks;
 import com.crm.billing.BillingStatusService;
 import com.crm.audit.Audited;
@@ -568,6 +569,10 @@ public class ExamService {
             .orElseThrow(() -> CodedException.notFound("exam.registration.notFound", regId));
         CashTransaction original = reg.getCashTransactionId() != null
             ? cashTransactionRepository.findById(reg.getCashTransactionId()).orElse(null) : null;
+        // 2026-10-05: to'langan imtihon yozilishini bekor qilish = to'lovni bekor qilish — faqat SA
+        if (reg.getFeeStatus() == ExamPaymentStatus.PAID && !BillingAuth.hasAnyRole("SUPER_ADMIN")) {
+            throw CodedException.forbidden("payment.edit.superAdminOnly");
+        }
 
         locks.acquire(BillingLocks.Plan.of()
             .student(reg.getStudent().getId())
@@ -579,6 +584,10 @@ public class ExamService {
         if (examResultRepository.findByExamIdAndStudentId(examId, reg.getStudent().getId()).isPresent()) {
             throw new ConflictException("exam.registration.hasResult");
         }
+        AuditContext.change("status", reg.getStatus(), ExamRegistrationStatus.CANCELLED);
+        AuditContext.change("feeStatus", reg.getFeeStatus(),
+            reg.getFeeStatus() == ExamPaymentStatus.PAID && original != null ? ExamPaymentStatus.REFUNDED : reg.getFeeStatus());
+        AuditContext.change("cancelReason", reg.getCancelReason(), why);
         boolean negative = false;
         if (reg.getFeeStatus() == ExamPaymentStatus.PAID && original != null) {
             CashRegisterService.ReversalResult reversal = cashRegisterService.recordReversal(original,

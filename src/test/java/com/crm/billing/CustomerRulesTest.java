@@ -76,7 +76,8 @@ class CustomerRulesTest extends AbstractBillingIT {
 
     private void pay(Ids ids, long amount, String today, String paymentDate) {
         clock.setDate(d(today));
-        fixtures.loginAs(UserRole.ACCOUNTANT);
+        // O'tgan sana bilan to'lov — faqat SA (2026-10-05); bugungisi — buxgalter
+        fixtures.loginAs(paymentDate != null && d(paymentDate).isBefore(d(today)) ? UserRole.SUPER_ADMIN : UserRole.ACCOUNTANT);
         PaymentRequest r = new PaymentRequest();
         r.setStudentId(ids.student());
         r.setGroupId(ids.group());

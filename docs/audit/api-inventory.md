@@ -220,6 +220,33 @@ qaytarilganlarga tegmaydi), **V77** (`billing_held_applications`, UNIQUE `idempo
 | `GET /api/cash-registers/{id}/transactions?channel=` | `channel=BANK` → **400**; `channel=TERMINAL` eski BANK qatorlarini ham qaytaradi. `paymentMethod=BANK` filtri (usul bo'yicha) o'zgarmagan — V78 dan keyin bo'sh |
 | `GET /api/finance/report` | `incomeByMethod`, `expenseByMethod`, `cashFlowByMethod` — `BANK` kaliti yo'q, eski BANK → TERMINAL |
 
+
+## Yangilanishlar (2026-10-05, to'lov sanasi qoidasi; to'lovni tahrirlash/bekor qilish — faqat SA)
+
+> **Sana qoidasi** (`PaymentDatePolicy`, Toshkent "bugun"i): sana > bugun → **400** `payment.date.future` (hamma rollar);
+> sana < bugun → faqat **SUPER_ADMIN**, boshqalarga **403** `payment.date.pastNotAllowed`; berilmasa — bugun.
+> Qo'llanadi: `POST /api/payments` va `/preview` (`paymentDate`), `POST /api/cash-registers/{id}/income` va `/{id}/expense`
+> (`transactionDate`), `POST /api/expenses` va `POST /api/finance/expenses` (`expenseDate`). Imtihon to'lovi
+> (`POST /api/exams/{id}/registrations`), kassalar o'tkazmasi, `POST /api/payroll/{id}/pay` va
+> `POST /api/students/{id}/refund-payout` sana qabul qilmaydi — har doim bugun.
+> Mavjud kelajak sanali yozuvlar: `docs/ops/future-dated.sql` (read-only).
+>
+> **Tahrirlash / bekor qilish** — faqat SUPER_ADMIN: `SecurityConfig` (`PAYMENT_EDIT` matcher, umumiy qoidalardan oldin)
+> va servisda ham; boshqalarga **403** `payment.edit.superAdminOnly` (uz/ru/en, `{code, message}` — CodedException
+> shaklida). Sabab majburiy (3–500); har bekor qilish `audit_logs` ga (`PAYMENT_CANCEL`, kim, `details_json`:
+> `status` eski → yangi, `cancelReason`). To'lov **yaratish** (bugungi sana bilan) rollari o'zgarmagan.
+> `PUT/PATCH/DELETE /api/payments/**` va kassa tranzaksiyasini tahrirlash endpointlari hozir YO'Q — URL qoidasi
+> kelajakdagilarini ham yopadi. `CashRegisterService.deleteExpense` endpointsiz (o'lik kod) — servisda SA tekshiruvi.
+
+| Endpoint | Oldin | Keyin | Izoh |
+|---|---|---|---|
+| `POST /api/payments/{id}/cancel` | URL: SA, A, SH, SM, ACC; `@PreAuthorize` SA | **SA** (URL + `@PreAuthorize` + servis) | 403 kodi endi `payment.edit.superAdminOnly`; sabab 3–500; audit summary'da summa ham |
+| `PUT` / `PATCH` / `DELETE /api/payments/**` | yo'q (URL: SA, A, SH, SM, ACC; DELETE: SA, A) | **SA** | endpoint yo'q — oldindan yopilgan |
+| `POST /api/exams/{id}/registrations/{regId}/cancel` | SA, A, ACC | to'langan (`feeStatus = PAID`) — **SA** (servis); to'lovsiz — SA, A, ACC | URL bo'yicha ajratib bo'lmaydi; audit: `status`, `feeStatus` (PAID → REFUNDED), `cancelReason` |
+| `POST /api/payroll/{id}/cancel` | URL: SA, A, ACC; `@PreAuthorize` SA; servis SA (`payroll.cancel.forbidden`) | **SA** (URL + servis) | 403 kodi endi `payment.edit.superAdminOnly`; audit: `status`, `cancelReason` |
+| `PUT/PATCH/DELETE /api/cash-registers/transactions/**`, `/api/cash-registers/*/transactions/**` | yo'q | **SA** | endpoint yo'q — oldindan yopilgan |
+| `POST /api/payments`, `/preview`; kassa kirim/chiqim; xarajat | SA, A, ACC | o'zgarmagan | o'tgan sana — faqat SA (403), kelajak — 400 |
+| `POST /api/students/{id}/balance-adjust`, `/balance-transfer`, `/api/admin/repair/**` | SA | o'zgarmagan | allaqachon faqat SA |
 ## 0. Qanday o'qish kerak
 
 ### 0.1 Endpointlar soni
@@ -1754,8 +1781,8 @@ Shablon yuklab olish endpointi lid importi uchun YO'Q (amoCRM eksport fayli kuti
 | GET | `/api/payments/stats` | `getStats` (`:57-61`) | SA, A, ACC | — | `ApiResponse<Map<String,Object>>`: `{totalCollected, totalPending, thisMonth, lastMonth}` — hammasi BigDecimal (`PaymentService.java:591-596`) | yo'q | `totalCollected`=SUM(cash_amount) PAID; `totalPending`=SUM(amount) PENDING; `thisMonth/lastMonth` = naqd PAID shu/o'tgan oy |
 | GET | `/api/payments/archived` | `getArchivedSuspended` (`:63-67`) | SA, A, ACC | — | `ApiResponse<List<SuspendedStudentResponse>>` | yo'q | 3+ kun oldin SUSPENDED bo'lgan enrollmentlar (`PaymentService.java:427-441`) |
 | GET | `/api/payments/history` | `getHistory` (`:69-73`) | SA, A, ACC | — | `ApiResponse<List<PaymentHistoryResponse>>` | **yo'q — butun jadval** (`PaymentService.java:575-579`) | Katta hajm xavfi |
-| POST | `/api/payments/preview` | `previewPayment` (`:75-81`) | SA, A, ACC | body: `PaymentPreviewRequest` (`@Valid`) | `ApiResponse<PaymentPreviewResponse>` (200) | yo'q | Hech narsa saqlanmaydi; batafsil pastda |
-| POST | `/api/payments` | `createPayment` (`:83-88`) | SA, A, ACC | body: `PaymentRequest` (`@Valid`) | `ApiResponse<PaymentResponse>`, **201**, message `"Payment recorded"` | yo'q | Ledger, Income, kassa, bonus/jarima qo'llash, jadval qayta hisobi (`PaymentService.java:78-194`) |
+| POST | `/api/payments/preview` | `previewPayment` (`:75-81`) | SA, A, ACC | body: `PaymentPreviewRequest` (`@Valid`) | `ApiResponse<PaymentPreviewResponse>` (200) | yo'q | Hech narsa saqlanmaydi; batafsil pastda; **2026-10-05:** sana > bugun → 400 `payment.date.future`, sana < bugun — faqat SA (403 `payment.date.pastNotAllowed`) |
+| POST | `/api/payments` | `createPayment` (`:83-88`) | SA, A, ACC | body: `PaymentRequest` (`@Valid`) | `ApiResponse<PaymentResponse>`, **201**, message `"Payment recorded"` | yo'q | Ledger, Income, kassa, bonus/jarima qo'llash, jadval qayta hisobi (`PaymentService.java:78-194`); **2026-10-05:** sana > bugun → 400 `payment.date.future`, sana < bugun — faqat SA (403 `payment.date.pastNotAllowed`) |
 | GET | `/api/payments/student/{studentId}` | `getStudentPayments` (`:90-93`) | **SA, A, SALES_MANAGER, ACC** (faqat URL qoidasi — `@PreAuthorize` YO'Q) | path: `studentId:Long` | `ApiResponse<List<PaymentResponse>>` | yo'q; `paymentDate DESC` (`PaymentService.java:444-447`) | Mavjud bo'lmagan student → bo'sh ro'yxat |
 | GET | `/api/payments/expected` | `getExpected` (`:95-102`) | SA, A, ACC | query: `from:LocalDate?`, `to:LocalDate?` (ISO DATE, `@DateTimeFormat` → noto'g'ri → 400). Default: `from = ertaga`, `to = bugun + 30` | `ApiResponse<ExpectedPaymentsResponse>` | yo'q | **2026-10-04 (R2):** har yozilma bitta, sana > bugun; qarzdor ham keyingi davri bilan (`students[].debt`); guruh `end_date` dan keyin — yo'q. [billing-v2 §14.2](../design/billing-v2.md) |
 | GET | `/api/payments/debtors` | `getDebtors` (`:104-108`) | SA, A, ACC | — | `ApiResponse<DebtorsListResponse>` | yo'q | |
@@ -1837,7 +1864,7 @@ Eslatma: To'lovni **tahrirlash / o'chirish / bekor qilish endpointi YO'Q** (cont
 | METHOD | path | Controller#metod | Effektiv rollar | Request | Response | Pagination | Izoh |
 |---|---|---|---|---|---|---|---|
 | GET | `/api/finance/expenses` | `getExpenses` (`FinanceController.java:21-30`) | SA, A, ACC | query: `from:LocalDate?`, `to:LocalDate?` (ISO, `@DateTimeFormat`), `category:String?` (ExpenseCategory, case-insens.; noto'g'ri → e'tiborsiz), `page:int` (def 0), `size:int` (def 20) | `ApiResponse<Page<ExpenseResponse>>` | Spring `Page`; sort `expenseDate DESC` (`service/FinanceService.java:53`) | `GET /api/expenses` bilan **aynan dublikat** |
-| POST | `/api/finance/expenses` | `createExpense` (`:32-36`) | SA, A, ACC | body: `ExpenseRequest` (`@Valid`) | `ApiResponse<ExpenseResponse>`, **201**, `"Expense recorded"` | yo'q | `POST /api/expenses` dublikati |
+| POST | `/api/finance/expenses` | `createExpense` (`:32-36`) | SA, A, ACC | body: `ExpenseRequest` (`@Valid`) | `ApiResponse<ExpenseResponse>`, **201**, `"Expense recorded"` | yo'q | `POST /api/expenses` dublikati; **2026-10-05:** sana > bugun → 400 `payment.date.future`, sana < bugun — faqat SA (403 `payment.date.pastNotAllowed`) |
 | GET | `/api/finance/report` | `getReport` (`:38-43`) | SA, A, ACC | query: `from:LocalDate?` (def: oy boshi), `to:LocalDate?` (def: bugun) (`FinanceService.java:142-143`) | `ApiResponse<FinanceReportResponse>` `{totalIncome, totalExpenses, payrollPaid, payrollByRole, netProfit, incomeByCategory, expenseByCategory, period}` | yo'q | **Payroll v2:** `payrollPaid` = Σ PAID `netSalary` (`paidAt` davrda, CANCELLED kirmaydi), `payrollByRole`; `netProfit = income − expenses − payrollPaid` ([`payroll-v2-api.md` §6](../design/payroll-v2-api.md)) |
 
 **`FinanceReportResponse`** (`dto/response/FinanceReportResponse.java:6-13`): `totalIncome: BigDecimal` [PUL] (SUM payment cash_amount, `FinanceService.java:145-147`), `totalExpenses: BigDecimal` [PUL], `netProfit: BigDecimal` [PUL], `incomeByCategory: Map<String,BigDecimal>` [PUL] (kalit — `IncomeCategory` nomi: `STUDENT_PAYMENT`, `OTHER_INCOME`), `expenseByCategory: Map<String,BigDecimal>` [PUL] (kalit — `ExpenseCategory` nomi), `period: String` (`"2026-09-01 to 2026-09-29"` shakli, `:169`), `incomeByMethod`, `expenseByMethod: Map<String,BigDecimal>` [PUL] (kalit — CASH, CARD, TERMINAL, ONLINE, OTHER; eski BANK → TERMINAL; barcha kassalar `cash_transactions`, `transaction_date` davrda: kirim − bekor qilingan kirim, chiqim − bekor qilingan chiqim; `totalIncome` (faqat o'quvchi to'lovlari) bilan teng bo'lishi shart emas), `cashFlowByMethod: List<CashChannelSummaryDto>` (2026-10-04).
@@ -1855,7 +1882,7 @@ Diqqat: `totalIncome` Payment jadvalidan, `incomeByCategory` esa Income jadvalid
 | METHOD | path | Controller#metod | Effektiv rollar | Request | Response | Pagination | Izoh |
 |---|---|---|---|---|---|---|---|
 | GET | `/api/expenses` | `getExpenses` (`ExpenseController.java:26-35`) | SA, A, ACC | query: `from:LocalDate?`, `to:LocalDate?`, `category:String?`, `page:int` (0), `size:int` (20) | `ApiResponse<Page<ExpenseResponse>>` | Spring `Page`, `expenseDate DESC` | Frontend hozir shuni ishlatadi |
-| POST | `/api/expenses` | `createExpense` (`:37-42`) | SA, A, ACC | body: `ExpenseRequest` (`@Valid`) | `ApiResponse<ExpenseResponse>`, **201**, `"Expense recorded"` | yo'q | `cashRegisterId` berilsa kassadan chiqim (`FinanceService.java:106-125`) |
+| POST | `/api/expenses` | `createExpense` (`:37-42`) | SA, A, ACC | body: `ExpenseRequest` (`@Valid`) | `ApiResponse<ExpenseResponse>`, **201**, `"Expense recorded"` | yo'q | `cashRegisterId` berilsa kassadan chiqim (`FinanceService.java:106-125`); **2026-10-05:** sana > bugun → 400 `payment.date.future`, sana < bugun — faqat SA (403 `payment.date.pastNotAllowed`) |
 
 Xarajatni tahrirlash/o'chirish endpointi YO'Q.
 
@@ -1894,8 +1921,8 @@ Xarajatni tahrirlash/o'chirish endpointi YO'Q.
 | GET | `/api/cash-registers/{id}/by-method` | `getByMethod` | SA, A, ACC | query `from`, `to` (ISO, ixt.; berilmasa — boshidan / bugungacha) | `ApiResponse<CashChannelReportDto>` | yo'q | YANGI (2026-10-04): davr oqimi to'lov usuli guruhlari bo'yicha |
 | GET | `/api/cash-registers/{id}/transactions` | `getTransactions` (`:85-103`) | SA, A, ACC | query: `from:String?`, `to:String?` (ISO; noto'g'ri → `DateTimeParseException` → **500**, `:126-131`), `studentId:Long?`, `teacherId:Long?`, `type:String?` (`INCOME/EXPENSE/TRANSFER`, noto'g'ri → e'tiborsiz), `paymentMethod:String?` (aliaslar ok, noto'g'ri → e'tiborsiz), `channel:String?` (`CASH`/`CARD`/`TERMINAL`/`ONLINE`/`OTHER`, noto'g'ri yoki `BANK` → **400**; TERMINAL da eski BANK yozuvlari ham; `CASH_AND_CARD` qatori CASH va CARD da), `page:int` (0), `size:int` (20) | `ApiResponse<Page<CashTransactionDto>>` | Spring `Page`; sort `transactionDate DESC, createdAt DESC` (`:98-99`) | `channel` va `channelAmounts` — 2026-10-04 |
 | GET | `/api/cash-registers/{id}/transactions/export` | `exportTransactions` (`:105-124`) | SA, A, ACC | yuqoridagi filtrlar (page/size siz) | `ResponseEntity<byte[]>` — `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `Content-Disposition: attachment; filename=cash-transactions-{id}.xlsx` | yo'q | Envelope YO'Q; frontend `responseType:'blob'`. Ustunlar: ID, Sana, Turi, **Yo'nalish (IN/OUT)**, Usul, O'quvchi, O'qituvchi, Nomi, **Summa (±)** (chiqim manfiy), Izoh, Holat, Yaratuvchi, **Usul guruhi** (`CASH_AND_CARD` → "CASH 250000 + CARD 450000"). `channel` filtri ham |
-| POST | `/api/cash-registers/{id}/income` | `addIncome` (`:133-139`) | SA, A, ACC | body: `IncomeCreateDto` | `ApiResponse<CashTransactionDto>`, **201**, `"Kirim qo'shildi"` | yo'q | `studentId` berilsa `Student.balance += amount` (`CashRegisterService.java:395-400`) |
-| POST | `/api/cash-registers/{id}/expense` | `addExpense` (`:141-147`) | SA, A, ACC | body: `ExpenseCreateDto` | `ApiResponse<CashTransactionDto>`, **201**, `"Chiqim qo'shildi"` | yo'q | Balans manfiyga tushishi mumkin (`:405-407`) |
+| POST | `/api/cash-registers/{id}/income` | `addIncome` (`:133-139`) | SA, A, ACC | body: `IncomeCreateDto` | `ApiResponse<CashTransactionDto>`, **201**, `"Kirim qo'shildi"` | yo'q | `studentId` berilsa `Student.balance += amount` (`CashRegisterService.java:395-400`); **2026-10-05:** sana > bugun → 400 `payment.date.future`, sana < bugun — faqat SA (403 `payment.date.pastNotAllowed`) |
+| POST | `/api/cash-registers/{id}/expense` | `addExpense` (`:141-147`) | SA, A, ACC | body: `ExpenseCreateDto` | `ApiResponse<CashTransactionDto>`, **201**, `"Chiqim qo'shildi"` | yo'q | Balans manfiyga tushishi mumkin (`:405-407`); **2026-10-05:** sana > bugun → 400 `payment.date.future`, sana < bugun — faqat SA (403 `payment.date.pastNotAllowed`) |
 | POST | `/api/cash-registers/transfer` | `transfer` (`:149-154`) | SA, A, ACC | body: `TransferDto` | `ApiResponse<List<CashTransactionDto>>` (chiqim+kirim juftligi), **201**, `"O'tkazma bajarildi"` | yo'q | Manba=maqsad → 400; balans yetmasa 400 (`:536-554`, `:667-679`) |
 
 **`CashRegisterCreateDto`** (`dto/request/CashRegisterCreateDto.java:6-11`): `name: String`, `moderatorId: Long` (User id; yo'q → 404), `acceptOnlinePayment: Boolean`, `archived: Boolean`. Validatsiya yo'q.
@@ -1940,7 +1967,7 @@ Xarajatni tahrirlash/o'chirish endpointi YO'Q.
 | POST | `/api/payroll/{id}/recalculate` | SA, A, ACC | — | `ApiResponse<PayrollResponse>` | faqat DRAFT (409 `payroll.notDraft`) |
 | POST | `/api/payroll/{id}/approve` | SA, A | body ixtiyoriy `{expectedNetSalary}` | `ApiResponse<PayrollResponse>` | Bonuslar APPLIED; farq → 409 `payroll.netChanged` + `data.netSalary` |
 | POST | `/api/payroll/{id}/pay` | SA, A, ACC | `PayrollPayDto` (+ `idempotencyKey`), sarlavha `Idempotency-Key` | `ApiResponse<PayrollResponse>` | faqat APPROVED; qulf ostida; takror kalit — o'sha javob |
-| POST | `/api/payroll/{id}/cancel` | **SA** | `{reason}` (3–500) | `ApiResponse<PayrollResponse>` | APPROVED/PAID → CANCELLED; bonuslar PENDING; PAID → kassaga REVERSAL |
+| POST | `/api/payroll/{id}/cancel` | **SA** | `{reason}` (3–500) | `ApiResponse<PayrollResponse>` | APPROVED/PAID → CANCELLED; bonuslar PENDING; PAID → kassaga REVERSAL; **2026-10-05:** URL qoidasi ham SA, boshqalarga 403 `payment.edit.superAdminOnly`, audit eski → yangi |
 | DELETE | `/api/payroll/{id}` | SA, A | | `ApiResponse<Void>` | faqat DRAFT |
 | ~~POST~~ | ~~`/api/payroll`~~ | | | **405** | olib tashlandi (v2) |
 | ~~PUT~~ | ~~`/api/payroll/{id}`~~ | | | **405** | olib tashlandi (v2) |

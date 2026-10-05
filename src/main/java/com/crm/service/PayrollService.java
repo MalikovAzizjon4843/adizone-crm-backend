@@ -1,6 +1,7 @@
 package com.crm.service;
 
 import com.crm.audit.AuditAction;
+import com.crm.audit.AuditContext;
 import com.crm.audit.Audited;
 import com.crm.billing.BillingAuth;
 import com.crm.billing.BillingLocks;
@@ -404,7 +405,7 @@ public class PayrollService {
         entityId = "#id", label = "#result.userName")
     public PayrollResponse cancel(Long id, String reason) {
         if (!BillingAuth.hasAnyRole("SUPER_ADMIN")) {
-            throw CodedException.forbidden("payroll.cancel.forbidden");
+            throw CodedException.forbidden("payment.edit.superAdminOnly");
         }
         String why = reason != null ? reason.trim() : "";
         if (why.length() < 3 || why.length() > 500) {
@@ -434,6 +435,8 @@ public class PayrollService {
                 bonusPenaltyRepository.save(b);
             }
         }
+        AuditContext.change("status", p.getStatus(), PayrollStatus.CANCELLED);
+        AuditContext.change("cancelReason", p.getCancelReason(), why);
         p.setStatus(PayrollStatus.CANCELLED);
         p.setCancelledAt(LocalDateTime.now(clock));
         p.setCancelledBy(currentUser());

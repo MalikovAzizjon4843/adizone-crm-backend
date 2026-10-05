@@ -136,7 +136,7 @@ public class PaymentService {
      */
     @Transactional
     @Audited(action = AuditAction.PAYMENT_CANCEL, entity = "Payment",
-        summary = "'To''lov bekor qilindi: ' + #result.receiptNumber + ' (' + #reason + ')'",
+        summary = "'To''lov bekor qilindi: ' + #result.receiptNumber + ', ' + #result.formattedAmount + ' (' + #reason + ')'",
         entityId = "#paymentId",
         label = "#result.studentName")
     public PaymentResponse cancelPayment(Long paymentId, String reason) {
