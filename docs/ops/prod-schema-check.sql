@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V77 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V78 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V77 bo'laklari: jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V77 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
@@ -552,6 +552,17 @@ SELECT 'V76 billing_periods ustma-ust emas (SG ichida)',
                      false, true, '')))[1]::text = '0'
        END
 UNION ALL
+-- V78 (buyurtmachi qarori 2026-10-05): BANK to'lov usuli yo'q — payments, cash_transactions, payroll da 0
+SELECT 'V78 payment_method = BANK yo''q (payments, cash_transactions, payroll)',
+       CASE WHEN to_regclass('public.payments') IS NULL OR to_regclass('public.cash_transactions') IS NULL
+                 OR to_regclass('public.payroll') IS NULL THEN NULL
+            ELSE (xpath('/row/n/text()', query_to_xml(
+                     'SELECT (SELECT COUNT(*) FROM payments WHERE payment_method = ''BANK'')'
+                     || ' + (SELECT COUNT(*) FROM cash_transactions WHERE payment_method = ''BANK'')'
+                     || ' + (SELECT COUNT(*) FROM payroll WHERE payment_method = ''BANK'') AS n',
+                     false, true, '')))[1]::text = '0'
+       END
+UNION ALL
 -- V75 (grace 0, billing-v2 §14.1): billing_periods.grace_until = due_date, due_date to'ldirilgan
 SELECT 'V75 billing_periods.grace_until = due_date',
        CASE WHEN to_regclass('public.billing_periods') IS NULL THEN NULL
@@ -624,8 +635,8 @@ HAVING COUNT(*) > 1
  ORDER BY 1, 2;
 
 -- ── 6a. Kassa: to'lov usullari (ma'lumot, sxema emas) ───────────────────────────────
--- Kassa balansi va tranzaksiyalari usul guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE, BANK,
--- OTHER) kodda payment_method + cash_part/card_part dan hisoblanadi — CashBucket bazada SAQLANMAYDI,
+-- Kassa balansi va tranzaksiyalari usul guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE,
+-- OTHER; eski BANK → TERMINAL, V78 ularni o'tkazadi) kodda payment_method + cash_part/card_part dan hisoblanadi — CashBucket bazada SAQLANMAYDI,
 -- TERMINAL yozuvlari uchun data migratsiyasi kerak emas. Bu yerda faqat sonlar: TERMINAL qatorlari
 -- (V32 eski CARD to'lovlarini TERMINAL ga o'tkazgan) va qismlari yo'q eski CASH_AND_CARD (to'liq naqd
 -- chelakka yozilgan).

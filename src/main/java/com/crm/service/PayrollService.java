@@ -357,7 +357,8 @@ public class PayrollService {
             throw new ConflictException("payroll.notApproved", p.getStatus());
         }
 
-        PaymentMethod method = dto.getPaymentMethod() != null ? dto.getPaymentMethod() : PaymentMethod.CASH;
+        PaymentMethod method = CashRegisterService.requireAcceptedForNew(
+            dto.getPaymentMethod() != null ? dto.getPaymentMethod() : PaymentMethod.CASH);
         BigDecimal net = nz(p.getNetSalary());
         LocalDate today = LocalDate.now(clock);
         User actor = currentUser();

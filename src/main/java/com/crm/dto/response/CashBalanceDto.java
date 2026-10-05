@@ -18,7 +18,7 @@ public class CashBalanceDto {
     private BigDecimal cashBalance;
     private BigDecimal plasticBalance;
     /**
-     * Qoldiq to'lov usuli guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE, BANK, OTHER) —
+     * Qoldiq to'lov usuli guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE, OTHER) —
      * kassa tranzaksiyalaridan; {@code net} — shu guruhdagi qoldiq.
      */
     private List<CashChannelSummaryDto> byMethod;
@@ -27,7 +27,7 @@ public class CashBalanceDto {
      * balansi tranzaksiyasiz o'zgargan (boshlang'ich qoldiq, qo'lda tuzatish).
      */
     private BigDecimal unattributedCash;
-    /** Saqlangan {@code plastic_balance} − (CARD + TERMINAL + ONLINE + BANK + OTHER). */
+    /** Saqlangan {@code plastic_balance} − (CARD + TERMINAL + ONLINE + OTHER). */
     private BigDecimal unattributedNonCash;
     /** Ikkala farq ham nol. */
     private boolean reconciled;

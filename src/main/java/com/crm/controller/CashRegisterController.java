@@ -85,7 +85,7 @@ public class CashRegisterController {
         return ResponseEntity.ok(ApiResponse.success(cashRegisterService.getBalance(id)));
     }
 
-    /** Davr oqimi to'lov usuli guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE, BANK, OTHER). */
+    /** Davr oqimi to'lov usuli guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE, OTHER). */
     @GetMapping("/{id}/by-method")
     public ResponseEntity<ApiResponse<CashChannelReportDto>> getByMethod(
             @PathVariable Long id,

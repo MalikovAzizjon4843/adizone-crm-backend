@@ -16,7 +16,7 @@ public class CashRegisterDto {
     private BigDecimal plasticBalance;
     private BigDecimal cashBalance;
     /**
-     * Qoldiq to'lov usuli guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE, BANK, OTHER) — kassa
+     * Qoldiq to'lov usuli guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE, OTHER) — kassa
      * tranzaksiyalaridan. Tranzaksiyasiz o'zgarish (boshlang'ich qoldiq) bu yerda yo'q —
      * {@code GET /{id}/balance} dagi {@code unattributed*} ga qarang.
      */

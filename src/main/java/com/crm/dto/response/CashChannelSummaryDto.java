@@ -18,7 +18,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CashChannelSummaryDto {
-    /** CASH | CARD | TERMINAL | ONLINE | BANK | OTHER; jami qatorda null. */
+    /** CASH | CARD | TERMINAL | ONLINE | OTHER; jami qatorda null. */
     private String channel;
     private String label;
     /** Shu guruhga kiruvchi {@code PaymentMethod} lar (CASH_AND_CARD — CASH va CARD da). */

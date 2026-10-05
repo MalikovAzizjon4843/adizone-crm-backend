@@ -18,6 +18,10 @@ public enum PaymentMethod {
     PAYME("Payme", "🔷", CashBucket.NON_CASH, true),
     UZUM("Uzum", "🟠", CashBucket.NON_CASH, true),
     TERMINAL("Terminal", "🖥️", CashBucket.NON_CASH, false),
+    /**
+     * Faqat eski yozuvlar uchun (V78 ularni TERMINAL ga o'tkazadi): yangi to'lov, xarajat va kassa yozuvida
+     * qabul qilinmaydi ({@link #isAcceptedForNew}); hisobotlarda TERMINAL kanaliga tushadi.
+     */
     BANK("Bank o'tkazmasi", "🏦", CashBucket.NON_CASH, false),
     CASH_AND_CARD("Naqd + Karta", "💵💳", CashBucket.SPLIT, false),
     OTHER("Boshqa", "❓", CashBucket.NON_CASH, false);
@@ -66,6 +70,11 @@ public enum PaymentMethod {
     /** Onlayn to'lov tizimimi? Kassada "onlayn qabul qilish" yoqilgan bo'lishi shart. */
     public boolean isOnline() {
         return online;
+    }
+
+    /** Yangi to'lov / xarajat / kassa yozuvida ishlatsa bo'ladimi (BANK — yo'q, buyurtmachi qarori 2026-10-05). */
+    public boolean isAcceptedForNew() {
+        return this != BANK;
     }
 
     /** Matnni qiymatga o'giradi; tanilmasa null. Eski nomlarni ham tushunadi. */

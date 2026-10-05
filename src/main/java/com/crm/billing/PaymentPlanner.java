@@ -12,6 +12,7 @@ import com.crm.entity.enums.BonusTargetType;
 import com.crm.entity.enums.CashRegisterStatus;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.exception.CodedException;
+import com.crm.service.CashRegisterService;
 import com.crm.repository.BillingPeriodRepository;
 import com.crm.repository.BonusPenaltyRepository;
 import com.crm.repository.CashRegisterRepository;
@@ -170,7 +171,8 @@ public class PaymentPlanner {
         BigDecimal cash = gross.subtract(discount);
         List<String> warnings = new ArrayList<>();
 
-        PaymentMethod cashMethod = resolveCashMethod(r);
+        CashRegisterService.requireAcceptedForNew(r.getPaymentMethod());
+        PaymentMethod cashMethod = CashRegisterService.requireAcceptedForNew(resolveCashMethod(r));
         CashRegister register = null;
         if (cash.signum() > 0) {
             register = requireRegister(r, cashMethod, cash);

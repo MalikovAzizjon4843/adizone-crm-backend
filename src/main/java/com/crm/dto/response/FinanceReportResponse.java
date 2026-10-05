@@ -22,8 +22,8 @@ public class FinanceReportResponse {
     private Map<String, BigDecimal> incomeByCategory;
     private Map<String, BigDecimal> expenseByCategory;
     /**
-     * Kassaga tushgan kirim to'lov usuli guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE, BANK,
-     * OTHER): {@code cash_transactions} INCOME − bekor qilinganlari, sana — {@code transaction_date}.
+     * Kassaga tushgan kirim to'lov usuli guruhlari bo'yicha (CASH, CARD, TERMINAL, ONLINE,
+     * OTHER; eski BANK → TERMINAL): {@code cash_transactions} INCOME − bekor qilinganlari, sana — {@code transaction_date}.
      * Barcha kassa kirimi (imtihon to'lovi, qo'lda kirim ham) — {@code totalIncome} (faqat
      * o'quvchi to'lovlari) bilan teng bo'lishi shart emas. CASH_AND_CARD qismlari CASH/CARD ga.
      */

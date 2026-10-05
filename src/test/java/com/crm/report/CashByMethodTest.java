@@ -14,6 +14,7 @@ import com.crm.dto.response.FinanceReportResponse;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.UserRole;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.CodedException;
 import com.crm.repository.CashRegisterRepository;
 import com.crm.service.CashRegisterService;
 import com.crm.service.FinanceService;
@@ -21,6 +22,8 @@ import com.crm.service.PaymentService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -31,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -44,6 +48,7 @@ class CashByMethodTest extends AbstractBillingIT {
     @Autowired PaymentService payments;
     @Autowired AccrualService accrual;
     @Autowired CashRegisterRepository registerRepo;
+    @Autowired JdbcTemplate jdbc;
 
     private void income(Long reg, PaymentMethod m, long amount, Long cashPart, Long cardPart) {
         IncomeCreateDto dto = new IncomeCreateDto();
@@ -65,7 +70,7 @@ class CashByMethodTest extends AbstractBillingIT {
     }
 
     /**
-     * Kirim: CASH 100k, CARD 200k, TERMINAL 300k, CLICK 400k, BANK 500k, OTHER 600k,
+     * Kirim: CASH 100k, CARD 200k, TERMINAL 300k, CLICK 400k, eski BANK 500k (V78 dan oldingi yozuv), OTHER 600k,
      * CASH_AND_CARD 700k (250k naqd + 450k karta), o'quvchi to'lovi CASH 630k va uning bekor qilinishi.
      * Chiqim: CASH 50k, TERMINAL 30k. O'tkazma: CARD 20k boshqa kassaga.
      */
@@ -77,7 +82,8 @@ class CashByMethodTest extends AbstractBillingIT {
         income(reg, PaymentMethod.CARD, 200_000, null, null);
         income(reg, PaymentMethod.TERMINAL, 300_000, null, null);
         income(reg, PaymentMethod.CLICK, 400_000, null, null);
-        income(reg, PaymentMethod.BANK, 500_000, null, null);
+        income(reg, PaymentMethod.TERMINAL, 500_000, null, null);
+        jdbc.update("UPDATE cash_transactions SET payment_method = 'BANK' WHERE cash_register_id = ? AND amount = 500000", reg);
         income(reg, PaymentMethod.OTHER, 600_000, null, null);
         income(reg, PaymentMethod.CASH_AND_CARD, 700_000, 250_000L, 450_000L);
         expense(reg, PaymentMethod.CASH, 50_000);
@@ -116,13 +122,12 @@ class CashByMethodTest extends AbstractBillingIT {
         CashBalanceDto b = cash.getBalance(reg);
 
         assertThat(b.getByMethod()).extracting(CashChannelSummaryDto::getChannel)
-            .containsExactly("CASH", "CARD", "TERMINAL", "ONLINE", "BANK", "OTHER");
+            .containsExactly("CASH", "CARD", "TERMINAL", "ONLINE", "OTHER");
         assertThat(channel(b.getByMethod(), "CASH").getNet()).isEqualByComparingTo("300000");    // 100+250−50 (+630−630)
         assertThat(channel(b.getByMethod(), "CARD").getNet()).isEqualByComparingTo("630000");    // 200+450−20
-        assertThat(channel(b.getByMethod(), "TERMINAL").getNet()).isEqualByComparingTo("270000");
+        assertThat(channel(b.getByMethod(), "TERMINAL").getNet()).isEqualByComparingTo("770000");   // 300 + eski BANK 500 − 30
         assertThat(channel(b.getByMethod(), "ONLINE").getNet()).isEqualByComparingTo("400000");
         assertThat(channel(b.getByMethod(), "ONLINE").getMethods()).containsExactly("CLICK", "PAYME", "UZUM");
-        assertThat(channel(b.getByMethod(), "BANK").getNet()).isEqualByComparingTo("500000");
         assertThat(channel(b.getByMethod(), "OTHER").getNet()).isEqualByComparingTo("600000");
         CashChannelSummaryDto c = channel(b.getByMethod(), "CASH");
         assertThat(c.getIncome()).isEqualByComparingTo("980000");
@@ -151,7 +156,8 @@ class CashByMethodTest extends AbstractBillingIT {
         // Ro'yxat: har kassada balanceByMethod
         Map<String, BigDecimal> listed = cash.getAll(null).stream()
             .filter(r -> r.getId().equals(reg)).findFirst().orElseThrow().getBalanceByMethod();
-        assertThat(listed.get("TERMINAL")).isEqualByComparingTo("270000");
+        assertThat(listed).doesNotContainKey("BANK");
+        assertThat(listed.get("TERMINAL")).isEqualByComparingTo("770000");
         assertThat(listed.get("CARD")).isEqualByComparingTo("630000");
     }
 
@@ -185,8 +191,65 @@ class CashByMethodTest extends AbstractBillingIT {
         mvc.perform(get("/api/cash-registers/{id}/transactions", reg).param("channel", "TERMINAL")
                 .with(user("acc").roles("ACCOUNTANT")))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.totalElements").value(2))
+            .andExpect(jsonPath("$.data.totalElements").value(3))
             .andExpect(jsonPath("$.data.content[0].channelAmounts.TERMINAL").exists());
+    }
+
+    private static void assertBankRejected(Runnable call) {
+        assertThatThrownBy(call::run).isInstanceOf(CodedException.class)
+            .extracting(e -> ((CodedException) e).getCode()).isEqualTo("payment.method.bankNotAccepted");
+    }
+
+    /** Buyurtmachi qarori 2026-10-05: BANK yangi yozuvda — 400 (uz/ru/en), channel=BANK — 400. */
+    @Test
+    void bank_rejectedForNewRecords_andAsChannel() throws Exception {
+        Long reg = fixtures.cashRegister(true);
+        Long other = fixtures.cashRegister(false);
+        fixtures.loginAs(UserRole.SUPER_ADMIN);
+        assertBankRejected(() -> income(reg, PaymentMethod.BANK, 100_000, null, null));
+        income(reg, PaymentMethod.CASH, 100_000, null, null);
+        assertBankRejected(() -> expense(reg, PaymentMethod.BANK, 10_000));
+        TransferDto t = new TransferDto();
+        t.setFromCashRegisterId(reg);
+        t.setToCashRegisterId(other);
+        t.setAmount(BigDecimal.valueOf(10_000));
+        t.setPaymentMethod(PaymentMethod.BANK);
+        assertBankRejected(() -> cash.transfer(t));
+
+        Long student = fixtures.student();
+        Long group = fixtures.group(fixtures.course(700_000));
+        Long sg = fixtures.enrollment(student, group).start(DAY).save();
+        accrual.accrueUpTo(sg, DAY);
+        fixtures.loginAs(UserRole.SUPER_ADMIN);
+        PaymentRequest r = new PaymentRequest();
+        r.setStudentId(student);
+        r.setGroupId(group);
+        r.setAmount(BigDecimal.valueOf(700_000));
+        r.setCashRegisterId(reg);
+        r.setPaymentMethod(PaymentMethod.BANK);
+        assertBankRejected(() -> payments.createPayment(r, null));
+        r.setPaymentMethod(PaymentMethod.CASH);
+        r.setPaymentMethodForCash("BANK_TRANSFER");                 // eski nom → BANK → 400
+        assertBankRejected(() -> payments.createPayment(r, null));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payments", Long.class)).isZero();
+
+        assertThatThrownBy(() -> cash.getTransactions(reg, null, null, null, null, null, null, "BANK",
+            PageRequest.of(0, 50))).isInstanceOf(BadRequestException.class);
+        mvc.perform(get("/api/cash-registers/{id}/transactions", reg).param("channel", "BANK")
+                .with(user("acc").roles("ACCOUNTANT")))
+            .andExpect(status().isBadRequest());
+
+        String body = "{\"amount\":1000,\"paymentMethod\":\"BANK\",\"transactionDate\":\"2026-09-15\","
+            + "\"transactionType\":\"Boshqa kirim\"}";
+        for (String[] lang : new String[][]{{"uz", "TERMINAL ni tanlang"}, {"ru", "Способ оплаты BANK"},
+                {"en", "Payment method BANK is no longer accepted"}}) {
+            mvc.perform(post("/api/cash-registers/{id}/income", reg).header("Accept-Language", lang[0])
+                    .with(user("test-super_admin").roles("SUPER_ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("payment.method.bankNotAccepted"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString(lang[1])));
+        }
     }
 
     @Test
@@ -194,20 +257,21 @@ class CashByMethodTest extends AbstractBillingIT {
         Long reg = scenario()[0];
 
         CashChannelReportDto day = cash.getChannelReport(reg, DAY, DAY);
-        assertThat(channel(day.getChannels(), "TERMINAL").getIncome()).isEqualByComparingTo("300000");
+        assertThat(channel(day.getChannels(), "TERMINAL").getIncome()).isEqualByComparingTo("800000");
         assertThat(channel(day.getChannels(), "TERMINAL").getExpense()).isEqualByComparingTo("30000");
         assertThat(day.getTotal().getChannel()).isNull();
 
         mvc.perform(get("/api/cash-registers/{id}/by-method", reg)
                 .with(user("acc").roles("ACCOUNTANT")))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.channels.length()").value(6))
+            .andExpect(jsonPath("$.data.channels.length()").value(5))
             .andExpect(jsonPath("$.data.channels[3].channel").value("ONLINE"))
             .andExpect(jsonPath("$.data.channels[3].net").value(400000.0));
 
         // Bekor qilish va o'tkazma haqiqiy "bugun" sanasi bilan yoziladi — keng oraliq
         FinanceReportResponse r = finance.getFinanceReport(LocalDate.of(2000, 1, 1), LocalDate.of(2100, 12, 31));
-        assertThat(r.getIncomeByMethod()).containsOnlyKeys("CASH", "CARD", "TERMINAL", "ONLINE", "BANK", "OTHER");
+        assertThat(r.getIncomeByMethod()).containsOnlyKeys("CASH", "CARD", "TERMINAL", "ONLINE", "OTHER");
+        assertThat(r.getIncomeByMethod().get("TERMINAL")).isEqualByComparingTo("800000");
         assertThat(r.getIncomeByMethod().get("CASH")).isEqualByComparingTo("350000");      // 100+250+630−630
         assertThat(r.getIncomeByMethod().get("CARD")).isEqualByComparingTo("650000");      // 200+450
         assertThat(r.getIncomeByMethod().get("ONLINE")).isEqualByComparingTo("400000");

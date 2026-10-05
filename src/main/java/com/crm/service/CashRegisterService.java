@@ -231,7 +231,7 @@ public class CashRegisterService {
         return getTransactions(cashRegisterId, from, to, studentId, teacherId, type, paymentMethod, null, pageable);
     }
 
-    /** {@code channel} — to'lov usuli guruhi (CASH, CARD, TERMINAL, ONLINE, BANK, OTHER). */
+    /** {@code channel} — to'lov usuli guruhi (CASH, CARD, TERMINAL, ONLINE, OTHER). */
     @Transactional(readOnly = true)
     public Page<CashTransactionDto> getTransactions(
             Long cashRegisterId,
@@ -931,6 +931,14 @@ public class CashRegisterService {
         if (method == null) {
             throw new BadRequestException("To'lov usuli ko'rsatilishi shart");
         }
+        return requireAcceptedForNew(method);
+    }
+
+    /** Yangi to'lov / xarajat / kassa yozuvi: BANK qabul qilinmaydi — 400 (TERMINAL tanlanadi). Null o'tadi. */
+    public static PaymentMethod requireAcceptedForNew(PaymentMethod method) {
+        if (method != null && !method.isAcceptedForNew()) {
+            throw CodedException.badRequest("payment.method.bankNotAccepted");
+        }
         return method;
     }
 
@@ -966,7 +974,7 @@ public class CashRegisterService {
         PaymentChannel parsed = PaymentChannel.parseOrNull(channel);
         if (parsed == null) {
             throw new BadRequestException("Noto'g'ri to'lov usuli guruhi: " + channel
-                + " (CASH, CARD, TERMINAL, ONLINE, BANK, OTHER)");
+                + " (CASH, CARD, TERMINAL, ONLINE, OTHER; bank to'lovlari — TERMINAL)");
         }
         return parsed;
     }

@@ -20,7 +20,7 @@ public class CashChannelReportDto {
     private LocalDate from;
     /** null — bugungacha. */
     private LocalDate to;
-    /** Har doim 6 qator (CASH, CARD, TERMINAL, ONLINE, BANK, OTHER), nol bo'lsa ham. */
+    /** Har doim 5 qator (CASH, CARD, TERMINAL, ONLINE, OTHER), nol bo'lsa ham. */
     @Builder.Default
     private List<CashChannelSummaryDto> channels = new ArrayList<>();
     private CashChannelSummaryDto total;

@@ -13,7 +13,7 @@ public class PayrollPayDto {
     /** Kassa berilsa — kassaga chiqim (EXPENSE) yoziladi; berilmasa (bank o'tkazmasi) — yozilmaydi. */
     private Long cashRegisterId;
     /** Kassaga yoziladigan usulni majburan belgilaydi (PaymentMethod nomi, eski nomlar ham:
-     *  "PLASTIC" → CARD, "BANK_TRANSFER" → BANK). Ko'rsatilmasa — paymentMethod. */
+     *  "PLASTIC" → CARD, "BANK_TRANSFER" → BANK — yangi yozuvda 400, TERMINAL tanlanadi). Ko'rsatilmasa — paymentMethod. */
     private String paymentMethodForCash;
     /** Faqat CASH_AND_CARD uchun: naqd qismi (cashPart + cardPart = netSalary). */
     private BigDecimal cashPart;

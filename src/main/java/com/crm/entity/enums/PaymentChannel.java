@@ -9,7 +9,8 @@ import java.util.Map;
 
 /**
  * Kassa hisobotlaridagi to'lov usuli guruhi: balans va tranzaksiyalar shu kesimda alohida.
- * {@link PaymentMethod} → kanal: CLICK/PAYME/UZUM → ONLINE, qolganlari o'z nomi bilan.
+ * {@link PaymentMethod} → kanal: CLICK/PAYME/UZUM → ONLINE, BANK → TERMINAL (buyurtmachi qarori 2026-10-05:
+ * bank to'lovi = terminal; BANK kanali yo'q), qolganlari o'z nomi bilan.
  *
  * <p>{@link PaymentMethod#CASH_AND_CARD} ikkiga bo'linadi — {@code cashPart → CASH},
  * {@code cardPart → CARD} ({@code CashRegisterService.bucketAmounts} bilan aynan bir xil).
@@ -24,7 +25,6 @@ public enum PaymentChannel {
     CARD("Karta"),
     TERMINAL("Terminal"),
     ONLINE("Onlayn (Click, Payme, Uzum)"),
-    BANK("Bank o'tkazmasi"),
     OTHER("Boshqa");
 
     private final String label;
@@ -50,9 +50,8 @@ public enum PaymentChannel {
         return switch (method) {
             case CASH, CASH_AND_CARD -> CASH;
             case CARD -> CARD;
-            case TERMINAL -> TERMINAL;
+            case TERMINAL, BANK -> TERMINAL;   // BANK — eski yozuvlar (V78 dan oldin): bank to'lovi = terminal
             case CLICK, PAYME, UZUM -> ONLINE;
-            case BANK -> BANK;
             case OTHER -> OTHER;
         };
     }
@@ -82,7 +81,7 @@ public enum PaymentChannel {
             .toList();
     }
 
-    /** Matn → kanal; tanilmasa null. Usul nomi ham qabul qilinadi (CLICK → ONLINE). */
+    /** Matn → kanal; tanilmasa null. Usul nomi ham qabul qilinadi (CLICK → ONLINE); BANK — kanal emas (null). */
     public static PaymentChannel parseOrNull(String raw) {
         if (raw == null || raw.isBlank()) {
             return null;
@@ -92,7 +91,7 @@ public enum PaymentChannel {
             return valueOf(key);
         } catch (IllegalArgumentException e) {
             PaymentMethod m = PaymentMethod.parseOrNull(key);
-            return m != null && m != PaymentMethod.CASH_AND_CARD ? of(m) : null;
+            return m != null && m != PaymentMethod.CASH_AND_CARD && m != PaymentMethod.BANK ? of(m) : null;
         }
     }
 }
