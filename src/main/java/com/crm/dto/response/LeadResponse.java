@@ -49,6 +49,14 @@ public class LeadResponse {
     private String nextTaskTitle;
     /** Kanban kartasidagi rangli nuqta: NONE/PLANNED/TODAY/OVERDUE. */
     private LeadTaskState taskState;
+    /** Lidning ochiq vazifalari soni (batch — {@code TaskService.loadOpenTaskCounts}). */
+    private long openTaskCount;
+    /**
+     * Vazifa majburiyligi buzilgan (V79): bosqich {@code requires_task} (faqat OPEN turi)
+     * va ochiq vazifa yo'q. Eski lidlarda ham true bo'lishi mumkin — qoida retroaktiv
+     * bloklamaydi, faqat ko'rsatadi.
+     */
+    private boolean taskMissing;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -47,5 +47,14 @@ public class TaskCompleteRequest {
 
         /** true bo'lsa dueAt shu kunning 23:59 ga keltiriladi. */
         private Boolean allDay;
+
+        /**
+         * Mas'ul — ixtiyoriy. Berilmasa bajarilgan vazifadan meros olinadi
+         * (avvalgi xulq); berilsa {@code TaskService.resolveAssignee} qoidasi.
+         */
+        private Long assigneeId;
+
+        /** Ixtiyoriy — yangi vazifa tavsifi. */
+        private String comment;
     }
 }

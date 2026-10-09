@@ -233,6 +233,9 @@ public class SecurityConfig {
                 // (UserOnboardingController). "/api/users/**" va "DELETE /api/**" dan OLDIN.
                 .requestMatchers("/api/users/me/onboarding", "/api/users/me/onboarding/**")
                     .hasAnyRole(STAFF_ROLES)
+                // O'z hisobim (profil, avatar, parol) — har qanday xodim, faqat o'zi (ProfileService).
+                .requestMatchers("/api/users/me", "/api/users/me/avatar", "/api/users/me/password")
+                    .hasAnyRole(STAFF_ROLES)
                 .requestMatchers("/api/users/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/import/**")

@@ -37,6 +37,12 @@ public class LeadStageRequest {
      */
     private Boolean requiresAmount;
 
+    /**
+     * Shu bosqichda lidda kamida bitta ochiq vazifa majburiymi (faqat OPEN bosqichlar).
+     * Berilmasa mavjud qiymat saqlanadi (yaratishda — {@code false}).
+     */
+    private Boolean requiresTask;
+
     /** Berilmasa yangi bosqich ro'yxat oxiriga qo'yiladi. */
     private Integer sortOrder;
 

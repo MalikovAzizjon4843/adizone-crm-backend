@@ -1,5 +1,6 @@
 package com.crm.controller;
 
+import com.crm.dto.request.TaskCloseRequest;
 import com.crm.dto.request.TaskCompleteRequest;
 import com.crm.dto.request.TaskCreateRequest;
 import com.crm.dto.request.TaskPostponeRequest;
@@ -105,9 +106,24 @@ public class TaskController {
                 "Muddat keyinga surildi", taskService.postpone(id, request)));
     }
 
+    /**
+     * Bekor qilish — natijasiz yopish. Lid bosqichi vazifa talab qilsa va bu oxirgi
+     * ochiq vazifa bo'lsa {@code nextTask} shart (400 {@code lead.task.required}).
+     */
+    @PatchMapping("/{id:\\d+}/cancel")
+    public ResponseEntity<ApiResponse<TaskResponse>> cancel(
+            @PathVariable(name = "id") Long id,
+            @Valid @RequestBody(required = false) TaskCloseRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Vazifa bekor qilindi", taskService.cancel(id, request)));
+    }
+
+    /** Tana ixtiyoriy: {@code {"nextTask": {...}}} — {@link #cancel} dagi qoida bilan bir xil. */
     @DeleteMapping("/{id:\\d+}")
-    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
-        taskService.delete(id);
+    public ResponseEntity<ApiResponse<Void>> delete(
+            @PathVariable(name = "id") Long id,
+            @Valid @RequestBody(required = false) TaskCloseRequest request) {
+        taskService.delete(id, request);
         return ResponseEntity.ok(ApiResponse.success("Vazifa o'chirildi", null));
     }
 }

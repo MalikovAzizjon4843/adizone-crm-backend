@@ -65,7 +65,8 @@ public class LeadStageService {
     /** Keshdagi bitta bosqich — entity emas, sessiyaga bog'liq bo'lmasin. */
     private record Snapshot(String code, String nameUz, String nameRu, String nameEn,
                             StageKind kind, boolean active, int sortOrder,
-                            boolean requiresAmount, com.crm.entity.enums.FunnelStep funnelStep) {
+                            boolean requiresAmount, boolean requiresTask,
+                            com.crm.entity.enums.FunnelStep funnelStep) {
     }
 
     @Transactional(readOnly = true)
@@ -94,6 +95,7 @@ public class LeadStageService {
                 : leadStageRepository.findMaxSortOrder() + 1)
             .kind(StageKind.OPEN)
             .requiresAmount(Boolean.TRUE.equals(request.getRequiresAmount()))
+            .requiresTask(Boolean.TRUE.equals(request.getRequiresTask()))
             .isActive(request.getIsActive() == null || request.getIsActive())
             .funnelStep(request.getFunnelStep() != null
                 ? request.getFunnelStep() : com.crm.entity.enums.FunnelStep.NONE)
@@ -132,6 +134,11 @@ public class LeadStageService {
             AuditContext.change("requiresAmount",
                 stage.getRequiresAmount(), request.getRequiresAmount());
             stage.setRequiresAmount(request.getRequiresAmount());
+        }
+        if (request.getRequiresTask() != null) {
+            AuditContext.change("requiresTask",
+                stage.getRequiresTask(), request.getRequiresTask());
+            stage.setRequiresTask(request.getRequiresTask());
         }
         if (request.getIsActive() != null) {
             stage.setIsActive(request.getIsActive());
@@ -292,6 +299,35 @@ public class LeadStageService {
     }
 
     /**
+     * Shu bosqichda lidda kamida bitta ochiq vazifa majburiymi (V79).
+     *
+     * <p>Faqat {@code kind = OPEN} bosqichlar: CONVERTED/REJECTED da bayroq
+     * yoqilgan bo'lsa ham false — yopilgan lidga vazifa talab qilinmaydi.
+     * Noma'lum kod — false.
+     */
+    public boolean requiresTask(String code) {
+        Snapshot stage = cache().get(normalize(code));
+        return stage != null && stage.kind() == StageKind.OPEN && stage.requiresTask();
+    }
+
+    /** {@link #requiresTask} true bo'lgan bosqich kodlari — vazifasiz lidlar hisobi uchun. */
+    public Set<String> requiredTaskCodes() {
+        return cache().values().stream()
+            .filter(st -> st.kind() == StageKind.OPEN && st.requiresTask())
+            .map(Snapshot::code)
+            .collect(Collectors.toSet());
+    }
+
+    /** OPEN turidagi bosqich kodlari voronka tartibida (nofaollari ham). */
+    public List<String> orderedOpenCodes() {
+        return cache().values().stream()
+            .filter(st -> st.kind() == StageKind.OPEN)
+            .sorted(java.util.Comparator.comparingInt(Snapshot::sortOrder))
+            .map(Snapshot::code)
+            .collect(Collectors.toList());
+    }
+
+    /**
      * Voronka darajasi (director-dashboard §1.1): CONVERTED → 3, aks holda bosqichning
      * {@code funnel_step} rank'i (NONE 0, CONTACTED 1, VISITED 2). Noma'lum kod — 0.
      */
@@ -384,6 +420,7 @@ public class LeadStageService {
                 stage.getKind(), Boolean.TRUE.equals(stage.getIsActive()),
                 stage.getSortOrder() != null ? stage.getSortOrder() : 0,
                 Boolean.TRUE.equals(stage.getRequiresAmount()),
+                Boolean.TRUE.equals(stage.getRequiresTask()),
                 stage.getFunnelStep() != null ? stage.getFunnelStep() : com.crm.entity.enums.FunnelStep.NONE));
         }
         log.debug("lead_stages keshi yuklandi: {} ta bosqich", loaded.size());
@@ -490,6 +527,7 @@ public class LeadStageService {
             .sortOrder(stage.getSortOrder())
             .kind(stage.getKind())
             .requiresAmount(stage.getRequiresAmount())
+            .requiresTask(stage.getRequiresTask())
             .isActive(stage.getIsActive())
             .funnelStep(stage.getFunnelStep())
             .deletable(!stage.getKind().isFinal())

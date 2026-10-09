@@ -4,6 +4,7 @@ import com.crm.entity.converter.StageKindConverter;
 import com.crm.entity.enums.StageKind;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.util.UUID;
@@ -83,6 +84,22 @@ public class LeadStage extends BaseEntity {
     @Builder.Default
     private Boolean requiresAmount = false;
 
+    /**
+     * amoCRM qoidasi: shu bosqichdagi lidda kamida bitta OCHIQ vazifa bo'lishi shart (V79).
+     *
+     * <p>Faqat {@code kind = OPEN} bosqichlarda ma'noli — yakuniy bosqichlarda
+     * {@code LeadStageService.requiresTask} false qaytaradi. Qoida amal paytida
+     * tekshiriladi (bosqich o'zgarishi, vazifani bajarish/bekor qilish/o'chirish),
+     * mavjud lidlar retroaktiv bloklanmaydi.
+     *
+     * <p>{@code @ColumnDefault}: {@code ddl-auto: update} ustunni migratsiyadan oldin
+     * qo'shsa ham, to'la jadvalga NOT NULL ustun DEFAULT bilan qo'shilsin.
+     */
+    @Column(name = "requires_task", nullable = false)
+    @ColumnDefault("false")
+    @Builder.Default
+    private Boolean requiresTask = false;
+
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private Boolean isActive = true;
@@ -100,6 +117,9 @@ public class LeadStage extends BaseEntity {
         }
         if (isActive == null) {
             isActive = true;
+        }
+        if (requiresTask == null) {
+            requiresTask = false;
         }
         if (sortOrder == null) {
             sortOrder = 0;

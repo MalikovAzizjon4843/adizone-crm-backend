@@ -10,6 +10,7 @@ import com.crm.dto.request.LeadNoteRequest;
 import com.crm.dto.request.LeadConvertRequest;
 import com.crm.dto.request.LeadCreateRequest;
 import com.crm.dto.request.LeadRequest;
+import com.crm.dto.request.NextTaskRequest;
 import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.response.LeadCommentResponse;
 import com.crm.dto.response.LeadNoteResponse;
@@ -21,6 +22,7 @@ import com.crm.dto.response.LeadKanbanColumnDto;
 import com.crm.dto.response.LeadKanbanStatsResponse;
 import com.crm.dto.response.LeadStatsResponse;
 import com.crm.dto.response.LeadStatusHistoryResponse;
+import com.crm.dto.response.LeadWithoutTaskStatsResponse;
 import com.crm.dto.response.PageResponse;
 import com.crm.entity.LeadAssignment;
 import com.crm.entity.Lead;
@@ -35,6 +37,7 @@ import com.crm.entity.enums.MarketingSource;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.CodedException;
 import com.crm.exception.ForbiddenException;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
@@ -44,6 +47,7 @@ import com.crm.repository.LeadRepository;
 import com.crm.repository.LeadStatusHistoryRepository;
 import com.crm.repository.StudentRepository;
 import com.crm.repository.UserRepository;
+import com.crm.util.SourceCatalog;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -135,7 +139,10 @@ public class LeadService {
                 .status(Lead.DEFAULT_STATUS)
                 .converted(false)
                 .build();
-        return toResponse(leadRepository.save(lead));
+        Lead saved = leadRepository.save(lead);
+        // Vazifa majburiyligi (V79): ochiq forma bloklanmaydi — kerak bo'lsa avtomatik vazifa
+        taskService.createInitialTaskIfRequired(saved, null);
+        return toResponse(saved);
     }
 
     /**
@@ -182,6 +189,8 @@ public class LeadService {
         Lead saved = leadRepository.save(lead);
         // Direktor dashboardi: boshlang'ich bosqich sanasi va tayinlash tarixi
         leadFunnelTracker.onCreated(saved, current);
+        // Vazifa majburiyligi (V79): tez qo'shish bloklanmaydi — avtomatik vazifa operatorga
+        taskService.createInitialTaskIfRequired(saved, null);
         return toResponse(saved);
     }
 
@@ -337,6 +346,23 @@ public class LeadService {
         entityId = "#result.id",
         label = "#result.fullName")
     public LeadResponse updateStatus(Long id, String status, BigDecimal amount) {
+        return updateStatus(id, status, amount, null);
+    }
+
+    /**
+     * Bosqichni o'zgartiradi; {@code nextTask} berilsa shu tranzaksiyada lidga vazifa yaratiladi.
+     *
+     * <p>Vazifa majburiyligi (V79): yangi bosqich {@code requires_task} va lidda ochiq vazifa
+     * yo'q bo'lsa {@code nextTask} shart — aks holda 400 {@code lead.task.required}. Faqat
+     * bosqich HAQIQATAN o'zgarganda: shu bosqichga qayta saqlash (summa tahriri) eski lidni
+     * retroaktiv bloklamaydi.
+     */
+    @Transactional
+    @Audited(action = AuditAction.STATUS_CHANGE, entity = "Lead",
+        summary = "'Lid bosqichi: ' + #result.status",
+        entityId = "#result.id",
+        label = "#result.fullName")
+    public LeadResponse updateStatus(Long id, String status, BigDecimal amount, NextTaskRequest nextTask) {
         Lead lead = leadRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Lead", id));
         leadAccessService.assertCanAccessLead(lead);
@@ -378,6 +404,11 @@ public class LeadService {
             throw new BadRequestException(messages.get("lead.amount.required"));
         }
 
+        if (nextTask == null && !newStatus.equals(oldStatus)
+                && taskService.leadNeedsTaskFor(lead, newStatus)) {
+            throw CodedException.badRequest("lead.task.required");
+        }
+
         lead.setStatus(newStatus);
 
         // Bir xil bosqichga qayta o'tish tarixni ham, auditni ham to'ldirmasin
@@ -393,7 +424,11 @@ public class LeadService {
             addSystemComment(lead, paymentCommentText(lead.getAmount()));
         }
 
-        return toResponse(leadRepository.save(lead));
+        Lead saved = leadRepository.save(lead);
+        if (nextTask != null) {
+            taskService.createNextTask(saved, nextTask);
+        }
+        return toResponse(saved);
     }
 
     /** "To'lov qabul qilindi: 850 000 UZS" — summa bo'sh bo'lsa faqat matn. */
@@ -657,6 +692,8 @@ public class LeadService {
                 .admissionNumber(studentService.generateNextAdmissionNumber())
                 .convertedFromLeadId(lead.getId())
                 .marketingSource(parseMarketingSource(lead.getSource()))
+                // V79: lid manbasi AYNAN ko'chiriladi (WEBSITE va boshqa xom qiymatlar ham)
+                .source(SourceCatalog.fromLead(lead.getSource()))
                 .paymentStatus(PaymentStatus.PENDING)
                 .build();
         student = studentRepository.save(student);
@@ -911,6 +948,103 @@ public class LeadService {
     }
 
     /**
+     * Vazifasiz lidlar (amoCRM "Без задач"): yopilmagan bosqichda, birorta ham ochiq vazifasi
+     * yo'q. {@code TaskService.getStats().noTask} bilan bir xil ta'rif, bu yerda bosqich
+     * bo'yicha va ro'yxat bilan.
+     *
+     * <p>SALES_MANAGER — faqat o'z lidlari ({@code LeadAccessService}). {@code status} faqat
+     * ro'yxatni toraytiradi, {@code byStage} ga ta'sir qilmaydi; {@code requiredOnly = true} —
+     * faqat {@code requires_task} bosqichlar (qoida buzilganlar).
+     */
+    @Transactional(readOnly = true)
+    public LeadWithoutTaskStatsResponse getWithoutTaskStats(
+            String status, Boolean requiredOnly, int page, int size) {
+        Optional<Long> scope = leadAccessService.resolveOperatorScope();
+        Set<String> requiredCodes = leadStageService.requiredTaskCodes();
+        boolean onlyRequired = Boolean.TRUE.equals(requiredOnly);
+
+        Specification<Lead> base = withoutOpenTaskSpec(leadStageService.closedCodes());
+        if (scope.isPresent()) {
+            Long userId = scope.get();
+            base = base.and((root, query, cb) -> cb.equal(root.get("assignedUser").get("id"), userId));
+        }
+        if (onlyRequired) {
+            base = base.and((root, query, cb) -> requiredCodes.isEmpty()
+                ? cb.disjunction()
+                : root.get("status").in(requiredCodes));
+        }
+
+        Map<String, Long> counts = new LinkedHashMap<>();
+        leadStageService.orderedOpenCodes().stream()
+            .filter(code -> !onlyRequired || requiredCodes.contains(code))
+            .forEach(code -> counts.put(code, 0L));
+        for (Object[] row : countGroupedByStatus(base)) {
+            if (row[0] != null) {
+                counts.merge(row[0].toString(), toCount(row[1]), Long::sum);
+            }
+        }
+        List<LeadWithoutTaskStatsResponse.StageCount> byStage = new java.util.ArrayList<>(counts.size());
+        long total = 0;
+        long requiredTotal = 0;
+        for (Map.Entry<String, Long> e : counts.entrySet()) {
+            boolean required = requiredCodes.contains(e.getKey());
+            byStage.add(LeadWithoutTaskStatsResponse.StageCount.builder()
+                .status(e.getKey())
+                .statusLabel(leadStageService.label(e.getKey()))
+                .requiresTask(required)
+                .count(e.getValue())
+                .build());
+            total += e.getValue();
+            if (required) {
+                requiredTotal += e.getValue();
+            }
+        }
+
+        Specification<Lead> listSpec = base;
+        if (status != null && !status.isBlank()) {
+            String code = status.trim().toUpperCase(Locale.ROOT);
+            listSpec = listSpec.and((root, query, cb) -> cb.equal(root.get("status"), code));
+        }
+        Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100),
+            Sort.by("createdAt").descending());
+
+        return LeadWithoutTaskStatsResponse.builder()
+            .total(total)
+            .requiredTotal(requiredTotal)
+            .byStage(byStage)
+            .leads(toPageResponse(leadRepository.findAll(listSpec, pageable)))
+            .build();
+    }
+
+    /** Yopilmagan bosqichda va OCHIQ vazifasi yo'q lidlar ({@code LeadRepository.countOpenLeadsWithoutTask} bilan bir xil). */
+    private static Specification<Lead> withoutOpenTaskSpec(Set<String> closedCodes) {
+        return (root, query, cb) -> {
+            jakarta.persistence.criteria.Subquery<Long> open = query.subquery(Long.class);
+            Root<Task> t = open.from(Task.class);
+            open.select(t.get("id")).where(
+                cb.equal(t.get("lead"), root),
+                cb.equal(t.get("status"), com.crm.entity.enums.TaskStatus.OPEN));
+            Predicate noOpenTask = cb.not(cb.exists(open));
+            return closedCodes.isEmpty()
+                ? noOpenTask
+                : cb.and(cb.not(root.get("status").in(closedCodes)), noOpenTask);
+        };
+    }
+
+    private List<Object[]> countGroupedByStatus(Specification<Lead> spec) {
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<Object[]> cq = cb.createQuery(Object[].class);
+        Root<Lead> root = cq.from(Lead.class);
+        cq.multiselect(root.get("status"), cb.count(root));
+        Predicate where = spec.toPredicate(root, cq, cb);
+        if (where != null) {
+            cq.where(where);
+        }
+        cq.groupBy(root.get("status"));
+        return entityManager.createQuery(cq).getResultList();
+    }
+
+    /**
      * Eski status nomlarini tirik qiymatlarga ko'chiradi
      * ({@code POST /api/admin/repair/lead-statuses}).
      *
@@ -1070,6 +1204,7 @@ public class LeadService {
         // Denormalizatsiya (leads.next_task_due_at) ataylab qilinmadi:
         // converted/status juftligi allaqachon sinxrondan chiqib ketgan.
         Map<Long, Task> nextTasks = taskService.loadNextOpenTasks(leadIds);
+        Map<Long, Long> openTaskCounts = taskService.loadOpenTaskCounts(leadIds);
         LocalDateTime now = LocalDateTime.now();
 
         return PageResponse.<LeadResponse>builder()
@@ -1079,6 +1214,7 @@ public class LeadService {
                                 commentCounts.getOrDefault(lead.getId(), 0L),
                                 lastComments.get(lead.getId()),
                                 nextTasks.get(lead.getId()),
+                                openTaskCounts.getOrDefault(lead.getId(), 0L),
                                 now))
                         .collect(Collectors.toList()))
                 .pageNumber(leads.getNumber())
@@ -1117,12 +1253,13 @@ public class LeadService {
             lastCommentText = latest.get(0).getText();
         }
         Task nextTask = taskService.loadNextOpenTasks(List.of(lead.getId())).get(lead.getId());
-        return toResponse(lead, commentsCount, lastCommentText, nextTask, LocalDateTime.now());
+        long openTaskCount = taskService.loadOpenTaskCounts(List.of(lead.getId())).getOrDefault(lead.getId(), 0L);
+        return toResponse(lead, commentsCount, lastCommentText, nextTask, openTaskCount, LocalDateTime.now());
     }
 
     private LeadResponse toResponse(
             Lead lead, long commentsCount, String lastCommentText,
-            Task nextTask, LocalDateTime now) {
+            Task nextTask, long openTaskCount, LocalDateTime now) {
         String studentName = null;
         if (lead.getStudent() != null) {
             studentName = (lead.getStudent().getFirstName() != null ? lead.getStudent().getFirstName() : "")
@@ -1158,6 +1295,9 @@ public class LeadService {
                 .taskState(nextTask != null
                         ? LeadTaskState.resolve(nextTask.getDueAt(), now)
                         : LeadTaskState.NONE)
+                .openTaskCount(openTaskCount)
+                // Qoida buzilgan: bosqich vazifa talab qiladi (faqat OPEN), ochiq vazifa yo'q
+                .taskMissing(openTaskCount == 0 && leadStageService.requiresTask(lead.getStatus()))
                 .createdAt(lead.getCreatedAt())
                 .updatedAt(lead.getUpdatedAt())
                 .build();

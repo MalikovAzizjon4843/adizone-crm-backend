@@ -55,6 +55,18 @@ public interface TaskRepository extends JpaRepository<Task, Long>, JpaSpecificat
 
     boolean existsByLead_IdAndStatus(Long leadId, TaskStatus status);
 
+    /** Lidning shu vazifadan BOSHQA ochiq vazifalari bormi — vazifa majburiyligi qoidasi (V79). */
+    boolean existsByLead_IdAndStatusAndIdNot(Long leadId, TaskStatus status, Long id);
+
+    /** Lid ro'yxati uchun: {@code [leadId, ochiq vazifalar soni]} — bitta so'rov. */
+    @Query("""
+        SELECT t.lead.id, COUNT(t) FROM Task t
+        WHERE t.lead.id IN :leadIds
+          AND t.status = com.crm.entity.enums.TaskStatus.OPEN
+        GROUP BY t.lead.id
+        """)
+    List<Object[]> countOpenByLeadIds(@Param("leadIds") List<Long> leadIds);
+
     /**
      * Ochiq vazifalar taqsimoti: [muddati o'tgan, bugungi, kelajakdagi].
      * Chegaralar kesishmaydi — muddati o'tgan &lt; hozir &le; bugun &lt; ertaga &le; kelajak,

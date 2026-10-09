@@ -40,6 +40,30 @@ public final class AnalyticsDtos {
     public record Students(Metric newStudents, Metric exits, Map<String, Long> exitsByReason, Metric activeAtEnd) {
     }
 
+    // ── Manba statistikasi (GET /api/analytics/sources, /students-by-source) ──
+
+    public enum SourceGroupBy { SOURCE, META_FORM }
+
+    /**
+     * Bir manba (yoki Meta forma) qatori — davrda yaratilgan lidlar kogortasi, hozirgacha:
+     * tashrif ({@code visited_at}), konvertatsiya, birinchi to'lov, tushum ({@code cash_amount}).
+     * {@code conversionPercent} — lid → birinchi to'lov.
+     */
+    public record SourceRow(String key, String label, long leads, long visited, long converted,
+                            long firstPayments, BigDecimal revenue, BigDecimal conversionPercent) {
+    }
+
+    public record SourceReport(LocalDate from, LocalDate to, SourceGroupBy groupBy, boolean includeImported,
+                               SourceRow total, List<SourceRow> rows) {
+    }
+
+    public record StudentSourceRow(String source, String label, long students, BigDecimal percent) {
+    }
+
+    /** Hozirgi faol o'quvchilar ({@code student_groups.is_active AND leave_date IS NULL}) manba bo'yicha. */
+    public record StudentsBySource(LocalDate asOf, long total, List<StudentSourceRow> rows) {
+    }
+
     public record LeadSource(String source, long leads, long converted, BigDecimal conversionRate, long firstPayments) {
     }
 

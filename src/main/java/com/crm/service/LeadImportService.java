@@ -108,6 +108,7 @@ public class LeadImportService {
     private final LeadNoteRepository leadNoteRepository;
     private final UserRepository userRepository;
     private final LeadStageService leadStageService;
+    private final TaskService taskService;
     private final LeadAccessService leadAccessService;
     private final Messages messages;
     private final com.crm.dashboard.LeadFunnelTracker leadFunnelTracker;
@@ -331,6 +332,8 @@ public class LeadImportService {
         }
         // Direktor dashboardi: tayinlash tarixi (import lidlari voronkadan default chiqariladi)
         leadFunnelTracker.onCreated(saved, current);
+        // Vazifa majburiyligi (V79): import bloklanmaydi — bosqich talab qilsa operatorga avtomatik vazifa
+        taskService.createInitialTaskIfRequired(saved, null);
 
         int notes = 0;
         for (String text : row.noteTexts()) {

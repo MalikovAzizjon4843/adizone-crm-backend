@@ -1,5 +1,6 @@
 package com.crm.dto.request;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -18,4 +19,12 @@ public class LeadStatusRequest {
      * <p>Berilsa eski qiymat ustiga yoziladi.
      */
     private BigDecimal amount;
+
+    /**
+     * Yangi bosqich {@code requires_task} bo'lsa va lidda ochiq vazifa bo'lmasa
+     * MAJBURIY (400 {@code lead.task.required}); boshqa holatda berilsa ham yaratiladi.
+     * Bosqich o'tishi bilan bitta tranzaksiyada.
+     */
+    @Valid
+    private NextTaskRequest nextTask;
 }

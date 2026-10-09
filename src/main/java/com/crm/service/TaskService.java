@@ -4,6 +4,8 @@ import com.crm.audit.AuditAction;
 import com.crm.audit.AuditContext;
 import com.crm.audit.Audited;
 import com.crm.config.Messages;
+import com.crm.dto.request.NextTaskRequest;
+import com.crm.dto.request.TaskCloseRequest;
 import com.crm.dto.request.TaskCompleteRequest;
 import com.crm.dto.request.TaskCreateRequest;
 import com.crm.dto.request.TaskPostponeRequest;
@@ -22,6 +24,7 @@ import com.crm.entity.enums.LeadTaskState;
 import com.crm.entity.enums.TaskStatus;
 import com.crm.entity.enums.TaskType;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.CodedException;
 import com.crm.exception.ForbiddenException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.LeadRepository;
@@ -65,6 +68,10 @@ public class TaskService {
 
     /** "Kun davomida" vazifa shu vaqtga keltiriladi. */
     private static final LocalTime ALL_DAY_DUE = LocalTime.of(23, 59);
+
+    /** Avtomatik kirgan lidning birinchi vazifasi ({@link #createInitialTaskIfRequired}). */
+    static final String INITIAL_TASK_TITLE = "Yangi lid: bog'lanish";
+    static final long INITIAL_TASK_DUE_MINUTES = 15;
 
     private final TaskRepository taskRepository;
     private final LeadRepository leadRepository;
@@ -188,6 +195,8 @@ public class TaskService {
         if (result == null) {
             throw new BadRequestException("Bajarilish natijasi majburiy");
         }
+        // Vazifa majburiyligi (V79): lidning oxirgi ochiq vazifasi yopilsa — keyingisi shart
+        requireNextTaskIfLast(task, request.getNextTask() != null);
 
         task.setStatus(TaskStatus.DONE);
         task.setResult(result);
@@ -247,14 +256,19 @@ public class TaskService {
         if (title == null) {
             title = type.getLabel();
         }
+        // Mas'ul berilmasa — meros (avvalgi xulq); berilsa umumiy tayinlash qoidasi
+        User assignee = next.getAssigneeId() != null
+            ? resolveAssignee(next.getAssigneeId(), current, leadAccessService.resolveOperatorScope())
+            : completed.getAssignedTo();
 
         Task followUp = Task.builder()
             .title(title)
+            .description(trimToNull(next.getComment()))
             .type(type)
             .status(TaskStatus.OPEN)
             .dueAt(dueAt)
             .allDay(allDay)
-            .assignedTo(completed.getAssignedTo())
+            .assignedTo(assignee)
             .createdBy(current)
             .lead(completed.getLead())
             .student(completed.getStudent())
@@ -307,9 +321,37 @@ public class TaskService {
         return toResponse(taskRepository.save(task));
     }
 
+    /**
+     * Vazifani bekor qiladi ({@link TaskStatus#CANCELLED}) — natija talab qilinmaydi,
+     * "bajarildi" statistikasiga kirmaydi. Sabab berilsa {@code result} ga yoziladi.
+     *
+     * <p>Lid bosqichi {@code requires_task} bo'lib, bu oxirgi ochiq vazifa bo'lsa
+     * {@code nextTask} shart va u shu tranzaksiyada yaratiladi.
+     */
+    @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "Task",
+        summary = "'Vazifa bekor qilindi: ' + #result.title",
+        entityId = "#result.id",
+        label = "#result.title")
+    public TaskResponse cancel(Long id, TaskCloseRequest request) {
+        Task task = getOpenTaskOrThrow(id);
+        NextTaskRequest next = request != null ? request.getNextTask() : null;
+        requireNextTaskIfLast(task, next != null);
+
+        task.setStatus(TaskStatus.CANCELLED);
+        task.setResult(request != null ? trimToNull(request.getReason()) : null);
+        Task saved = taskRepository.save(task);
+        AuditContext.change("status", TaskStatus.OPEN, TaskStatus.CANCELLED);
+
+        if (next != null && saved.getLead() != null) {
+            createNextTask(saved.getLead(), next);
+        }
+        return toResponse(saved);
+    }
+
     @Transactional
     @Audited(action = AuditAction.DELETE, entity = "Task", entityId = "#id")
-    public void delete(Long id) {
+    public void delete(Long id, TaskCloseRequest request) {
         Task task = taskRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Task", id));
 
@@ -320,10 +362,121 @@ public class TaskService {
                 throw new ForbiddenException("Vazifani faqat muallif yoki admin o'chiradi");
             }
         }
+        // Yopilgan vazifani o'chirish lidning ochiq vazifalari sonini o'zgartirmaydi
+        NextTaskRequest next = request != null ? request.getNextTask() : null;
+        if (task.getStatus() == TaskStatus.OPEN) {
+            requireNextTaskIfLast(task, next != null);
+        }
 
         AuditContext.label(task.getTitle());
         AuditContext.summary("Vazifa o'chirildi: " + task.getTitle());
+        Lead lead = task.getLead();
         taskRepository.delete(task);
+        if (next != null && lead != null) {
+            createNextTask(lead, next);
+        }
+    }
+
+    // ── Vazifa majburiyligi (lead_stages.requires_task, V79) ────────────
+
+    /**
+     * Lid bosqichi {@code requires_task} va lidda {@code task} dan boshqa ochiq vazifa
+     * yo'q bo'lsa — keyingi vazifa berilmagan amal 400 {@code lead.task.required}.
+     * Lidsiz vazifa, yakuniy (CONVERTED/REJECTED) bosqich va bayroqsiz bosqich — erkin.
+     */
+    private void requireNextTaskIfLast(Task task, boolean nextTaskGiven) {
+        if (nextTaskGiven || !isLastOpenTaskOfRequiredLead(task)) {
+            return;
+        }
+        throw CodedException.badRequest("lead.task.required");
+    }
+
+    private boolean isLastOpenTaskOfRequiredLead(Task task) {
+        Lead lead = task.getLead();
+        return lead != null
+            && leadStageService.requiresTask(lead.getStatus())
+            && !taskRepository.existsByLead_IdAndStatusAndIdNot(lead.getId(), TaskStatus.OPEN, task.getId());
+    }
+
+    /**
+     * Lid {@code targetStatus} bosqichiga o'tsa vazifa majburiyligi buziladimi:
+     * bosqich {@code requires_task} va lidda birorta ham ochiq vazifa yo'q.
+     * {@code LeadService.updateStatus} shu bilan {@code nextTask} ni talab qiladi.
+     */
+    public boolean leadNeedsTaskFor(Lead lead, String targetStatus) {
+        return leadStageService.requiresTask(targetStatus)
+            && !taskRepository.existsByLead_IdAndStatus(lead.getId(), TaskStatus.OPEN);
+    }
+
+    /**
+     * Lidga keyingi vazifani chaqiruvchining tranzaksiyasida yaratadi (bosqich o'tishi,
+     * vazifani bekor qilish/o'chirish). Alohida audit yozuvi emas — asosiy amalning
+     * {@code detailsJson} ida {@code nextTask} sifatida ko'rinadi.
+     */
+    @Transactional
+    public Task createNextTask(Lead lead, NextTaskRequest next) {
+        User current = leadAccessService.getCurrentUserOrThrow();
+        User assignee = resolveAssignee(next.getAssigneeId(), current, leadAccessService.resolveOperatorScope());
+        TaskType type = next.getType() != null ? requireType(next.getType()) : TaskType.CALL;
+        boolean allDay = Boolean.TRUE.equals(next.getAllDay());
+        LocalDateTime dueAt = normalizeDueAt(next.getDueAt(), allDay);
+        if (!dueAt.isAfter(LocalDateTime.now())) {
+            throw new BadRequestException(messages.get("task.dueAt.future"));
+        }
+        String title = trimToNull(next.getTitle());
+        if (title == null) {
+            throw new BadRequestException(messages.get("task.title.required"));
+        }
+
+        Task saved = taskRepository.save(Task.builder()
+            .title(title)
+            .description(trimToNull(next.getComment()))
+            .type(type)
+            .status(TaskStatus.OPEN)
+            .dueAt(dueAt)
+            .allDay(allDay)
+            .assignedTo(assignee)
+            .createdBy(current)
+            .lead(lead)
+            .build());
+        AuditContext.change("nextTask", null, title);
+        return saved;
+    }
+
+    /**
+     * Avtomatik kirgan lid ({@code /api/leads/public}, Meta, Excel import, kanbandagi
+     * tez qo'shish) bloklanmaydi: boshlang'ich bosqich {@code requires_task} bo'lsa va
+     * lidda ochiq vazifa yo'q bo'lsa — "Yangi lid: bog'lanish" vazifasi, muddat hozir + 15 daqiqa.
+     *
+     * <p>Mas'ul — lid operatori, u bo'lmasa {@code fallbackAssignee} (Meta:
+     * {@code meta.task-assignee-user-id}). Ikkalasi ham yo'q bo'lsa vazifa YARATILMAYDI:
+     * {@code tasks.assigned_to} NOT NULL. Lid "vazifasiz" ro'yxatida ko'rinadi
+     * ({@code taskMissing = true}, {@code GET /api/leads/stats/without-task}).
+     */
+    @Transactional
+    public Optional<Task> createInitialTaskIfRequired(Lead lead, User fallbackAssignee) {
+        if (lead == null || lead.getId() == null || !leadStageService.requiresTask(lead.getStatus())) {
+            return Optional.empty();
+        }
+        if (taskRepository.existsByLead_IdAndStatus(lead.getId(), TaskStatus.OPEN)) {
+            return Optional.empty();
+        }
+        User assignee = lead.getAssignedUser() != null ? lead.getAssignedUser() : fallbackAssignee;
+        if (assignee == null) {
+            log.warn("Lid #{} ({}) bosqichi vazifa talab qiladi, lekin mas'ul yo'q — "
+                + "avtomatik vazifa yaratilmadi", lead.getId(), lead.getStatus());
+            return Optional.empty();
+        }
+        return Optional.of(taskRepository.save(Task.builder()
+            .title(INITIAL_TASK_TITLE)
+            .type(TaskType.CALL)
+            .status(TaskStatus.OPEN)
+            .dueAt(LocalDateTime.now().plusMinutes(INITIAL_TASK_DUE_MINUTES))
+            .allDay(false)
+            .assignedTo(assignee)
+            .createdBy(null)
+            .lead(lead)
+            .build()));
     }
 
     // ── O'qish ───────────────────────────────────────────────────────────
@@ -468,6 +621,19 @@ public class TaskService {
             nextByLead.putIfAbsent(task.getLead().getId(), task);
         }
         return nextByLead;
+    }
+
+    /** Lidlarning ochiq vazifalari soni: {@code leadId -> count} (vazifasiz lid kalitda yo'q). */
+    @Transactional(readOnly = true)
+    public Map<Long, Long> loadOpenTaskCounts(List<Long> leadIds) {
+        if (leadIds == null || leadIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Long> counts = new HashMap<>();
+        for (Object[] row : taskRepository.countOpenByLeadIds(leadIds)) {
+            counts.put(((Number) row[0]).longValue(), toLong(row[1]));
+        }
+        return counts;
     }
 
     // ── Yordamchilar ────────────────────────────────────────────────────

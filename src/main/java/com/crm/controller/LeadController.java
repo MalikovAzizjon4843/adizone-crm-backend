@@ -17,6 +17,7 @@ import com.crm.dto.response.LeadKanbanStatsResponse;
 import com.crm.dto.response.LeadStatsResponse;
 import com.crm.dto.response.LeadNoteResponse;
 import com.crm.dto.response.LeadStatusHistoryResponse;
+import com.crm.dto.response.LeadWithoutTaskStatsResponse;
 import com.crm.dto.response.LeadTimelineResponse;
 import com.crm.dto.response.PageResponse;
 import com.crm.dto.response.TaskResponse;
@@ -119,6 +120,21 @@ public class LeadController {
     }
 
     /**
+     * Vazifasiz lidlar: bosqich bo'yicha soni + sahifali ro'yxat. {@code /stats} dan farqli
+     * SALES_MANAGER ga ham ochiq — javob uning o'z lidlari bilan cheklanadi.
+     * {@code status} — faqat ro'yxat filtri; {@code requiredOnly} — faqat {@code requires_task} bosqichlar.
+     */
+    @GetMapping("/stats/without-task")
+    public ResponseEntity<ApiResponse<LeadWithoutTaskStatsResponse>> getWithoutTaskStats(
+            @RequestParam(name = "status", required = false) String status,
+            @RequestParam(name = "requiredOnly", required = false) Boolean requiredOnly,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size) {
+        return ResponseEntity.ok(ApiResponse.success(
+                leadService.getWithoutTaskStats(status, requiredOnly, page, size)));
+    }
+
+    /**
      * Kanban sarlavhalari. {@code /stats} dan farqli, bu SALES_MANAGER ga
      * ham ochiq: javob uning o'z lidlari bilan cheklanadi.
      *
@@ -163,14 +179,18 @@ public class LeadController {
                 leadService.assignLead(id, request)));
     }
 
-    /** Bosqich summa talab qilsa, {@code amount} majburiy bo'ladi. */
+    /**
+     * Bosqich summa talab qilsa, {@code amount} majburiy bo'ladi. Bosqich vazifa talab qilsa
+     * ({@code requires_task}) va lidda ochiq vazifa bo'lmasa — {@code nextTask} majburiy
+     * (400 {@code lead.task.required}).
+     */
     @PatchMapping("/{id:\\d+}/status")
     public ResponseEntity<ApiResponse<LeadResponse>> updateStatus(
             @PathVariable Long id,
             @Valid @RequestBody LeadStatusRequest request) {
         return ResponseEntity.ok(ApiResponse.success(
                 "Status yangilandi",
-                leadService.updateStatus(id, request.getStatus(), request.getAmount())));
+                leadService.updateStatus(id, request.getStatus(), request.getAmount(), request.getNextTask())));
     }
 
     /**

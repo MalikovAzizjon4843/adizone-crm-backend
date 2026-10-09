@@ -4,6 +4,7 @@ import com.crm.config.PhoneDeserializer;
 import com.crm.entity.enums.StudyFormat;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.time.LocalDate;
@@ -33,6 +34,12 @@ public class StudentRequest {
 
     @NotBlank(message = "{student.marketingSource.required}")
     private String marketingSource;
+
+    /** Qayerdan keldi (V79) — ixtiyoriy; {@code SourceCatalog.STUDENT_SOURCES} dan biri. */
+    private String source;
+
+    @Size(max = 255, message = "{student.sourceNote.size}")
+    private String sourceNote;
 
     private String admissionNumber;
     private LocalDate admissionDate;

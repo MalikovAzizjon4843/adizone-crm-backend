@@ -2,6 +2,7 @@ package com.crm.controller;
 
 import com.crm.dashboard.AnalyticsDtos;
 import com.crm.dashboard.AnalyticsOverviewService;
+import com.crm.dashboard.SourceAnalyticsService;
 import com.crm.dashboard.StaffPerformanceService;
 import com.crm.dto.response.*;
 import com.crm.exception.CodedException;
@@ -31,6 +32,7 @@ public class AnalyticsController {
     private final StaffAnalyticsService staffAnalyticsService;
     private final AnalyticsOverviewService overviewService;
     private final StaffPerformanceService staffPerformanceService;
+    private final SourceAnalyticsService sourceAnalyticsService;
 
     /** Umumiy ko'rinish: moliya, o'quvchilar, lidlar, guruhlar + oldingi teng davr va vaqt qatorlari. */
     @GetMapping("/overview")
@@ -39,6 +41,27 @@ public class AnalyticsController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String groupBy) {
         return ResponseEntity.ok(ApiResponse.success(overviewService.overview(from, to, groupBy)));
+    }
+
+    /**
+     * Manba statistikasi: davrda yaratilgan lidlar manba ({@code groupBy=SOURCE}, standart) yoki Meta forma
+     * ({@code META_FORM}) bo'yicha — lidlar, tashrif, konvertatsiya, birinchi to'lov, tushum, konversiya %.
+     * "Noma'lum" — alohida qator. Sana chegaralari Asia/Tashkent; importlar {@code includeImported=true} bilan.
+     */
+    @GetMapping("/sources")
+    public ResponseEntity<ApiResponse<AnalyticsDtos.SourceReport>> sources(
+            @RequestParam(name = "from", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(name = "to", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(name = "groupBy", required = false) String groupBy,
+            @RequestParam(name = "includeImported", required = false) Boolean includeImported) {
+        return ResponseEntity.ok(ApiResponse.success(
+            sourceAnalyticsService.sources(from, to, groupBy, includeImported)));
+    }
+
+    /** Hozirgi faol o'quvchilar (faol yozilmasi bor) {@code students.source} bo'yicha. */
+    @GetMapping("/students-by-source")
+    public ResponseEntity<ApiResponse<AnalyticsDtos.StudentsBySource>> studentsBySource() {
+        return ResponseEntity.ok(ApiResponse.success(sourceAnalyticsService.studentsBySource()));
     }
 
     /**

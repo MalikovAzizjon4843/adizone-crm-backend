@@ -28,6 +28,9 @@ public class StudentDetailResponse {
     private LocalDate birthDate;
     private String gender;
     private MarketingSource marketingSource;
+    /** Qayerdan keldi (V79) — lid manbasi bilan bir xil qiymatlar; null — noma'lum. */
+    private String source;
+    private String sourceNote;
     private StudentStatus status;
     private String notes;
     private String address;

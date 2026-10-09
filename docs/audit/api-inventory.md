@@ -247,6 +247,65 @@ qaytarilganlarga tegmaydi), **V77** (`billing_held_applications`, UNIQUE `idempo
 | `PUT/PATCH/DELETE /api/cash-registers/transactions/**`, `/api/cash-registers/*/transactions/**` | yo'q | **SA** | endpoint yo'q — oldindan yopilgan |
 | `POST /api/payments`, `/preview`; kassa kirim/chiqim; xarajat | SA, A, ACC | o'zgarmagan | o'tgan sana — faqat SA (403), kelajak — 400 |
 | `POST /api/students/{id}/balance-adjust`, `/balance-transfer`, `/api/admin/repair/**` | SA | o'zgarmagan | allaqachon faqat SA |
+
+## Yangilanishlar (2026-10-09, lid bosqichida vazifa majburiyligi — V79)
+
+> amoCRM qoidasi: `lead_stages.requires_task = true` bosqichda turgan lidda kamida 1 ta **OCHIQ** vazifa bo'lishi shart.
+> Faqat `kind = OPEN` bosqichlar — CONVERTED/REJECTED da bayroq yoqilgan bo'lsa ham e'tiborsiz. Qoida AMAL paytida
+> tekshiriladi (eski lidlar retroaktiv bloklanmaydi, shu bosqichga qayta saqlash — masalan summa tahriri — ham erkin).
+> Buzilsa **400** `lead.task.required` (uz/ru/en). `nextTask` amal bilan **bitta tranzaksiyada** yaratiladi.
+>
+> `nextTask` (yangi shakl, `NextTaskRequest`): `title` (majburiy, ≤ 255), `dueAt` (majburiy, kelajakda —
+> `task.dueAt.future`), `assigneeId` (majburiy; SALES_MANAGER faqat o'zini, faol operator rollari), `comment?`
+> (→ `description`), `type?` (standart CALL), `allDay?`.
+>
+> Avtomatik kirgan lidlar **bloklanmaydi**: boshlang'ich bosqich `requires_task` bo'lsa va ochiq vazifa bo'lmasa —
+> "Yangi lid: bog'lanish" (CALL, `dueAt` = hozir + 15 daqiqa, `createdBy = null`), mas'ul — lid operatori.
+> Meta lidi biriktirilmagan, mas'ul — `meta.task-assignee-user-id` (forma vazifasi bilan bir xil sozlama).
+> Mas'ul topilmasa vazifa **yaratilmaydi** (`tasks.assigned_to` NOT NULL) — lid `taskMissing = true` bo'lib turadi.
+> Qamrov: `POST /api/leads/public`, Meta webhook/backfill, Excel import (`/api/leads/import/execute`), shuningdek
+> kanbandagi tez qo'shish `POST /api/leads`.
+
+| Endpoint | Rollar | O'zgarish |
+|---|---|---|
+| `GET/POST/PUT /api/lead-stages` | o'qish — STAFF; yozish — SA, A | `requiresTask` (boolean) — so'rovda ixtiyoriy (null — o'zgarmaydi, yaratishda `false`), javobda doim |
+| `PATCH /api/leads/{id}/status` | SA, A, SH, SM | Tana: `{status, amount?, nextTask?}`. Yangi bosqich `requires_task` va lidda ochiq vazifa yo'q → `nextTask` shart (aks holda 400 `lead.task.required`); boshqa holatda berilsa ham yaratiladi |
+| `PATCH /api/tasks/{id}/complete` | SA, A, SH, SM | Lidning OXIRGI ochiq vazifasi va bosqich `requires_task` → `nextTask` shart. `nextTask` eski shakli saqlangan (`type?, title?, dueAt, allDay?`) + yangi ixtiyoriy `assigneeId` (berilmasa — meros), `comment` |
+| `PATCH /api/tasks/{id}/cancel` | SA, A, SH, SM (mas'ul yoki to'liq huquq) | **YANGI.** Tana ixtiyoriy: `{reason?, nextTask?}` → `status = CANCELLED`, `result = reason`. Oxirgi ochiq vazifa qoidasi `/complete` bilan bir xil. Javob — `TaskResponse` |
+| `DELETE /api/tasks/{id}` | muallif yoki SA/A | Tana endi ixtiyoriy: `{nextTask?}` — OCHIQ va oxirgi vazifa o'chirilsa shart. Yopilgan (DONE/CANCELLED) vazifani o'chirish — erkin |
+| `GET /api/leads`, `GET /api/leads/{id}`, status/yaratish javoblari (`LeadResponse`) | — | Yangi: `openTaskCount` (long), `taskMissing` (boolean: bosqich `requires_task` va `openTaskCount = 0`). `nextTaskDueAt` avvaldan bor |
+| `GET /api/leads/stats/without-task` | SA, A, SH, SM (SM — faqat o'z lidlari) | **YANGI.** Query: `status?` (faqat ro'yxat filtri), `requiredOnly?` (faqat `requires_task` bosqichlar), `page`, `size` (≤ 100). Javob: `{total, requiredTotal, byStage: [{status, statusLabel, requiresTask, count}], leads: PageResponse<LeadResponse>}`. Vazifasiz = yopilmagan bosqich + ochiq vazifa yo'q (`/api/tasks/stats.noTask` bilan bir xil ta'rif); `byStage` — barcha OPEN bosqichlar voronka tartibida (0 lari bilan) |
+
+## Yangilanishlar (2026-10-09, o'quvchi manbasi va manba statistikasi — V79)
+
+> `students.source` (VARCHAR 30) + `students.source_note` (VARCHAR 255). Qiymatlar — lid manbalari bilan bir xil
+> (`WEBSITE, INSTAGRAM, FACEBOOK, TELEGRAM, YOUTUBE, TARGET, SELF_CALL, FORMER_STUDENT, OFFLINE, LEAD`) +
+> `REFERRAL, WALK_IN, OTHER` (`SourceCatalog`). Lid konvertatsiyasida `leads.source` AYNAN ko'chiriladi (katalogda
+> bo'lmasa ham); qo'lda — ixtiyoriy, katalogdan tashqari qiymat → **400** `student.source.invalid`.
+> Eski `marketingSource` (enum) tegilmagan. Eski o'quvchilar: `docs/ops/student-source-backfill.sql` (preview + UPDATE, qo'lda).
+
+| Endpoint | Rollar | O'zgarish |
+|---|---|---|
+| `POST /api/students`, `PUT /api/students/{id}`, `POST /api/groups/{groupId}/students/create-and-add` | o'zgarmagan | Yangi ixtiyoriy `source`, `sourceNote` (≤ 255). Tahrirda `source: null` — o'zgarmaydi, `""` — tozalaydi |
+| `POST /api/leads/{id}/convert` | o'zgarmagan | Yaratilgan o'quvchida `source = UPPER(lead.source)` |
+| `GET /api/students` | o'zgarmagan | Yangi query `source` (vergul bilan bir nechta, registrsiz; `UNKNOWN` — manbasizlar). Berilsa `search`/`status`/o'qituvchi doirasi bilan birga qo'llanadi |
+| `GET /api/students/**` javoblari (`StudentResponse`, `StudentDetailResponse`) | — | `source`, `sourceNote` |
+| `GET /api/enums/student-sources` | STAFF | **YANGI.** `[{value, label}]` — label joriy tilda |
+| `GET /api/analytics/sources` | SA, A | **YANGI.** Query: `from?`, `to?` (ISO sana; standart — oy boshi…bugun; ≤ 366 kun, aks holda 400 `analytics.period.invalid`), `groupBy` = `SOURCE` (standart) / `META_FORM` (400 `analytics.sources.groupBy.invalid`), `includeImported?` (standart false). Kogorta: `[from 00:00, to+1 00:00)` (Asia/Tashkent) da yaratilgan lidlar, hozirgacha. Javob: `{from, to, groupBy, includeImported, total, rows[]}`, qator: `{key, label, leads, visited, converted, firstPayments, revenue, conversionPercent}` — `visited` = `leads.visited_at` (VISITED qadami/birinchi davomat), `converted` = o'quvchi bor, `firstPayments` = PAID `cash_amount > 0` to'lovi bor, `revenue` = Σ `cash_amount` (bugungacha), `conversionPercent` = lid → birinchi to'lov (lid 0 bo'lsa null). `UNKNOWN` qatori ("Noma'lum" / META_FORM da "Meta formasiz") doim bor va oxirida; META_FORM da `label` — `meta_lead_forms.name` |
+| `GET /api/analytics/students-by-source` | SA, A | **YANGI.** Faol o'quvchilar (kamida bitta `student_groups.is_active = true AND leave_date IS NULL`) `source` bo'yicha: `{asOf, total, rows: [{source, label, students, percent}]}`, `UNKNOWN` oxirida |
+
+## Yangilanishlar (2026-10-09, profil — o'z hisobim)
+
+> `/api/users/me`, `/me/avatar`, `/me/password` — **barcha xodim rollari** (SA, A, SH, SM, ACC, T); `SecurityConfig` da
+> `/api/users/**` (SA/A) qoidasidan OLDIN. Foydalanuvchi faqat tokendan — boshqaning hisobiga yo'l yo'q.
+> Eski `/api/auth/me`, `/api/auth/profile`, `/api/auth/profile/photo`, `/api/auth/change-password` o'zgarmagan.
+
+| Endpoint | O'zgarish |
+|---|---|
+| `GET /api/users/me` | **YANGI.** `{id, fullName, firstName, lastName, username, role, phone, avatarUrl, createdAt, lastLoginAt, teacherId}` — `teacherId` bog'langan o'qituvchi profili (`teachers.user_id`) bo'lsa |
+| `PUT /api/users/me` | **YANGI.** Qisman: `firstName?`, `lastName?` (≤ 100, bo'sh bo'lmasin), `phone?` (`PhoneDeserializer`: "+998 90 123 45 67" → `+998901234567`; `""` — olib tashlash). `username`/`role` yuborilsa ham e'tiborsiz. Audit: UPDATE User |
+| `POST /api/users/me/avatar` | **YANGI.** Multipart `file` — mavjud rasm tekshiruvi (jpg/jpeg/png/webp/gif, sarlavha, o'lcham) + **≤ 2 MB** (aks holda 400 `user.avatar.tooLarge`). Javob `MyProfileResponse` (`avatarUrl` = `/api/files/...`) |
+| `POST /api/users/me/password` | **YANGI.** `{currentPassword, newPassword}` (8–72). Noto'g'ri joriy → **400** `user.password.invalid`. Muvaffaqiyat: token versiyasi oshadi (eski access tokenlar 401), barcha refresh tokenlar bekor; javobda joriy sessiya uchun YANGI `AuthResponse` (`accessToken`, `refreshToken`). `@Audited` (UPDATE User, "Parol o'zgartirildi") |
 ## 0. Qanday o'qish kerak
 
 ### 0.1 Endpointlar soni

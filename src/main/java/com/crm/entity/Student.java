@@ -53,6 +53,21 @@ public class Student extends BaseEntity {
     @Builder.Default
     private MarketingSource marketingSource = MarketingSource.OTHER;
 
+    /**
+     * Qayerdan keldi (V79) — {@code leads.source} bilan bir xil qiymatlar + REFERRAL, WALK_IN, OTHER
+     * ({@code SourceCatalog}). Lid konvertatsiyasida lid manbasi aynan ko'chiriladi; qo'lda
+     * yaratilganda ixtiyoriy. Null — analitikada "Noma'lum".
+     *
+     * <p>{@code marketingSource} (enum, eski) bilan farqi: u WEBSITE va lidning boshqa xom
+     * qiymatlarini OTHER ga aylantirib yuborardi, manba yo'qolardi.
+     */
+    @Column(name = "source", length = 30)
+    private String source;
+
+    /** Manba izohi — masalan kim tavsiya qilgan. Ixtiyoriy. */
+    @Column(name = "source_note", length = 255)
+    private String sourceNote;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "referral_student_id")
     private Student referralStudent;

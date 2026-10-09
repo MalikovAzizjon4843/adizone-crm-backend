@@ -26,6 +26,8 @@ public class LeadStageResponse {
     private StageKind kind;
     /** Shu bosqichga o'tishda summa majburiymi. */
     private Boolean requiresAmount;
+    /** Shu bosqichda lidda kamida bitta ochiq vazifa majburiymi (faqat OPEN bosqichda amal qiladi). */
+    private Boolean requiresTask;
     private Boolean isActive;
     /** Direktor dashboardi voronka qadami (director-dashboard §1.1). */
     private com.crm.entity.enums.FunnelStep funnelStep;

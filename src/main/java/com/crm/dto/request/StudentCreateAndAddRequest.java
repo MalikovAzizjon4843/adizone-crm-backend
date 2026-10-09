@@ -4,6 +4,7 @@ import com.crm.config.PhoneDeserializer;
 import com.crm.entity.enums.PaymentType;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -25,6 +26,12 @@ public class StudentCreateAndAddRequest {
 
     private String gender;
     private String marketingSource;
+
+    /** Qayerdan keldi (V79) — ixtiyoriy; {@code SourceCatalog.STUDENT_SOURCES} dan biri. */
+    private String source;
+
+    @Size(max = 255, message = "{student.sourceNote.size}")
+    private String sourceNote;
 
     @JsonDeserialize(using = PhoneDeserializer.class)
     private String parentPhone;

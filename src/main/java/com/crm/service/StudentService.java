@@ -28,12 +28,14 @@ import com.crm.entity.enums.PaymentType;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.entity.enums.StudyFormat;
 import com.crm.exception.BadRequestException;
+import com.crm.exception.CodedException;
 import com.crm.billing.BillingSnapshotService;
 import com.crm.billing.BillingStatusService;
 import com.crm.billing.EnrollmentLifecycleService;
 import com.crm.billing.EnrollmentPricing;
 import com.crm.exception.DuplicateResourceException;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.util.SourceCatalog;
 import com.crm.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
@@ -71,11 +73,24 @@ public class StudentService {
 
     @Transactional(readOnly = true)
     public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status) {
+        return getAllStudents(page, size, search, status, null);
+    }
+
+    /**
+     * {@code source} (V79) — vergul bilan bir nechta, registrsiz; {@code UNKNOWN} — manbasizlar.
+     * Berilsa barcha filtrlar BIRGA qo'llanadi (Specification); berilmasa avvalgi so'rovlar o'zgarmaydi.
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status,
+                                                        String source) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<Student> studentPage;
 
         var teacherScope = teacherAccessService.resolveTeacherScope();
-        if (teacherScope.isPresent()) {
+        if (source != null && !source.isBlank()) {
+            studentPage = studentRepository.findAll(
+                filterSpec(search, status, source, teacherScope.map(t -> t.getId()).orElse(null)), pageable);
+        } else if (teacherScope.isPresent()) {
             Long teacherId = teacherScope.get().getId();
             if (search != null && !search.isBlank()) {
                 studentPage = studentRepository.searchDistinctActiveByTeacherId(
@@ -482,6 +497,7 @@ public class StudentService {
         } else {
             student.setMarketingSource(MarketingSource.OTHER);
         }
+        applySource(student, req.getSource(), req.getSourceNote(), true);
 
         student = studentRepository.save(student);
         applyCreatorAttribution(student, null);
@@ -638,6 +654,8 @@ public class StudentService {
             }
         }
         
+        applySource(s, req.getSource(), req.getSourceNote(), isCreate);
+
         if (req.getStatus() != null && !req.getStatus().isBlank()) {
             try {
                 s.setStatus(StudentStatus.valueOf(req.getStatus().toUpperCase()));
@@ -660,6 +678,72 @@ public class StudentService {
         return s;
     }
 
+    /**
+     * Ro'yxat filtri {@code source} bilan: qidiruv ({@code searchStudents} dagi maydonlar), holat,
+     * manba va o'qituvchi doirasi ({@code findDistinctActiveByTeacherId} — faol yozilmasi bor) birga.
+     */
+    private static org.springframework.data.jpa.domain.Specification<Student> filterSpec(
+            String search, StudentStatus status, String source, Long teacherId) {
+        return (root, query, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> and = new ArrayList<>();
+            List<String> codes = Arrays.stream(source.split(","))
+                .map(SourceCatalog::normalize)
+                .filter(Objects::nonNull)
+                .toList();
+            List<String> known = codes.stream().filter(c -> !SourceCatalog.UNKNOWN.equals(c)).toList();
+            List<jakarta.persistence.criteria.Predicate> or = new ArrayList<>();
+            if (!known.isEmpty()) {
+                or.add(cb.upper(root.get("source")).in(known));
+            }
+            if (codes.contains(SourceCatalog.UNKNOWN)) {
+                or.add(cb.or(cb.isNull(root.get("source")), cb.equal(cb.trim(root.get("source")), "")));
+            }
+            if (!or.isEmpty()) {
+                and.add(cb.or(or.toArray(new jakarta.persistence.criteria.Predicate[0])));
+            }
+            if (status != null) {
+                and.add(cb.equal(root.get("status"), status));
+            }
+            if (search != null && !search.isBlank()) {
+                String term = "%" + search.trim().toLowerCase(Locale.ROOT) + "%";
+                and.add(cb.or(
+                    cb.like(cb.lower(root.get("firstName")), term),
+                    cb.like(cb.lower(root.get("lastName")), term),
+                    cb.like(root.get("phone"), "%" + search.trim() + "%"),
+                    cb.like(cb.lower(cb.coalesce(root.<String>get("admissionNumber"), "")), term)));
+            }
+            if (teacherId != null) {
+                var sq = query.subquery(Long.class);
+                var sg = sq.from(StudentGroup.class);
+                sq.select(sg.get("id")).where(
+                    cb.equal(sg.get("student"), root),
+                    cb.equal(sg.get("group").get("teacher").get("id"), teacherId),
+                    cb.isTrue(sg.get("isActive")),
+                    cb.isNull(sg.get("leaveDate")));
+                and.add(cb.exists(sq));
+            }
+            return cb.and(and.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+    }
+
+    /**
+     * Manba (V79) — ixtiyoriy. Yaratishda bo'sh bo'lsa null; tahrirda {@code null} — o'zgarmaydi,
+     * bo'sh satr — tozalaydi. Qiymat {@link SourceCatalog#STUDENT_SOURCES} dan bo'lishi shart
+     * (400 {@code student.source.invalid}); lid konvertatsiyasi bu tekshiruvdan o'tmaydi.
+     */
+    private void applySource(Student s, String rawSource, String rawNote, boolean isCreate) {
+        if (isCreate || rawSource != null) {
+            String source = SourceCatalog.normalize(rawSource);
+            if (source != null && !SourceCatalog.isStudentSource(source)) {
+                throw CodedException.badRequest("student.source.invalid", rawSource);
+            }
+            s.setSource(source);
+        }
+        if (isCreate || rawNote != null) {
+            s.setSourceNote(rawNote != null && !rawNote.isBlank() ? rawNote.trim() : null);
+        }
+    }
+
     private StudentResponse toResponse(Student s) {
         StudentGroup current = studentGroupRepository.findActiveByStudentId(s.getId())
             .stream()
@@ -676,6 +760,7 @@ public class StudentService {
             .phone(s.getPhone()).parentPhone(s.getParentPhone())
             .birthDate(s.getBirthDate()).gender(s.getGender())
             .marketingSource(s.getMarketingSource())
+            .source(s.getSource()).sourceNote(s.getSourceNote())
             .status(s.getStatus()).notes(s.getNotes())
             .address(s.getAddress()).photoUrl(s.getPhotoUrl())
             .admissionNumber(s.getAdmissionNumber()).admissionDate(s.getAdmissionDate())
@@ -801,6 +886,7 @@ public class StudentService {
             .phone(s.getPhone()).parentPhone(s.getParentPhone())
             .birthDate(s.getBirthDate()).gender(s.getGender())
             .marketingSource(s.getMarketingSource())
+            .source(s.getSource()).sourceNote(s.getSourceNote())
             .status(s.getStatus()).notes(s.getNotes())
             .address(s.getAddress()).photoUrl(s.getPhotoUrl())
             .admissionNumber(s.getAdmissionNumber()).admissionDate(s.getAdmissionDate())

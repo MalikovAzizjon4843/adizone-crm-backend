@@ -84,12 +84,21 @@ public class AuthService {
         user.setLastLogin(LocalDateTime.now());
         userRepository.save(user);
 
-        UserDetails userDetails = userDetailsService.loadUserByUsername(request.getUsername());
+        refreshTokenRepository.deleteByUserId(user.getId());
+        return issueTokens(user);
+    }
+
+    /**
+     * Yangi access + refresh token juftligi (refresh — yangi qator). Eski refresh tokenlarni
+     * chaqiruvchi o'zi tozalaydi: login o'chiradi, parol almashtirish bekor qiladi
+     * ({@code ProfileService.changePassword}) — joriy sessiya yangi juftlik bilan davom etadi.
+     */
+    @Transactional
+    public AuthResponse issueTokens(User user) {
+        UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
         String accessToken = jwtUtils.generateToken(userDetails);
 
         String refreshTokenValue = UUID.randomUUID().toString();
-        refreshTokenRepository.deleteByUserId(user.getId());
-
         RefreshToken refreshToken = RefreshToken.builder()
             .token(refreshTokenValue)
             .user(user)

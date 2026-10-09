@@ -82,6 +82,7 @@ public class MetaLeadIngestService {
     private final MetaLeadFormRepository formRepository;
     private final MetaLeadFormQuestionRepository questionRepository;
     private final LeadStageService leadStageService;
+    private final TaskService taskService;
     private final ObjectMapper objectMapper;
 
     public enum Outcome {
@@ -201,6 +202,9 @@ public class MetaLeadIngestService {
         }
 
         createCallTaskIfNeeded(saved, form, data);
+        // Vazifa majburiyligi (V79): forma vazifasi bo'lmasa va bosqich talab qilsa — "Yangi lid: bog'lanish".
+        // Meta lidi biriktirilmagan, shuning uchun mas'ul — meta.task-assignee-user-id (forma vazifasi bilan bir xil).
+        taskService.createInitialTaskIfRequired(saved, resolveTaskAssignee(saved));
 
         log.info("Meta: lid #{} yaratildi (leadgen={}, forma={}, bosqich={})",
             saved.getId(), payload.leadgenId(), payload.formId(), saved.getStatus());

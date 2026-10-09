@@ -24,4 +24,9 @@ public class Messages {
     public String get(String key, Object... args) {
         return messageSource.getMessage(key, args, LocaleContextHolder.getLocale());
     }
+
+    /** Kalit topilmasa istisno o'rniga {@code defaultMessage} — masalan noma'lum manba nomi. */
+    public String getOrDefault(String key, String defaultMessage) {
+        return messageSource.getMessage(key, null, defaultMessage, LocaleContextHolder.getLocale());
+    }
 }

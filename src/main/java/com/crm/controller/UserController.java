@@ -4,9 +4,13 @@ import com.crm.audit.AuditAction;
 import com.crm.audit.Audited;
 import com.crm.dto.request.ChangePasswordRequest;
 import com.crm.dto.request.CreateUserRequest;
+import com.crm.dto.request.MyPasswordChangeRequest;
+import com.crm.dto.request.MyProfileUpdateRequest;
 import com.crm.dto.request.UpdateUserRequest;
 import com.crm.dto.request.UserStatusRequest;
 import com.crm.dto.response.ApiResponse;
+import com.crm.dto.response.AuthResponse;
+import com.crm.dto.response.MyProfileResponse;
 import com.crm.dto.response.PasswordResetResponse;
 import com.crm.dto.response.UserResponse;
 import com.crm.dto.response.UsernamePreviewResponse;
@@ -17,6 +21,7 @@ import com.crm.exception.CodedException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.UserRepository;
 import com.crm.service.FileStorageService;
+import com.crm.service.ProfileService;
 import com.crm.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +42,38 @@ public class UserController {
     private final UserRepository userRepository;
     private final FileStorageService fileStorageService;
     private final UserService userService;
+    private final ProfileService profileService;
+
+    // ── O'z hisobim — barcha xodim rollari (SecurityConfig: "/api/users/me/**" "/api/users/**" dan OLDIN) ──
+
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponse<MyProfileResponse>> getMe() {
+        return ResponseEntity.ok(ApiResponse.success(profileService.getMe()));
+    }
+
+    /** Ism, familiya, telefon — qisman. Login va rol o'zgarmaydi. */
+    @PutMapping("/me")
+    public ResponseEntity<ApiResponse<MyProfileResponse>> updateMe(
+            @Valid @RequestBody MyProfileUpdateRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Profil yangilandi", profileService.updateMe(request)));
+    }
+
+    /** Multipart {@code file}: jpg/jpeg/png/webp/gif, ≤ 2 MB. */
+    @PostMapping("/me/avatar")
+    public ResponseEntity<ApiResponse<MyProfileResponse>> uploadMyAvatar(
+            @RequestParam(name = "file") MultipartFile file) {
+        return ResponseEntity.ok(ApiResponse.success("Rasm saqlandi", profileService.updateAvatar(file)));
+    }
+
+    /**
+     * Joriy parol shart (noto'g'ri — 400 {@code user.password.invalid}). Boshqa sessiyalar
+     * yopiladi; javobda joriy sessiya uchun yangi token juftligi.
+     */
+    @PostMapping("/me/password")
+    public ResponseEntity<ApiResponse<AuthResponse>> changeMyPassword(
+            @Valid @RequestBody MyPasswordChangeRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Parol o'zgartirildi", profileService.changePassword(request)));
+    }
 
     /**
      * Yangi foydalanuvchi. Login band bo'lsa (registrsiz) — 409 {@code user.username.taken}

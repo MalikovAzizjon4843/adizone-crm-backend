@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V78 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V79 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V77 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V79 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
@@ -23,7 +23,7 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V77 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V79 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
@@ -349,7 +349,11 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V74', 'index', 'teacher_kpi_monthly', 'ux_teacher_kpi_monthly_teacher_month'),
     ('V77', 'table', 'billing_held_applications', NULL),
     ('V77', 'index', 'billing_held_applications', 'ux_billing_held_applications_key'),
-    ('V77', 'index', 'billing_held_applications', 'idx_billing_held_applications_sg')
+    ('V77', 'index', 'billing_held_applications', 'idx_billing_held_applications_sg'),
+    ('V79', 'column', 'lead_stages', 'requires_task'),
+    ('V79', 'column', 'students', 'source'),
+    ('V79', 'column', 'students', 'source_note'),
+    ('V79', 'index', 'students', 'idx_students_source')
 ), checked AS (
     SELECT w.*,
            CASE w.kind

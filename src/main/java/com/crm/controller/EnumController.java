@@ -1,10 +1,12 @@
 package com.crm.controller;
 
+import com.crm.config.Messages;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.EnumOptionDto;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.TaskStatus;
 import com.crm.entity.enums.TaskType;
+import com.crm.util.SourceCatalog;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,6 +25,8 @@ import java.util.List;
 @RequestMapping("/api/enums")
 @RequiredArgsConstructor
 public class EnumController {
+
+    private final Messages messages;
 
     @GetMapping("/payment-methods")
     public ResponseEntity<ApiResponse<List<EnumOptionDto>>> getPaymentMethods() {
@@ -43,6 +47,18 @@ public class EnumController {
                 .value(t.name())
                 .label(t.getLabel())
                 .icon(t.getIcon())
+                .build())
+            .toList();
+        return ResponseEntity.ok(ApiResponse.success(options));
+    }
+
+    /** O'quvchi manbasi qiymatlari (V79) — nomi joriy til bo'yicha ({@code Accept-Language}). */
+    @GetMapping("/student-sources")
+    public ResponseEntity<ApiResponse<List<EnumOptionDto>>> getStudentSources() {
+        List<EnumOptionDto> options = SourceCatalog.STUDENT_SOURCES.stream()
+            .map(s -> EnumOptionDto.builder()
+                .value(s)
+                .label(messages.getOrDefault("source." + s, s))
                 .build())
             .toList();
         return ResponseEntity.ok(ApiResponse.success(options));
