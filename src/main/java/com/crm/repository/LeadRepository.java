@@ -180,6 +180,22 @@ public interface LeadRepository extends JpaRepository<Lead, Long>, JpaSpecificat
     long countOpenLeadsWithoutTask(
         @Param("closedStatuses") java.util.Collection<String> closedStatuses);
 
+    /**
+     * Berilgan bosqichlardagi, OCHIQ vazifasi yo'q lidlar id lari — vazifasiz lidlarni bir martalik
+     * tuzatish uchun ({@code POST /api/admin/repair/leads-missing-tasks}).
+     */
+    @Query("""
+        SELECT l.id FROM Lead l
+        WHERE l.status IN :statuses
+          AND NOT EXISTS (
+            SELECT 1 FROM Task t
+            WHERE t.lead = l
+              AND t.status = com.crm.entity.enums.TaskStatus.OPEN)
+        ORDER BY l.id
+        """)
+    List<Long> findIdsWithoutOpenTaskInStatuses(
+        @Param("statuses") java.util.Collection<String> statuses);
+
     /** {@link #countOpenLeadsWithoutTask} ning bitta operator uchun varianti. */
     @Query("""
         SELECT COUNT(l) FROM Lead l

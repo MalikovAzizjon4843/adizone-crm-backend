@@ -1,10 +1,12 @@
 package com.crm.controller;
 
 import com.crm.dto.response.ApiResponse;
+import com.crm.dto.response.LeadMissingTaskRepairResult;
 import com.crm.exception.CodedException;
 import org.springframework.http.HttpStatus;
 import com.crm.service.GroupService;
 import com.crm.service.LeadService;
+import com.crm.service.LeadTaskRepairService;
 import com.crm.service.TeacherProfileSyncService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -12,6 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
@@ -26,6 +29,7 @@ public class AdminRepairController {
     private final TeacherProfileSyncService teacherProfileSyncService;
     private final GroupService groupService;
     private final LeadService leadService;
+    private final LeadTaskRepairService leadTaskRepairService;
 
     @PostMapping("/link-teacher-users")
     public ResponseEntity<ApiResponse<Map<String, Object>>> linkTeacherUsers() {
@@ -39,6 +43,18 @@ public class AdminRepairController {
         return ResponseEntity.ok(ApiResponse.success(
             "Timetable xonalari guruhdan bog'landi",
             groupService.linkTimetableRoomsFromGroups()));
+    }
+
+    /**
+     * Mavjud vazifasiz lidlar: {@code requires_task} bosqichda, ochiq vazifasi yo'q — "Bog'lanish" vazifasi
+     * (mas'ulga, u yo'q bo'lsa standart mas'ulga biriktirib). {@code dryRun} standart TRUE — avval ko'rib chiqing.
+     */
+    @PostMapping("/leads-missing-tasks")
+    public ResponseEntity<ApiResponse<LeadMissingTaskRepairResult>> repairLeadsMissingTasks(
+            @RequestParam(name = "dryRun", defaultValue = "true") boolean dryRun) {
+        return ResponseEntity.ok(ApiResponse.success(
+            dryRun ? "Ko'rib chiqish (hech narsa yozilmadi)" : "Vazifasiz lidlar tuzatildi",
+            leadTaskRepairService.repairMissingTasks(dryRun)));
     }
 
     @PostMapping("/migrate-lead-statuses")

@@ -306,6 +306,28 @@ qaytarilganlarga tegmaydi), **V77** (`billing_held_applications`, UNIQUE `idempo
 | `PUT /api/users/me` | **YANGI.** Qisman: `firstName?`, `lastName?` (≤ 100, bo'sh bo'lmasin), `phone?` (`PhoneDeserializer`: "+998 90 123 45 67" → `+998901234567`; `""` — olib tashlash). `username`/`role` yuborilsa ham e'tiborsiz. Audit: UPDATE User |
 | `POST /api/users/me/avatar` | **YANGI.** Multipart `file` — mavjud rasm tekshiruvi (jpg/jpeg/png/webp/gif, sarlavha, o'lcham) + **≤ 2 MB** (aks holda 400 `user.avatar.tooLarge`). Javob `MyProfileResponse` (`avatarUrl` = `/api/files/...`) |
 | `POST /api/users/me/password` | **YANGI.** `{currentPassword, newPassword}` (8–72). Noto'g'ri joriy → **400** `user.password.invalid`. Muvaffaqiyat: token versiyasi oshadi (eski access tokenlar 401), barcha refresh tokenlar bekor; javobda joriy sessiya uchun YANGI `AuthResponse` (`accessToken`, `refreshToken`). `@Audited` (UPDATE User, "Parol o'zgartirildi") |
+
+## Yangilanishlar (2026-10-10, yangi lidlar uchun standart mas'ul; tasks.auto_created — V80)
+
+> Sozlama `settings.leads.default_assignee_user_id` (mavjud kalit → matn jadvali). Kirgan lid mas'ulsiz bo'lsa unga
+> biriktiriladi (`lead_assignments` da tarix, `assignedBy = null`); keyin boshlang'ich bosqich `requires_task` bo'lsa
+> "Yangi lid: bog'lanish" vazifasi ham unga (V79 qoidasi — bosqich talab qilmasa vazifa yaratilmaydi).
+> Mas'ul tanlash tartibi: **Meta** — `meta.task-assignee-user-id` → standart mas'ul; **`/api/leads/public`** va
+> **kanban tez qo'shish** (`POST /api/leads`, operator tanlanmagan bo'lsa) — standart mas'ul. **Excel import o'zgarmagan.**
+> Sozlama bo'sh, yoki sozlangan foydalanuvchi keyinroq nofaol / roli mos emas — avvalgi xulq (lid mas'ulsiz, vazifasiz).
+>
+> `tasks.auto_created` (V80): "Yangi lid: bog'lanish", Meta forma qo'ng'iroq vazifasi va tuzatish vazifasi — `true`.
+> Lid mas'uli almashganda shu lidning OCHIQ `auto_created` vazifalari yangi mas'ulga o'tadi (qo'lda yaratilganlar va
+> yopilganlar — joyida; biriktirish olib tashlansa — tegilmaydi).
+
+| Endpoint | Rollar | O'zgarish |
+|---|---|---|
+| `GET /api/settings/leads/default-assignee` | SA, A | **YANGI.** `{userId, fullName, role, active, valid}` — sozlanmagan bo'lsa `userId = null`; `valid = false` — foydalanuvchi endi nofaol/roli mos emas (biriktirilmaydi) |
+| `PUT /api/settings/leads/default-assignee` | SA, A | **YANGI.** `{"userId": 12}` yoki `{"userId": null}` (tozalash). Faol `SALES_MANAGER` / `ADMIN` / `SUPER_ADMIN` bo'lmasa (yoki topilmasa) — **400** `lead.defaultAssignee.invalid`. Audit: UPDATE Settings |
+| `POST /api/leads/public`, `POST /api/leads`, Meta webhook/backfill | — | Javobda `assignedUserId` standart mas'ul (Meta: avval `meta.task-assignee-user-id`) bo'lishi mumkin |
+| `PATCH /api/leads/{id}/assign` | SA, A, SH | Yangi mas'ulga lidning OCHIQ `auto_created` vazifalari ham o'tadi; ASSIGN audit yozuvida `autoTasksReassigned` (vazifa id lari) |
+| `TaskResponse` (barcha `/api/tasks/**`, `/api/leads/{id}/tasks`) | — | Yangi `autoCreated` (boolean) |
+| `POST /api/admin/repair/leads-missing-tasks?dryRun=true\|false` | SA | **YANGI.** `dryRun` standart **true** (hech narsa yozilmaydi). Qamrov: `requires_task` bosqichdagi, ochiq vazifasi yo'q lidlar. Mas'uli bor → unga "Bog'lanish" (CALL, `auto_created = true`, `dueAt` = bugun 18:00, o'tgan bo'lsa ertaga 10:00 — Asia/Tashkent); mas'uli yo'q → standart mas'ul bo'lsa lid unga biriktirilib vazifa; bo'lmasa o'tkazib yuboriladi. Har lid alohida tranzaksiyada (ichida qayta tekshiriladi). Javob: `{dryRun, dueAt, total, created, assignedToDefault, skippedNoAssignee, skippedAlreadyOk, failed, byStage: [{status, statusLabel, total, created, assignedToDefault, skippedNoAssignee}], errors[]}` (`dryRun` da `created` — yaratiladigan). Audit: REPAIR Lead (faqat `dryRun=false`) |
 ## 0. Qanday o'qish kerak
 
 ### 0.1 Endpointlar soni

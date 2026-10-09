@@ -60,6 +60,7 @@ spring:
         - classpath:db/migration/V77__billing_held_applications.sql
         - classpath:db/migration/V78__bank_to_terminal.sql
         - classpath:db/migration/V79__lead_task_required_student_source.sql
+        - classpath:db/migration/V80__tasks_auto_created.sql
         - classpath:pgtest-schema.sql
 
 app:

@@ -6,6 +6,7 @@ import com.crm.entity.enums.TaskStatus;
 import com.crm.entity.enums.TaskType;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.LocalDateTime;
@@ -97,6 +98,16 @@ public class Task extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String result;
 
+    /**
+     * Tizim yaratgan (V80): yangi lidning "Yangi lid: bog'lanish" vazifasi, Meta forma vazifasi,
+     * tuzatish ({@code /api/admin/repair/leads-missing-tasks}). Lid mas'uli almashsa OCHIQ
+     * avtomatik vazifalar yangi mas'ulga o'tadi ({@code TaskService.reassignAutoTasks}).
+     */
+    @Column(name = "auto_created", nullable = false)
+    @ColumnDefault("false")
+    @Builder.Default
+    private Boolean autoCreated = false;
+
     @PrePersist
     protected void onCreate() {
         if (status == null) {
@@ -107,6 +118,9 @@ public class Task extends BaseEntity {
         }
         if (allDay == null) {
             allDay = false;
+        }
+        if (autoCreated == null) {
+            autoCreated = false;
         }
     }
 }

@@ -111,6 +111,7 @@ public class LeadService {
     private final GroupService groupService;
     private final UserRepository userRepository;
     private final TaskService taskService;
+    private final LeadSettingsService leadSettingsService;
     private final LeadAccessService leadAccessService;
     private final LeadStageService leadStageService;
     private final Messages messages;
@@ -140,7 +141,8 @@ public class LeadService {
                 .converted(false)
                 .build();
         Lead saved = leadRepository.save(lead);
-        // Vazifa majburiyligi (V79): ochiq forma bloklanmaydi — kerak bo'lsa avtomatik vazifa
+        // Standart mas'ul (sozlama bo'lsa) va vazifa majburiyligi (V79): ochiq forma bloklanmaydi
+        leadSettingsService.assignIfUnassigned(saved, null);
         taskService.createInitialTaskIfRequired(saved, null);
         return toResponse(saved);
     }
@@ -189,7 +191,8 @@ public class LeadService {
         Lead saved = leadRepository.save(lead);
         // Direktor dashboardi: boshlang'ich bosqich sanasi va tayinlash tarixi
         leadFunnelTracker.onCreated(saved, current);
-        // Vazifa majburiyligi (V79): tez qo'shish bloklanmaydi — avtomatik vazifa operatorga
+        // Operator tanlanmagan bo'lsa (ADMIN tez qo'shishi) — standart mas'ul; keyin vazifa majburiyligi (V79)
+        leadSettingsService.assignIfUnassigned(saved, null);
         taskService.createInitialTaskIfRequired(saved, null);
         return toResponse(saved);
     }
@@ -337,6 +340,11 @@ public class LeadService {
         leadFunnelTracker.onAssigned(lead, lead.getAssignedUser(), getCurrentUser(), leadFunnelTracker.now());
         AuditContext.change("assignedUser", previousOperator,
                 lead.getAssignedUser() != null ? formatUserName(lead.getAssignedUser()) : null);
+        // V80: tizim yaratgan OCHIQ vazifalar yangi mas'ulga o'tadi — shu ASSIGN audit yozuvida
+        List<Long> movedTasks = taskService.reassignAutoTasks(lead, lead.getAssignedUser());
+        if (!movedTasks.isEmpty()) {
+            AuditContext.change("autoTasksReassigned", null, movedTasks);
+        }
         return toResponse(leadRepository.save(lead));
     }
 

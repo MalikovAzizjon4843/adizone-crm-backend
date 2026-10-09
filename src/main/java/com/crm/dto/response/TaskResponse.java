@@ -40,6 +40,8 @@ public class TaskResponse {
     private Long completedById;
     private String completedByName;
     private String result;
+    /** Tizim yaratgan vazifa (V80) — lid mas'uli almashsa ochiq bo'lsa yangi mas'ulga o'tadi. */
+    private Boolean autoCreated;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

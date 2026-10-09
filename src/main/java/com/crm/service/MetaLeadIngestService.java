@@ -83,6 +83,7 @@ public class MetaLeadIngestService {
     private final MetaLeadFormQuestionRepository questionRepository;
     private final LeadStageService leadStageService;
     private final TaskService taskService;
+    private final LeadSettingsService leadSettingsService;
     private final ObjectMapper objectMapper;
 
     public enum Outcome {
@@ -178,10 +179,9 @@ public class MetaLeadIngestService {
             .source(resolveSource(payload, form))
             .status(resolveStage(form))
             .notes(data.noteText())
-            // Biriktirilmagan: Meta lidi kanbanning "Biriktirilmagan"
-            // ustuniga tushadi va uni operator o'zi oladi. Avtomatik
-            // taqsimot ataylab yo'q — kim qachon ishlashini boshqarish
-            // sotuv bo'limining ishi.
+            // Mas'ul shu yerda emas: saqlangandan keyin LeadSettingsService.assignIfUnassigned —
+            // meta.task-assignee-user-id, u bo'lmasa leads.default_assignee_user_id. Ikkalasi ham
+            // sozlanmagan bo'lsa lid avvalgidek "Biriktirilmagan" ustuniga tushadi.
             .assignedUser(null)
             .createdBy(null)
             .converted(false)
@@ -201,10 +201,13 @@ public class MetaLeadIngestService {
             saved = leadRepository.save(saved);
         }
 
+        // Mas'ul: meta.task-assignee-user-id → leads.default_assignee_user_id. Forma vazifasi ham,
+        // "Yangi lid: bog'lanish" (V79, bosqich talab qilsa) ham shu mas'ulga tushadi.
+        if (leadSettingsService.assignIfUnassigned(saved, resolveTaskAssignee(saved)) != null) {
+            saved = leadRepository.save(saved);
+        }
         createCallTaskIfNeeded(saved, form, data);
-        // Vazifa majburiyligi (V79): forma vazifasi bo'lmasa va bosqich talab qilsa — "Yangi lid: bog'lanish".
-        // Meta lidi biriktirilmagan, shuning uchun mas'ul — meta.task-assignee-user-id (forma vazifasi bilan bir xil).
-        taskService.createInitialTaskIfRequired(saved, resolveTaskAssignee(saved));
+        taskService.createInitialTaskIfRequired(saved, null);
 
         log.info("Meta: lid #{} yaratildi (leadgen={}, forma={}, bosqich={})",
             saved.getId(), payload.leadgenId(), payload.formId(), saved.getStatus());
@@ -489,6 +492,7 @@ public class MetaLeadIngestService {
             .assignedTo(assignee)
             .createdBy(null)
             .lead(lead)
+            .autoCreated(true)
             .build();
         taskRepository.save(task);
     }

@@ -448,10 +448,13 @@ public class TaskService {
      * tez qo'shish) bloklanmaydi: boshlang'ich bosqich {@code requires_task} bo'lsa va
      * lidda ochiq vazifa yo'q bo'lsa — "Yangi lid: bog'lanish" vazifasi, muddat hozir + 15 daqiqa.
      *
-     * <p>Mas'ul — lid operatori, u bo'lmasa {@code fallbackAssignee} (Meta:
-     * {@code meta.task-assignee-user-id}). Ikkalasi ham yo'q bo'lsa vazifa YARATILMAYDI:
-     * {@code tasks.assigned_to} NOT NULL. Lid "vazifasiz" ro'yxatida ko'rinadi
-     * ({@code taskMissing = true}, {@code GET /api/leads/stats/without-task}).
+     * <p>Mas'ul — lid operatori, u bo'lmasa {@code fallbackAssignee}. Ochiq forma, Meta va tez qo'shish
+     * lidni avval {@code LeadSettingsService.assignIfUnassigned} bilan biriktiradi (Meta:
+     * {@code meta.task-assignee-user-id} → standart mas'ul; qolganlari: standart mas'ul), ya'ni vazifa
+     * lid mas'uliga tushadi. Mas'ul yo'q bo'lsa vazifa YARATILMAYDI: {@code tasks.assigned_to} NOT NULL.
+     * Lid "vazifasiz" ro'yxatida ko'rinadi ({@code taskMissing = true}).
+     *
+     * <p>{@code auto_created = true} (V80): lid mas'uli almashsa vazifa ham ko'chadi ({@link #reassignAutoTasks}).
      */
     @Transactional
     public Optional<Task> createInitialTaskIfRequired(Lead lead, User fallbackAssignee) {
@@ -476,7 +479,31 @@ public class TaskService {
             .assignedTo(assignee)
             .createdBy(null)
             .lead(lead)
+            .autoCreated(true)
             .build()));
+    }
+
+    /**
+     * Lid mas'uli almashganda (V80): shu lidning OCHIQ {@code auto_created} vazifalari yangi mas'ulga
+     * o'tadi; qo'lda yaratilganlari o'z egasida qoladi. {@code newAssignee = null} (biriktirish olib
+     * tashlandi) — tegilmaydi ({@code tasks.assigned_to} NOT NULL). Qaytaradi — ko'chirilgan vazifalar id lari;
+     * chaqiruvchi ularni o'z audit yozuviga qo'shadi.
+     */
+    @Transactional
+    public List<Long> reassignAutoTasks(Lead lead, User newAssignee) {
+        if (lead == null || lead.getId() == null || newAssignee == null) {
+            return List.of();
+        }
+        List<Long> moved = new java.util.ArrayList<>();
+        for (Task task : taskRepository.findByLead_IdAndStatusAndAutoCreatedTrue(lead.getId(), TaskStatus.OPEN)) {
+            if (task.getAssignedTo() != null && newAssignee.getId().equals(task.getAssignedTo().getId())) {
+                continue;
+            }
+            task.setAssignedTo(newAssignee);
+            taskRepository.save(task);
+            moved.add(task.getId());
+        }
+        return moved;
     }
 
     // ── O'qish ───────────────────────────────────────────────────────────
@@ -798,6 +825,7 @@ public class TaskService {
             .completedById(task.getCompletedBy() != null ? task.getCompletedBy().getId() : null)
             .completedByName(formatUserName(task.getCompletedBy()))
             .result(task.getResult())
+            .autoCreated(Boolean.TRUE.equals(task.getAutoCreated()))
             .createdAt(task.getCreatedAt())
             .updatedAt(task.getUpdatedAt())
             .build();
