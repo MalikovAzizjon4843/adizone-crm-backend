@@ -70,6 +70,15 @@ public class BillingPeriod {
     @Column(name = "migration_run_id")
     private Long migrationRunId;
 
+    // ── Oxirgi davr darslar bo'yicha (buyurtmachi qoidasi 2026-10-10, V81) ──
+    /** Guruh shu davr ichida tugasa — hisoblangan darslar soni; to'liq davr — null. */
+    @Column(name = "prorated_lessons")
+    private Integer proratedLessons;
+
+    /** Shu davrdagi bitta dars narxi {@code c / billing.lessons_per_month}; to'liq davr — null. */
+    @Column(name = "lesson_price", precision = 12, scale = 2)
+    private BigDecimal lessonPrice;
+
     // ── Direktor dashboardi (director-dashboard §1.2, §3.2, G5) ──
     /** Muddat — billing kuni (= period_start). */
     @Column(name = "due_date")

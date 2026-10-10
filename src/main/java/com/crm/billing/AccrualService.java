@@ -46,6 +46,7 @@ public class AccrualService {
     private final BillingProperties properties;
     private final BillingGate gate;
     private final BillingSnapshotService snapshotService;
+    private final LessonProrationService prorationService;
 
     /** Yozilgan davrlar va catch-up chegarasi belgisi. */
     public record AccrualResult(Long studentGroupId, List<BillingPeriod> created, boolean catchUpLimitReached) {
@@ -87,6 +88,8 @@ public class AccrualService {
                 .fee(charge.fee())
                 .discountPercentage(charge.discountPercentage())
                 .amount(charge.amount())
+                .proratedLessons(charge.proratedLessons())
+                .lessonPrice(charge.lessonPrice())
                 .status(BillingPeriodStatus.CHARGED)
                 // Payroll v2 (§8): davr yozilgan paytdagi o'qituvchi — keyin almashsa ham shu qoladi
                 .teacherId(currentTeacherId(sg))
@@ -142,7 +145,8 @@ public class AccrualService {
         }
         List<BillingCalendar.Span> existing = periodRepository.findByStudentGroupIdOrderByPeriodStartAsc(sg.getId())
             .stream().map(p -> new BillingCalendar.Span(p.getPeriodStart(), p.getPeriodEnd())).toList();
-        return AccrualCalculator.dueChargesAfter(state, existing, asOf, properties.getMaxCatchUp());
+        return AccrualCalculator.dueChargesAfter(state, existing, asOf, properties.getMaxCatchUp(),
+            prorationService.forEnrollment(sg));
     }
 
     /**
@@ -169,6 +173,16 @@ public class AccrualService {
     }
 
     static String periodNote(AccrualCalculator.DueCharge charge) {
-        return charge.periodStart().format(NOTE_FMT) + "–" + charge.periodEnd().format(NOTE_FMT);
+        String note = charge.periodStart().format(NOTE_FMT) + "–" + charge.periodEnd().format(NOTE_FMT);
+        return charge.prorated()
+            ? note + " (" + charge.proratedLessons() + " dars × " + groupedSum(charge.lessonPrice()) + ")"
+            : note;
+    }
+
+    /** {@code 250000} → {@code "250 000"} (izohlar uchun). */
+    static String groupedSum(java.math.BigDecimal value) {
+        java.text.DecimalFormatSymbols symbols = new java.text.DecimalFormatSymbols(java.util.Locale.ROOT);
+        symbols.setGroupingSeparator(' ');
+        return new java.text.DecimalFormat("#,##0", symbols).format(Money.nz(value));
     }
 }

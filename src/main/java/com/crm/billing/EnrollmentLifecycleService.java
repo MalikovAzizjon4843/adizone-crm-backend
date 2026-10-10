@@ -198,7 +198,8 @@ public class EnrollmentLifecycleService {
                     .amount(Money.normalize(p.getAmount().negate()))
                     .effectiveDate(p.getPeriodStart())
                     .note(AccrualService.periodNote(new AccrualCalculator.DueCharge(
-                        p.getPeriodStart(), p.getPeriodEnd(), p.getFee(), p.getDiscountPercentage(), p.getAmount())))
+                        p.getPeriodStart(), p.getPeriodEnd(), p.getFee(), p.getDiscountPercentage(), p.getAmount(),
+                        p.getProratedLessons(), p.getLessonPrice())))
                     .ledgerTxId(p.getChargeTxId())
                     .build());
             }

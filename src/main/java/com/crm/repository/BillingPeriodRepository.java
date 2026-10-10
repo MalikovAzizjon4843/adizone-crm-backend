@@ -62,4 +62,21 @@ public interface BillingPeriodRepository extends JpaRepository<BillingPeriod, Lo
         """)
     List<Object[]> findDueForTeacherKpi(@Param("from") LocalDate from, @Param("to") LocalDate to,
                                         @Param("statuses") java.util.Collection<com.crm.entity.enums.BillingPeriodStatus> statuses);
+
+    /**
+     * Oxirgi davr qayta hisobi nomzodlari (buyurtmachi qoidasi 2026-10-10): CHARGED, migratsiyadan bo'lmagan davr ichiga
+     * guruh tugash sanasi tushadi ({@code period_start ≤ end_date < period_end}) yoki davr avval darslar bo'yicha
+     * hisoblangan. Aniq qaror — {@code LastPeriodRecalcService.plan}.
+     */
+    @Query(value = """
+        SELECT DISTINCT bp.studentGroupId FROM BillingPeriod bp, StudentGroup sg
+        WHERE sg.id = bp.studentGroupId
+          AND bp.status = com.crm.entity.enums.BillingPeriodStatus.CHARGED
+          AND bp.migrationRunId IS NULL
+          AND (bp.proratedLessons IS NOT NULL
+               OR (sg.group.endDate IS NOT NULL AND bp.periodStart <= sg.group.endDate
+                   AND sg.group.endDate < bp.periodEnd))
+        ORDER BY bp.studentGroupId
+        """)
+    List<Long> findStudentGroupIdsForLastPeriodReview();
 }

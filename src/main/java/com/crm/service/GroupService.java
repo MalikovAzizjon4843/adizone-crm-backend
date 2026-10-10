@@ -279,14 +279,19 @@ public class GroupService {
         AuditContext.change("status", oldStatus, group.getStatus());
         groupRepository.flush();
         GroupEndDateDtos.CatchUp result = groupEndDateService.catchUp(group);
-        if (result.periods() > 0) {
+        if (result.periods() > 0 || result.recalculated() > 0) {
             AuditContext.change("billingCatchUp", null, result.enrollments() + " yozilma, " + result.periods()
-                + " davr, " + result.amount().toPlainString() + " so'm: " + result.rows().stream()
-                    .map(r -> "sg#" + r.studentGroupId() + " " + r.periods().stream()
-                        .map(p -> p.start().toString()).collect(Collectors.joining(",")))
+                + " yangi davr, " + result.recalculated() + " qayta hisoblangan, jami "
+                + result.amount().toPlainString() + " so'm: " + result.rows().stream()
+                    .map(r -> "sg#" + r.studentGroupId() + " "
+                        + r.periods().stream().map(p -> p.start() + " " + p.amount().toPlainString())
+                            .collect(Collectors.joining(","))
+                        + r.recalculated().stream().map(c -> " [" + c.start() + " " + c.oldAmount().toPlainString()
+                            + "→" + c.newAmount().toPlainString() + "]").collect(Collectors.joining()))
                     .collect(Collectors.joining("; ")));
             AuditContext.summary("Guruh o'zgartirildi: " + group.getGroupName() + "; hisob tiklandi — "
-                + result.periods() + " davr, " + result.amount().toPlainString() + " so'm");
+                + result.periods() + " davr, " + result.recalculated() + " qayta hisob, "
+                + result.amount().toPlainString() + " so'm");
         }
     }
 

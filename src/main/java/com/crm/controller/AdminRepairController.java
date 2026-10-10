@@ -1,6 +1,8 @@
 package com.crm.controller;
 
+import com.crm.billing.LastPeriodRepairService;
 import com.crm.dto.response.ApiResponse;
+import com.crm.dto.response.GroupEndDateDtos;
 import com.crm.dto.response.LeadMissingTaskRepairResult;
 import com.crm.exception.CodedException;
 import org.springframework.http.HttpStatus;
@@ -30,6 +32,7 @@ public class AdminRepairController {
     private final GroupService groupService;
     private final LeadService leadService;
     private final LeadTaskRepairService leadTaskRepairService;
+    private final LastPeriodRepairService lastPeriodRepairService;
 
     @PostMapping("/link-teacher-users")
     public ResponseEntity<ApiResponse<Map<String, Object>>> linkTeacherUsers() {
@@ -55,6 +58,19 @@ public class AdminRepairController {
         return ResponseEntity.ok(ApiResponse.success(
             dryRun ? "Ko'rib chiqish (hech narsa yozilmadi)" : "Vazifasiz lidlar tuzatildi",
             leadTaskRepairService.repairMissingTasks(dryRun)));
+    }
+
+    /**
+     * Oxirgi davr darslar bo'yicha (buyurtmachi qoidasi 2026-10-10): qoida oldidan to'liq narx bilan yozilgan, guruh
+     * tugash sanasi ichiga tushadigan davrlar. {@code dryRun} standart TRUE — farqlar ro'yxati, hech narsa yozilmaydi;
+     * {@code false} — farq PERIOD_CHARGE / PERIOD_REFUND bilan qo'llanadi (har yozilma alohida tranzaksiyada).
+     */
+    @PostMapping(value = "/prorate-last-periods")
+    public ResponseEntity<ApiResponse<GroupEndDateDtos.Repair>> prorateLastPeriods(
+            @RequestParam(name = "dryRun", defaultValue = "true") boolean dryRun) {
+        return ResponseEntity.ok(ApiResponse.success(
+            dryRun ? "Ko'rib chiqish (hech narsa yozilmadi)" : "Oxirgi davrlar qayta hisoblandi",
+            lastPeriodRepairService.repair(dryRun)));
     }
 
     @PostMapping("/migrate-lead-statuses")

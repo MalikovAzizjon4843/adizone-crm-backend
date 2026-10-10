@@ -47,6 +47,7 @@ public class PaymentPlanner {
     private final BonusPenaltyRepository bonusPenaltyRepository;
     private final CashRegisterRepository cashRegisterRepository;
     private final BillingProperties properties;
+    private final LessonProrationService prorationService;
 
     /** Rejaning natijasi. */
     public record PaymentPlan(
@@ -181,7 +182,8 @@ public class PaymentPlanner {
         List<BillingCalendar.Span> existing = periodRepository.findByStudentGroupIdOrderByPeriodStartAsc(sg.getId())
             .stream().map(p -> new BillingCalendar.Span(p.getPeriodStart(), p.getPeriodEnd())).toList();
         AccrualCalculator.Result due = AccrualCalculator.dueChargesAfter(
-            AccrualCalculator.State.of(billingView), existing, today, properties.getMaxCatchUp());
+            AccrualCalculator.State.of(billingView), existing, today, properties.getMaxCatchUp(),
+            prorationService.forEnrollment(billingView));
         if (due.catchUpLimitReached()) {
             warnings.add("billing.catchUp.limit");
         }

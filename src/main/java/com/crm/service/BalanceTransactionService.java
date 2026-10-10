@@ -250,7 +250,8 @@ public class BalanceTransactionService {
             .note(t.getNote())
             .relatedTxId(t.getRelatedTxId())
             .billingPeriod(period != null
-                ? new BalanceHistoryItemDto.PeriodRef(period.getPeriodStart(), period.getPeriodEnd()) : null)
+                ? new BalanceHistoryItemDto.PeriodRef(period.getPeriodStart(), period.getPeriodEnd(),
+                    period.getAmount(), period.getProratedLessons(), period.getLessonPrice()) : null)
             .paymentId(paymentId)
             .receiptNumber(payment != null ? payment.getReceiptNumber() : null)
             .groupId(t.getStudentGroup() != null && t.getStudentGroup().getGroup() != null

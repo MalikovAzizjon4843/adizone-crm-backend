@@ -52,5 +52,9 @@ public class ExpectedPaymentsResponse {
         /** Shu yozilmadagi joriy qarz (R2: qarzdor ham keyingi davri bilan ro'yxatda); qarz yo'q — 0. */
         private BigDecimal debt;
         private long daysUntil;
+        /** Oxirgi davr (guruh shu davrda tugaydi): darslar soni — "7 dars × 250 000"; to'liq davr — null. */
+        private Integer proratedLessons;
+        /** Oxirgi davrda bitta dars narxi ({@code c / billing.lessons_per_month}); to'liq davr — null. */
+        private BigDecimal lessonPrice;
     }
 }

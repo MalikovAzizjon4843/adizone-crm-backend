@@ -239,6 +239,8 @@ public class DebtorService {
                     .paymentStatus(st.name())
                     .debt(Money.normalize(debt))
                     .daysUntil(ChronoUnit.DAYS.between(today, next.date()))
+                    .proratedLessons(next.proratedLessons())
+                    .lessonPrice(next.lessonPrice() != null ? Money.normalize(next.lessonPrice()) : null)
                     .build());
             total = total.add(amount);
             students.add(s.getId());

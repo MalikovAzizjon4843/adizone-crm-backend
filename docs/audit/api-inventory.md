@@ -344,6 +344,25 @@ qaytarilganlarga tegmaydi), **V77** (`billing_held_applications`, UNIQUE `idempo
 | `GET /api/groups/{id}/end-date-impact?endDate=YYYY-MM-DD` | SA, A | **YANGI.** Faqat o'qiydi. `endDate` berilmasa — tugash sanasisiz. Validatsiya create/update bilan bir xil (400 `group.endDate.beforeStart` / `group.endDate.past`); guruh yo'q → 404. Javob: `{groupId, groupName, status, startDate, currentEndDate, newEndDate, today, enrollments: [{studentGroupId, studentId, studentName, skipReason, periods: [{start, end, amount}], charge, balanceBefore, balanceAfter, debtAfter, debtSinceAfter, statusBefore, statusAfter, debtorBefore, debtorAfter, nextPaymentDateBefore, nextPaymentDateAfter, nextPaymentAmountAfter}], totals: {enrollments, affected, periods, amount, debtorsBefore, debtorsAfter, held}}`. Ochiq yozilmalar (faol yoki muzlatilgan). `skipReason`: `HOLD`, `FROZEN`, `TRIAL`, `PER_LESSON`, `NO_ANCHOR`, `GROUP_STATUS` yoki `null`. Davrlar — aynan accrual yozadiganlar (`AccrualService.planWithGroupEnd`); "oldin" — joriy `end_date` bilan jonli hisob (saqlangan snapshot emas); qarzdor = holat `OVERDUE`; qarzda `nextPaymentDateAfter` = `debtSinceAfter` |
 | `GET /api/groups/attention` | SA, A | **YANGI.** Faqat o'qiydi. ACTIVE/FORMING guruhlar: `endDate ≤ bugun` yoki `endDate ≤ startDate`. Javob: `{today, groups, stoppedEnrollments, rows: [{groupId, groupName, status, startDate, endDate, endBeforeStart, openEnrollments, stoppedEnrollments, heldEnrollments, missedPeriods, missedAmount}]}`. `stoppedEnrollments` — R3 sababli to'xtagan (tugash sanasisiz bugungacha davr yozilardi, joriy sana bilan — yo'q); hold'dagilar alohida `heldEnrollments`. Dashboard'ga ulanmagan (u yerda ogohlantirish mexanizmi yo'q) |
 
+## Yangilanishlar (2026-10-10, oxirgi davr darslar bo'yicha — V81)
+
+> Buyurtmachi qoidasi: guruh davr o'rtasida tugasa (`period_start ≤ end_date < period_end`), oxirgi davr summasi
+> `min(c, uzs(c / billing.lessons_per_month) × darslar)`; darslar — guruh jadvali bo'yicha `[period_start, end_date]`,
+> bayram va bekor qilingan darslar chiqariladi, EXTRA qo'shiladi. Sozlama `settings.billing.lessons_per_month` (standart 12).
+> Jadvalsiz guruh — to'liq `c`. PER_LESSON — tegilmaydi. Batafsil: [billing-v2.md §14.3.1](../design/billing-v2.md).
+> Misol: c = 3 000 000, davr 26.10–25.11, tugash 10.11, 7 dars → **1 750 000** (7 × 250 000).
+> Migratsiya V81: `billing_periods.prorated_lessons INT NULL`, `lesson_price NUMERIC(12,2) NULL` + sozlama qatori.
+
+| Endpoint | Rollar | O'zgarish |
+|---|---|---|
+| Accrual (kunlik job, to'lov, guruhga qo'shish va h.k.), `POST /api/payments/preview` | — | Oxirgi davr `PERIOD_CHARGE` darslar bo'yicha; ledger izohi `"26.10.2026–25.11.2026 (7 dars × 250 000)"` |
+| `GET /api/payments/expected` | SA, A, ACC | `amount` oxirgi davrda darslar bo'yicha (oldindan to'lov qoldig'i ayirilgan holda). Qatorda yangi **`proratedLessons`** (Integer) va **`lessonPrice`** — to'liq davrda `null` |
+| Snapshot (`nextPaymentAmount` — o'quvchi kartasi, ro'yxatlar, Mini App) | — | Keyingi to'lov oxirgi davrga tushsa — darslar bo'yicha summa |
+| `GET /api/students/{id}/balance-history` (va boshqa `BalanceHistoryItemDto`) | — | `billingPeriod` endi `{start, end, amount, proratedLessons, lessonPrice}` (oxirgi ikkisi to'liq davrda `null`) |
+| `GET /api/groups/{id}/end-date-impact` | SA, A | `periods[]` da `lessons`, `lessonPrice`; har qatorda yangi **`recalculated[]`** — `{periodId, studentGroupId, start, end, oldAmount, newAmount, diff, oldLessons, newLessons, lessonPrice, chargeTxId}` (yozilgan oxirgi davr yangi sana bilan); `charge` va `balanceAfter` farqni ham o'z ichiga oladi; `totals.recalculated` |
+| `PUT /api/groups/{id}`, `PATCH /api/groups/{id}/status` | SA, A | `end_date`/holat o'zgarganda (catch-up ichida, shu tranzaksiyada) yozilgan oxirgi davr qayta hisoblanadi: farq oshsa — qo'shimcha `PERIOD_CHARGE`, kamaysa — `PERIOD_REFUND` (balansga), `effective_date = period_start`, `related_tx_id` = asl charge; davr `amount`, `prorated_lessons`, `lesson_price` yangilanadi. Audit (UPDATE Group) `billingCatchUp`: `"… [sana eski→yangi]"`, summary "…, N qayta hisob, X so'm" |
+| `POST /api/admin/repair/prorate-last-periods?dryRun=true\|false` | SA | **YANGI.** `dryRun` standart **true** (hech narsa yozilmaydi). Qamrov: CHARGED, migratsiyadan bo'lmagan davr ichiga guruh tugash sanasi tushadi yoki avval darslar bo'yicha hisoblangan; summasi qoidadan farq qiladi. `dryRun=false` — farqlar yuqoridagi mexanizm bilan, har yozilma alohida tranzaksiyada (qulf ostida qayta rejalanadi); takroriy chaqiruv — `periods: 0`. Billing o'chiq bo'lsa (`dryRun=false`) — 503 `billing.maintenance`. Javob: `{dryRun, candidates, enrollments, periods, totalDiff, failed, rows: [{studentGroupId, studentId, studentName, groupId, groupName, groupEndDate, periodId, periodStart, periodEnd, oldAmount, newAmount, diff, oldLessons, lessons, lessonPrice}], errors[]}`. Audit: REPAIR BillingPeriod (faqat `dryRun=false`) |
+
 ## 0. Qanday o'qish kerak
 
 ### 0.1 Endpointlar soni

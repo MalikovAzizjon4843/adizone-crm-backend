@@ -63,13 +63,89 @@ public final class AccrualCalculator {
         }
     }
 
-    /** Hisoblanishi kerak bo'lgan bitta davr. {@code amount} — {@code c}, 0 bo'lishi mumkin (d = 100). */
+    /**
+     * Hisoblanishi kerak bo'lgan bitta davr. {@code amount} — {@code c}, 0 bo'lishi mumkin (d = 100); oxirgi davrda
+     * (guruh shu davr ichida tugaydi) — darslar bo'yicha, {@code proratedLessons} va {@code lessonPrice} bilan
+     * (to'liq davrda ikkalasi null).
+     */
     public record DueCharge(
         LocalDate periodStart,
         LocalDate periodEnd,
         BigDecimal fee,
         BigDecimal discountPercentage,
-        BigDecimal amount) {
+        BigDecimal amount,
+        Integer proratedLessons,
+        BigDecimal lessonPrice) {
+
+        /** To'liq davr. */
+        public DueCharge(LocalDate periodStart, LocalDate periodEnd, BigDecimal fee, BigDecimal discountPercentage,
+                         BigDecimal amount) {
+            this(periodStart, periodEnd, fee, discountPercentage, amount, null, null);
+        }
+
+        public boolean prorated() {
+            return proratedLessons != null;
+        }
+    }
+
+    /**
+     * Oxirgi davr darslari (buyurtmachi qoidasi 2026-10-10): oyiga darslar soni (sozlama
+     * {@code billing.lessons_per_month}) va guruh jadvali bo'yicha darslar. {@code LessonProrationService} beradi.
+     */
+    public interface Proration {
+
+        int lessonsPerMonth();
+
+        /** {@code [from, to]} (ikkala chet kiradi) dagi darslar; guruh jadvalsiz — null (oxirgi davr ham to'liq c). */
+        Integer lessons(LocalDate from, LocalDate to);
+
+        /** Jadval ma'lumotisiz (sof hisob testlari): oxirgi davr ham to'liq {@code c}. */
+        Proration NONE = new Proration() {
+            @Override
+            public int lessonsPerMonth() {
+                return 12;
+            }
+
+            @Override
+            public Integer lessons(LocalDate from, LocalDate to) {
+                return null;
+            }
+        };
+    }
+
+    /** Oxirgi davr: {@code period_start ≤ end_date < period_end} ({@code periodEnd} — davrning oxirgi kuni). */
+    public static boolean isLastPeriod(LocalDate groupEnd, LocalDate periodStart, LocalDate periodEnd) {
+        return groupEnd != null && periodStart != null && periodEnd != null
+            && !periodStart.isAfter(groupEnd) && groupEnd.isBefore(periodEnd);
+    }
+
+    /**
+     * Bitta MONTHLY davr summasi — YAGONA formula (accrual, to'lov preview'i, kutilayotgan, keyingi to'lov, end_date
+     * preview'i, yozilgan davrni qayta hisoblash). {@code fee} / {@code discount} — davr narxi (yozilgan davrda —
+     * o'sha paytdagisi). {@code c = discounted(fee, d)}; oxirgi davrda
+     * {@code min(c, uzs(c / lessonsPerMonth) × darslar[period_start, end_date])} ({@link EnrollmentPricing});
+     * jadvalsiz guruh yoki darslar bo'yicha summa {@code c} dan kam bo'lmasa — to'liq {@code c}.
+     */
+    public static DueCharge periodCharge(LocalDate start, LocalDate end, BigDecimal fee, BigDecimal discount,
+                                         LocalDate groupEnd, Proration proration) {
+        BigDecimal d = EnrollmentPricing.validDiscount(discount);
+        BigDecimal c = Money.discounted(fee, d);
+        if (isLastPeriod(groupEnd, start, end)) {
+            Integer lessons = proration.lessons(start, groupEnd);
+            if (lessons != null) {
+                BigDecimal lessonPrice = EnrollmentPricing.monthlyLessonPrice(c, proration.lessonsPerMonth());
+                BigDecimal amount = EnrollmentPricing.lastPeriodAmount(c, lessonPrice, lessons);
+                if (amount.compareTo(c) < 0) {
+                    return new DueCharge(start, end, fee, d, amount, lessons, lessonPrice);
+                }
+            }
+        }
+        return new DueCharge(start, end, fee, d, c);
+    }
+
+    /** {@link #periodCharge} — yozilmaning joriy narxi va guruh tugash sanasi bilan. */
+    public static DueCharge charge(State s, LocalDate start, LocalDate end, Proration proration) {
+        return periodCharge(start, end, s.fee(), s.discountPercentage(), s.groupEndDate(), proration);
     }
 
     public record Result(List<DueCharge> charges, boolean catchUpLimitReached) {
@@ -86,7 +162,7 @@ public final class AccrualCalculator {
      *   && frozenFrom == null
      *   && (leaveDate == null || date ≤ leaveDate)
      *   && group.status ∈ {ACTIVE, FORMING}                (§13 #14)
-     *   && (group.endDate == null || date < group.endDate)  (R3, §14.3 — oxirgi qisman davr to'liq narx bilan)
+     *   && (group.endDate == null || date < group.endDate)  (R3, §14.3; oxirgi davr summasi — darslar bo'yicha, {@link #periodCharge})
      *   && fee > 0
      * </pre>
      * Qo'shimcha: nofaol, lekin {@code leaveDate} siz eski yozilma (nomuvofiq qator)
@@ -142,10 +218,15 @@ public final class AccrualCalculator {
      */
     public static Result dueChargesAfter(State s, Collection<BillingCalendar.Span> billed,
                                          LocalDate asOf, int maxCatchUp) {
+        return dueChargesAfter(s, billed, asOf, maxCatchUp, Proration.NONE);
+    }
+
+    /** {@link #dueChargesAfter(State, Collection, LocalDate, int)} — oxirgi davr darslar bo'yicha ({@code proration}). */
+    public static Result dueChargesAfter(State s, Collection<BillingCalendar.Span> billed,
+                                         LocalDate asOf, int maxCatchUp, Proration proration) {
         if (s.anchor() == null) {
             return Result.empty();
         }
-        BigDecimal d = EnrollmentPricing.validDiscount(s.discountPercentage());
         Set<LocalDate> existing = new HashSet<>();
         billed.forEach(b -> existing.add(b.start()));
 
@@ -161,7 +242,7 @@ public final class AccrualCalculator {
             }
             LocalDate end = BillingCalendar.endOf(s.anchor(), start);
             if (!existing.contains(start)) {
-                charges.add(new DueCharge(start, end, s.fee(), d, Money.discounted(s.fee(), d)));
+                charges.add(charge(s, start, end, proration));
                 k++;
             }
             start = end.plusDays(1);

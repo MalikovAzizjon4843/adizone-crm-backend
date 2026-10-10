@@ -75,6 +75,20 @@ public final class EnrollmentPricing {
     }
 
     /**
+     * MONTHLY oxirgi davr (guruh davr o'rtasida tugaydi, buyurtmachi qoidasi 2026-10-10): bitta dars narxi
+     * {@code uzs(c / lessonsPerMonth)}, {@code c} — chegirmadan keyingi oylik.
+     */
+    public static BigDecimal monthlyLessonPrice(BigDecimal c, int lessonsPerMonth) {
+        return Money.uzs(Money.divide(Money.nz(c), BigDecimal.valueOf(lessonsPerMonth)));
+    }
+
+    /** MONTHLY oxirgi davr summasi: {@code min(c, darsNarxi × darslar)}. */
+    public static BigDecimal lastPeriodAmount(BigDecimal c, BigDecimal lessonPrice, int lessons) {
+        BigDecimal byLessons = Money.nz(lessonPrice).multiply(BigDecimal.valueOf(Math.max(lessons, 0)));
+        return Money.nz(c).min(byLessons);
+    }
+
+    /**
      * PER_LESSON dars narxi (chegirmasiz): sg.lessonPrice → course.lessonPrice → 0.
      * Eski "oylik / oyiga darslar" taxmini olib tashlangan — u kasrli narx berardi.
      */

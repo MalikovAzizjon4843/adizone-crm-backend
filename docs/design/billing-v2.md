@@ -1383,6 +1383,35 @@ isAccruable(sg, start) … && (group.end_date == null || start < group.end_date)
 - Kutilayotgan (R2) va snapshotdagi keyingi to'lov sanasi ham shu chegarada to'xtaydi (MONTHLY: sana ≥ `end_date` — yo'q;
   PER_LESSON: `end_date` dan keyingi dars — yo'q).
 - `end_date` keyin o'zgartirilsa — yozilgan davrlar o'zgarmaydi; faqat keyingi accrual yangi qiymatni ko'radi.
+  **2026-10-10 dan bekor:** pastdagi §14.3.1 — yozilgan oxirgi davr qayta hisoblanadi.
+
+#### 14.3.1 Oxirgi davr darslar bo'yicha (buyurtmachi qoidasi 2026-10-10, V81)
+
+Yuqoridagi "oxirgi qisman davr — to'liq narx" o'rniga:
+
+```
+oxirgi davr  ⇔ period_start ≤ end_date < period_end           (AccrualCalculator.isLastPeriod)
+darsNarxi    = uzs(c / billing.lessons_per_month)              (sozlama, standart 12; EnrollmentPricing.monthlyLessonPrice)
+darslar      = guruh jadvali bo'yicha [period_start, end_date], ikkala chet; bayram, CANCELLED / MOVED (asl kun) — yo'q,
+               EXTRA / MOVED (yangi kun) — bor                 (GroupScheduleService.isLessonDay)
+summa        = min(c, darsNarxi × darslar)                     (EnrollmentPricing.lastPeriodAmount)
+```
+
+- Yagona formula — `AccrualCalculator.periodCharge`: accrual (PERIOD_CHARGE), to'lov preview'i, kutilayotgan summa,
+  snapshot'dagi keyingi to'lov summasi, `end-date-impact` preview'i, yozilgan davrni qayta hisoblash.
+- Jadvalsiz guruh — to'liq `c` (log ogohlantirish). PER_LESSON — tegilmaydi. Summa `c` dan kam bo'lmasa — to'liq davr
+  (`prorated_lessons` NULL).
+- `billing_periods.prorated_lessons`, `lesson_price` — oxirgi davrda to'ldiriladi; ledger izohi
+  `"26.10.2026–25.11.2026 (7 dars × 250 000)"`.
+- Davr ochilishi (R3) o'zgarmagan: `end_date` kuni boshlanadigan davr ochilmaydi (yuqoridagi buyurtmachi misoli), shuning
+  uchun `period_start = end_date` holati amalda summa bermaydi.
+- `end_date` yoki holat o'zgarsa (`GroupEndDateService.catchUp`) — yozilgan CHARGED, migratsiyadan bo'lmagan davrlar ichida
+  oxirgi davri yoki avval darslar bo'yicha hisoblangani davrning o'z narxi (`fee`, `discount_percentage`) bilan qayta
+  hisoblanadi (`LastPeriodRecalcService`): oshsa — qo'shimcha PERIOD_CHARGE, kamaysa — PERIOD_REFUND (ikkalasi
+  `effective_date = period_start`, `related_tx_id` = asl charge — FIFO'da aynan o'sha majburiyat), davr `amount` va darslar
+  maydonlari yangilanadi. Tugashdan keyin boshlangan davr, muzlatishda qaytarilgan va migratsiya davrlariga tegilmaydi.
+- Qoida oldidan yozilgan davrlar — `POST /api/admin/repair/prorate-last-periods` (SA, avval `dryRun=true`).
+- Migratsiya rejasi (`MigrationPlanner`, held apply-sg) o'z qoidasi bilan (§9.2, `c_n = fee`) — o'zgarmagan.
 
 ### 14.4 R4 — Sinovdan keyin qo'shilib to'lamaganlar — qarzdor
 

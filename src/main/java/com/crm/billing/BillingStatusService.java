@@ -47,6 +47,7 @@ public class BillingStatusService {
     private final BalanceTransactionRepository transactionRepository;
     private final BillingPeriodRepository periodRepository;
     private final GroupScheduleService groupScheduleService;
+    private final LessonProrationService prorationService;
 
     public LocalDate today() {
         return LocalDate.now(billingClock);
@@ -195,8 +196,13 @@ public class BillingStatusService {
         return PaymentStatus.PAID;
     }
 
-    private record NextPayment(LocalDate date, BigDecimal amount) {
-        static final NextPayment NONE = new NextPayment(null, null);
+    /** {@code lessons / lessonPrice} — sana oxirgi (darslar bo'yicha hisoblanadigan) davrga tushsa. */
+    private record NextPayment(LocalDate date, BigDecimal amount, Integer lessons, BigDecimal lessonPrice) {
+        static final NextPayment NONE = new NextPayment(null, null, null, null);
+
+        NextPayment(LocalDate date, BigDecimal amount) {
+            this(date, amount, null, null);
+        }
     }
 
     /**
@@ -216,24 +222,37 @@ public class BillingStatusService {
         if (fee == null || fee.signum() <= 0) {
             return NextPayment.NONE;
         }
-        long k = Money.floorDiv(balance, fee);
-        BigDecimal amount = fee.subtract(balance.subtract(fee.multiply(BigDecimal.valueOf(k))));
-
         if (isPerLesson(sg)) {
+            long k = Money.floorDiv(balance, fee);
+            BigDecimal amount = fee.subtract(balance.subtract(fee.multiply(BigDecimal.valueOf(k))));
             LocalDate lesson = nthUpcomingLesson(sg, (int) Math.min(k + 1, 1000), today);
             return lesson != null ? capByGroupEnd(new NextPayment(lesson, amount), sg, groupEnd) : NextPayment.NONE;
         }
 
         LocalDate anchor = sg.getPaymentStartDate();
-        if (anchor == null || k > 10_000) {
+        if (anchor == null) {
             return NextPayment.NONE;
         }
-        // Hali yozilmagan birinchi davr (zanjir, §14.7), undan k ta oldindan qoplangan davr keyin
+        // Hali yozilmagan birinchi davrdan (zanjir, §14.7) boshlab B oldindan qoplagan davrlar o'tkaziladi; har davr
+        // summasi — AccrualCalculator.charge (oxirgi davr darslar bo'yicha). R3: davr boshi ≥ end_date — to'lov yo'q.
+        AccrualCalculator.State state = AccrualCalculator.State.of(sg).withGroupEndDate(groupEnd);
+        AccrualCalculator.Proration proration = prorationService.forEnrollment(sg);
+        BigDecimal remaining = balance;
         LocalDate start = BillingCalendar.firstUnbilledStart(anchor, billed);
-        for (long i = 0; i < k; i++) {
+        for (int i = 0; i <= 10_000; i++) {
+            if (groupEnd != null && !start.isBefore(groupEnd)) {
+                return NextPayment.NONE;
+            }
+            AccrualCalculator.DueCharge charge = AccrualCalculator.charge(state, start,
+                BillingCalendar.endOf(anchor, start), proration);
+            if (remaining.compareTo(charge.amount()) < 0) {
+                return new NextPayment(start, charge.amount().subtract(remaining),
+                    charge.proratedLessons(), charge.lessonPrice());
+            }
+            remaining = remaining.subtract(charge.amount());
             start = BillingCalendar.following(anchor, start);
         }
-        return capByGroupEnd(new NextPayment(start, amount), sg, groupEnd);
+        return NextPayment.NONE;
     }
 
     /**
@@ -256,8 +275,11 @@ public class BillingStatusService {
         return sg.getGroup() != null ? sg.getGroup().getEndDate() : null;
     }
 
-    /** Kutilayotgan to'lov (R2): sana va summa. */
-    public record Upcoming(LocalDate date, BigDecimal amount) {
+    /**
+     * Kutilayotgan to'lov (R2): sana va summa; davr oxirgi bo'lsa (guruh shu davrda tugaydi) — {@code proratedLessons}
+     * va {@code lessonPrice} ("7 dars × 250 000"), aks holda null.
+     */
+    public record Upcoming(LocalDate date, BigDecimal amount, Integer proratedLessons, BigDecimal lessonPrice) {
     }
 
     /**
@@ -294,12 +316,21 @@ public class BillingStatusService {
             for (int i = 0; i < 10_000 && !start.isAfter(today); i++) {
                 start = BillingCalendar.following(anchor, start);
             }
-            np = capByGroupEnd(sg, new NextPayment(start, fee));
+            LocalDate end = groupEnd(sg);
+            if (end != null && !start.isBefore(end)) {
+                np = NextPayment.NONE;
+            } else {
+                AccrualCalculator.DueCharge charge = AccrualCalculator.charge(AccrualCalculator.State.of(sg), start,
+                    BillingCalendar.endOf(anchor, start), prorationService.forEnrollment(sg));
+                np = charge.amount().signum() > 0
+                    ? new NextPayment(start, charge.amount(), charge.proratedLessons(), charge.lessonPrice())
+                    : NextPayment.NONE;
+            }
         }
         if (np.date() == null || !np.date().isAfter(today)) {
             return null;
         }
-        return new Upcoming(np.date(), np.amount());
+        return new Upcoming(np.date(), np.amount(), np.lessons(), np.lessonPrice());
     }
 
     /** Jadval bo'yicha ertadan boshlab {@code n}-chi dars sanasi; jadval yo'q — null (§13 #28). */

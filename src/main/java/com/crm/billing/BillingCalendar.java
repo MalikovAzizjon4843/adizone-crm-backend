@@ -21,7 +21,8 @@ import java.util.Collection;
  * bilan mos davrlarda bu aynan {@code start(n+1)}. Eski qoida (29–31 → oy oxiri) bilan yozilgan oxirgi davr
  * (29.09–30.10) dan keyin — 29.10; eski davr oxiri yangi davr yozilganda {@code 28.10} ga qisqartiriladi (ustma-ust yo'q).
  *
- * <p>Proratsiya yo'q: birinchi davr langardan boshlanadi va to'liq narx olinadi.
+ * <p>Birinchi davr langardan boshlanadi va to'liq narx olinadi (proratsiya yo'q); faqat guruh tugaydigan oxirgi davr
+ * darslar bo'yicha ({@link AccrualCalculator#periodCharge}, buyurtmachi qoidasi 2026-10-10).
  */
 public final class BillingCalendar {
 

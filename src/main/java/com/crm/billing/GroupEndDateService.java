@@ -50,6 +50,7 @@ public class GroupEndDateService {
     private final BillingGate gate;
     private final GroupRepository groupRepository;
     private final StudentGroupRepository studentGroupRepository;
+    private final LastPeriodRecalcService recalcService;
 
     // ── Validatsiya ─────────────────────────────────────────────────────
 
@@ -92,19 +93,28 @@ public class GroupEndDateService {
         List<GroupEndDateDtos.ImpactRow> rows = new ArrayList<>();
         int affected = 0;
         int periods = 0;
+        int recalculated = 0;
         int held = 0;
         int debtorsBefore = 0;
         int debtorsAfter = 0;
         BigDecimal amount = BigDecimal.ZERO;
         for (StudentGroup sg : openEnrollments(groupId)) {
-            AccrualCalculator.Result plan = accrualService.planWithGroupEnd(sg, today, newEndDate);
             List<FifoDebt.Line> lines = new ArrayList<>();
             List<LocalDate> starts = new ArrayList<>();
-            List<GroupEndDateDtos.Period> planned = new ArrayList<>();
             BigDecimal charge = BigDecimal.ZERO;
+            // Yozilgan oxirgi davr(lar) qayta hisobi — catch-up'dagi kabi asl charge'ga bog'langan farq
+            List<GroupEndDateDtos.Recalc> recalcs = recalcService.plan(sg, newEndDate);
+            for (GroupEndDateDtos.Recalc r : recalcs) {
+                if (r.diff().signum() != 0) {
+                    lines.add(new FifoDebt.Line(null, r.diff().negate(), r.start(), r.chargeTxId()));
+                    charge = charge.add(r.diff());
+                }
+            }
+            AccrualCalculator.Result plan = accrualService.planWithGroupEnd(sg, today, newEndDate);
+            List<GroupEndDateDtos.Period> planned = new ArrayList<>();
             for (AccrualCalculator.DueCharge c : plan.charges()) {
                 starts.add(c.periodStart());
-                planned.add(new GroupEndDateDtos.Period(c.periodStart(), c.periodEnd(), Money.normalize(c.amount())));
+                planned.add(period(c.periodStart(), c.periodEnd(), c.amount(), c.proratedLessons(), c.lessonPrice()));
                 if (c.amount().signum() > 0) {
                     lines.add(new FifoDebt.Line(null, c.amount().negate(), c.periodStart(), null));
                     charge = charge.add(c.amount());
@@ -116,15 +126,16 @@ public class GroupEndDateService {
             boolean isDebtor = after.status() == PaymentStatus.OVERDUE;
 
             rows.add(new GroupEndDateDtos.ImpactRow(sg.getId(), sg.getStudent().getId(), fullName(sg.getStudent()),
-                skipReason(sg, group), planned, Money.normalize(charge),
+                skipReason(sg, group), planned, recalcs, Money.normalize(charge),
                 Money.normalize(before.balance()), Money.normalize(after.balance()), Money.normalize(after.debt()),
                 after.debtSince(), before.status().name(), after.status().name(), wasDebtor, isDebtor,
                 before.nextPaymentDate(), after.nextPaymentDate(),
                 after.nextPaymentAmount() != null ? Money.normalize(after.nextPaymentAmount()) : null));
-            if (!planned.isEmpty()) {
+            if (!planned.isEmpty() || !recalcs.isEmpty()) {
                 affected++;
             }
             periods += planned.size();
+            recalculated += recalcs.size();
             amount = amount.add(charge);
             held += Boolean.TRUE.equals(sg.getBillingHold()) ? 1 : 0;
             debtorsBefore += wasDebtor ? 1 : 0;
@@ -133,7 +144,7 @@ public class GroupEndDateService {
         return new GroupEndDateDtos.Impact(group.getId(), group.getGroupName(),
             group.getStatus() != null ? group.getStatus().name() : null, group.getStartDate(), group.getEndDate(),
             newEndDate, today, rows,
-            new GroupEndDateDtos.ImpactTotals(rows.size(), affected, periods, Money.normalize(amount),
+            new GroupEndDateDtos.ImpactTotals(rows.size(), affected, periods, recalculated, Money.normalize(amount),
                 debtorsBefore, debtorsAfter, held));
     }
 
@@ -152,10 +163,11 @@ public class GroupEndDateService {
         List<GroupEndDateDtos.CatchUpRow> rows = new ArrayList<>();
         if (!gate.isEnabled()) {
             log.warn("Billing o'chiq — guruh {} uchun catch-up o'tkazib yuborildi", group.getId());
-            return new GroupEndDateDtos.CatchUp(group.getId(), 0, 0, BigDecimal.ZERO, rows);
+            return new GroupEndDateDtos.CatchUp(group.getId(), 0, 0, 0, BigDecimal.ZERO, rows);
         }
         LocalDate today = statusService.today();
         int periods = 0;
+        int recalculated = 0;
         BigDecimal amount = BigDecimal.ZERO;
         // Qulf tartibi (BillingLocks): o'quvchi → yozilma, id o'sishida
         List<StudentGroup> open = openEnrollments(group.getId()).stream()
@@ -164,23 +176,29 @@ public class GroupEndDateService {
         for (StudentGroup candidate : open) {
             Long studentId = candidate.getStudent().getId();
             StudentGroup sg = locks.lockEnrollmentWithStudent(studentId, candidate.getId());
+            // Avval yozilgan oxirgi davr yangi tugash sanasi bilan qayta hisoblanadi, keyin yetishmagan davrlar
+            List<GroupEndDateDtos.Recalc> recalcs = recalcService.apply(sg);
             AccrualService.AccrualResult result = accrualService.accrueLocked(sg, today);
-            if (result.created().isEmpty()) {
+            if (result.created().isEmpty() && recalcs.isEmpty()) {
                 continue;
             }
             List<GroupEndDateDtos.Period> written = result.created().stream()
-                .map(p -> new GroupEndDateDtos.Period(p.getPeriodStart(), p.getPeriodEnd(), Money.normalize(p.getAmount())))
+                .map(p -> period(p.getPeriodStart(), p.getPeriodEnd(), p.getAmount(), p.getProratedLessons(),
+                    p.getLessonPrice()))
                 .toList();
-            BigDecimal charge = written.stream().map(GroupEndDateDtos.Period::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
-            rows.add(new GroupEndDateDtos.CatchUpRow(sg.getId(), studentId, written, charge));
+            BigDecimal charge = written.stream().map(GroupEndDateDtos.Period::amount).reduce(BigDecimal.ZERO, BigDecimal::add)
+                .add(recalcs.stream().map(GroupEndDateDtos.Recalc::diff).reduce(BigDecimal.ZERO, BigDecimal::add));
+            rows.add(new GroupEndDateDtos.CatchUpRow(sg.getId(), studentId, written, recalcs, Money.normalize(charge)));
             periods += written.size();
+            recalculated += recalcs.size();
             amount = amount.add(charge);
         }
-        if (periods > 0) {
-            log.info("Guruh {} end_date/holat o'zgardi — {} yozilmada {} davr yozildi ({} so'm)",
-                group.getId(), rows.size(), periods, amount.toPlainString());
+        if (periods > 0 || recalculated > 0) {
+            log.info("Guruh {} end_date/holat o'zgardi — {} yozilmada {} davr yozildi, {} davr qayta hisoblandi ({} so'm)",
+                group.getId(), rows.size(), periods, recalculated, amount.toPlainString());
         }
-        return new GroupEndDateDtos.CatchUp(group.getId(), rows.size(), periods, Money.normalize(amount), rows);
+        return new GroupEndDateDtos.CatchUp(group.getId(), rows.size(), periods, recalculated, Money.normalize(amount),
+            rows);
     }
 
     // ── Diqqat talab qiladigan guruhlar ─────────────────────────────────
@@ -225,6 +243,12 @@ public class GroupEndDateService {
     }
 
     // ── yordamchilar ────────────────────────────────────────────────────
+
+    private static GroupEndDateDtos.Period period(LocalDate start, LocalDate end, BigDecimal amount, Integer lessons,
+                                                  BigDecimal lessonPrice) {
+        return new GroupEndDateDtos.Period(start, end, Money.normalize(Money.nz(amount)), lessons,
+            lessonPrice != null ? Money.normalize(lessonPrice) : null);
+    }
 
     private List<StudentGroup> openEnrollments(Long groupId) {
         return studentGroupRepository.findByGroupId(groupId).stream()

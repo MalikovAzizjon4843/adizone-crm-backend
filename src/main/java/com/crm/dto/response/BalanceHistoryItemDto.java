@@ -38,6 +38,11 @@ public class BalanceHistoryItemDto {
     private Long paymentId;
     private String receiptNumber;
 
-    public record PeriodRef(LocalDate start, LocalDate end) {
+    /**
+     * Davr: {@code amount} — joriy davr summasi; oxirgi davr (guruh shu davrda tugaydi) bo'lsa {@code proratedLessons}
+     * va {@code lessonPrice} ("7 dars × 250 000"), to'liq davrda ikkalasi null.
+     */
+    public record PeriodRef(LocalDate start, LocalDate end, BigDecimal amount, Integer proratedLessons,
+                            BigDecimal lessonPrice) {
     }
 }
