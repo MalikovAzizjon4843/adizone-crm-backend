@@ -124,14 +124,25 @@ public class AccrualService {
      * preview'i (§5.2 qadam 3) va accrual shu bitta hisobdan foydalanadi.
      */
     public AccrualCalculator.Result plan(StudentGroup sg, LocalDate asOf) {
+        return plan(sg, asOf, AccrualCalculator.State.of(sg));
+    }
+
+    /**
+     * {@link #plan(StudentGroup, LocalDate)} — guruh tugash sanasi o'rniga {@code groupEnd} bilan (R3). Guruh
+     * {@code end_date} o'zgarishi preview'i ({@code GroupEndDateService.impact}) aynan accrual yozadigan davrlarni ko'radi.
+     */
+    public AccrualCalculator.Result planWithGroupEnd(StudentGroup sg, LocalDate asOf, LocalDate groupEnd) {
+        return plan(sg, asOf, AccrualCalculator.State.of(sg).withGroupEndDate(groupEnd));
+    }
+
+    private AccrualCalculator.Result plan(StudentGroup sg, LocalDate asOf, AccrualCalculator.State state) {
         if (Boolean.TRUE.equals(sg.getBillingHold())) {
             // §9.7 MIGRATION_PENDING: migratsiya qo'lda qayta qo'llanguncha davr yozilmaydi
             return AccrualCalculator.Result.empty();
         }
         List<BillingCalendar.Span> existing = periodRepository.findByStudentGroupIdOrderByPeriodStartAsc(sg.getId())
             .stream().map(p -> new BillingCalendar.Span(p.getPeriodStart(), p.getPeriodEnd())).toList();
-        return AccrualCalculator.dueChargesAfter(
-            AccrualCalculator.State.of(sg), existing, asOf, properties.getMaxCatchUp());
+        return AccrualCalculator.dueChargesAfter(state, existing, asOf, properties.getMaxCatchUp());
     }
 
     /**

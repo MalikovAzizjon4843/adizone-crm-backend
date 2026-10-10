@@ -55,6 +55,12 @@ public final class AccrualCalculator {
                 EnrollmentPricing.discount(sg),
                 sg.getGroup() != null ? sg.getGroup().getEndDate() : null);
         }
+
+        /** Xuddi shu holat, boshqa guruh tugash sanasi bilan (null — cheklovsiz). */
+        public State withGroupEndDate(LocalDate end) {
+            return new State(paymentType, trial, active, anchor, frozenFrom, leaveDate, groupStatus, fee,
+                discountPercentage, end);
+        }
     }
 
     /** Hisoblanishi kerak bo'lgan bitta davr. {@code amount} — {@code c}, 0 bo'lishi mumkin (d = 100). */

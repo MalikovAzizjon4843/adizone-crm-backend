@@ -1,7 +1,10 @@
 package com.crm.service;
 
 import com.crm.audit.AuditAction;
+import com.crm.audit.AuditContext;
 import com.crm.audit.Audited;
+import com.crm.billing.GroupEndDateService;
+import com.crm.dto.response.GroupEndDateDtos;
 import com.crm.config.Messages;
 import com.crm.dto.request.GroupRequest;
 import com.crm.dto.request.StudentGroupRequest;
@@ -64,6 +67,7 @@ public class GroupService {
     private final com.crm.billing.BillingStatusService billingStatusService;
     private final com.crm.billing.EnrollmentLifecycleService enrollmentLifecycleService;
     private final com.crm.billing.StudentStatusService studentStatusService;
+    private final GroupEndDateService groupEndDateService;
 
     @Transactional(readOnly = true)
     public List<GroupResponse> getAllGroups(GroupStatus status) {
@@ -186,6 +190,8 @@ public class GroupService {
         entityId = "#result.id", label = "#result.groupName")
     public GroupResponse createGroup(GroupRequest request) {
         Course course = courseService.findById(request.getCourseId());
+        GroupStatus status = isBlank(request.getStatus()) ? GroupStatus.ACTIVE : parseStatus(request.getStatus());
+        groupEndDateService.validateDates(request.getStartDate(), request.getEndDate(), status);
 
         Group group = Group.builder()
             .groupName(request.getGroupName())
@@ -194,9 +200,7 @@ public class GroupService {
             .maxStudents(request.getMaxStudents())
             .startDate(request.getStartDate())
             .endDate(request.getEndDate())
-            .status(isBlank(request.getStatus())
-                ? GroupStatus.ACTIVE
-                : parseStatus(request.getStatus()))
+            .status(status)
             .notes(request.getNotes())
             .build();
 
@@ -225,6 +229,11 @@ public class GroupService {
     public GroupResponse updateGroup(Long id, GroupRequest request) {
         Group group = findById(id);
         Course course = courseService.findById(request.getCourseId());
+        LocalDate oldEndDate = group.getEndDate();
+        GroupStatus oldStatus = group.getStatus();
+        // Berilmasa — joriy status saqlanadi (ACTIVE ga qaytarilmaydi).
+        GroupStatus newStatus = isBlank(request.getStatus()) ? oldStatus : parseStatus(request.getStatus());
+        groupEndDateService.validateDates(request.getStartDate(), request.getEndDate(), newStatus);
 
         group.setGroupName(request.getGroupName());
         group.setCourse(course);
@@ -233,10 +242,7 @@ public class GroupService {
         group.setStartDate(request.getStartDate());
         group.setEndDate(request.getEndDate());
         group.setNotes(request.getNotes());
-        // Berilmasa — joriy status saqlanadi (ACTIVE ga qaytarilmaydi).
-        if (!isBlank(request.getStatus())) {
-            group.setStatus(parseStatus(request.getStatus()));
-        }
+        group.setStatus(newStatus);
 
         if (request.getTeacherId() != null) {
             Teacher teacher = teacherRepository.findById(request.getTeacherId())
@@ -256,8 +262,32 @@ public class GroupService {
             }
         }
         warnIfNoLessonDays(saved);
+        afterBillingTermsChanged(saved, oldEndDate, oldStatus);
 
         return toResponse(saved, false, null);
+    }
+
+    /**
+     * R3 (billing-v2 §14.3): {@code end_date} yoki holat o'zgarsa — shu tranzaksiyada yetishmagan davrlar yoziladi
+     * va snapshot'lar yangilanadi ({@link GroupEndDateService#catchUp}); o'zgarish va natija audit yozuviga kiradi.
+     */
+    private void afterBillingTermsChanged(Group group, LocalDate oldEndDate, GroupStatus oldStatus) {
+        if (java.util.Objects.equals(oldEndDate, group.getEndDate()) && oldStatus == group.getStatus()) {
+            return;
+        }
+        AuditContext.change("endDate", oldEndDate, group.getEndDate());
+        AuditContext.change("status", oldStatus, group.getStatus());
+        groupRepository.flush();
+        GroupEndDateDtos.CatchUp result = groupEndDateService.catchUp(group);
+        if (result.periods() > 0) {
+            AuditContext.change("billingCatchUp", null, result.enrollments() + " yozilma, " + result.periods()
+                + " davr, " + result.amount().toPlainString() + " so'm: " + result.rows().stream()
+                    .map(r -> "sg#" + r.studentGroupId() + " " + r.periods().stream()
+                        .map(p -> p.start().toString()).collect(Collectors.joining(",")))
+                    .collect(Collectors.joining("; ")));
+            AuditContext.summary("Guruh o'zgartirildi: " + group.getGroupName() + "; hisob tiklandi — "
+                + result.periods() + " davr, " + result.amount().toPlainString() + " so'm");
+        }
     }
 
     /**
@@ -479,8 +509,13 @@ public class GroupService {
         entityId = "#id", label = "#result.groupName")
     public GroupResponse updateStatus(Long id, String status) {
         Group group = findById(id);
-        group.setStatus(parseStatus(status));
-        return toResponse(groupRepository.save(group), false, null);
+        GroupStatus oldStatus = group.getStatus();
+        GroupStatus newStatus = parseStatus(status);
+        groupEndDateService.validateNotPast(group.getEndDate(), newStatus);
+        group.setStatus(newStatus);
+        Group saved = groupRepository.save(group);
+        afterBillingTermsChanged(saved, saved.getEndDate(), oldStatus);
+        return toResponse(saved, false, null);
     }
 
     @Transactional

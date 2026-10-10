@@ -5,7 +5,9 @@ import com.crm.dto.request.GroupRequest;
 import com.crm.dto.request.RemoveStudentRequest;
 import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.request.StudentCreateAndAddRequest;
+import com.crm.billing.GroupEndDateService;
 import com.crm.dto.response.ApiResponse;
+import com.crm.dto.response.GroupEndDateDtos;
 import com.crm.dto.response.GroupLessonDaysResponse;
 import com.crm.dto.response.GroupResponse;
 import com.crm.dto.response.SuspendedStudentResponse;
@@ -17,10 +19,12 @@ import com.crm.service.GroupService;
 import com.crm.service.StudentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -31,6 +35,7 @@ public class GroupController {
     private final GroupService groupService;
     private final StudentService studentService;
     private final GroupPromotionService promotionService;
+    private final GroupEndDateService groupEndDateService;
 
     /** Guruhga ko'chirish oldindan ko'rish (phase6-api §5) — hech narsa yozmaydi. */
     @PostMapping("/{fromId}/promote/preview")
@@ -83,6 +88,29 @@ public class GroupController {
     public ResponseEntity<ApiResponse<List<SuspendedStudentResponse>>> getSuspendedStudents(
             @PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(groupService.getSuspendedStudents(id)));
+    }
+
+    /**
+     * Diqqat talab qiladigan guruhlar (billing-v2 R3): ACTIVE/FORMING, {@code end_date ≤ bugun} yoki boshlanishdan
+     * oldin, va ularda R3 sababli davri yozilmay qolgan yozilmalar soni. Faqat o'qiydi.
+     */
+    @GetMapping(value = "/attention")
+    @PreAuthorize(value = "hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<GroupEndDateDtos.Attention>> getAttention() {
+        return ResponseEntity.ok(ApiResponse.success(groupEndDateService.attention()));
+    }
+
+    /**
+     * {@code end_date} o'zgarishi ta'siri: har ochiq yozilma uchun yoziladigan davrlar, balans oldin → keyin,
+     * qarzdorlik, yangi keyingi to'lov sanasi. Faqat o'qiydi. {@code endDate} berilmasa — tugash sanasisiz.
+     */
+    @GetMapping(value = "/{id}/end-date-impact")
+    @PreAuthorize(value = "hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<GroupEndDateDtos.Impact>> getEndDateImpact(
+            @PathVariable(name = "id") Long id,
+            @RequestParam(name = "endDate", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        return ResponseEntity.ok(ApiResponse.success(groupEndDateService.impact(id, endDate)));
     }
 
     @GetMapping("/{id}")

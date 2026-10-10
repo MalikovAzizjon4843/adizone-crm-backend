@@ -137,6 +137,16 @@ public class BillingStatusService {
      */
     public BillingSnapshot snapshotWith(StudentGroup sg, List<FifoDebt.Line> plannedLines,
                                         Collection<LocalDate> plannedPeriodStarts, LocalDate today) {
+        return snapshotWith(sg, plannedLines, plannedPeriodStarts, today, groupEnd(sg));
+    }
+
+    /**
+     * Xuddi shu hisob, lekin guruh tugash sanasi o'rniga {@code groupEnd} (R3): guruh {@code end_date}
+     * o'zgarishi ta'sirini yozmasdan ko'rish ({@code GroupEndDateService.impact}).
+     */
+    public BillingSnapshot snapshotWith(StudentGroup sg, List<FifoDebt.Line> plannedLines,
+                                        Collection<LocalDate> plannedPeriodStarts, LocalDate today,
+                                        LocalDate groupEnd) {
         List<FifoDebt.Line> lines = new ArrayList<>();
         if (sg.getId() != null) {
             for (BalanceTransaction t : transactionRepository.findLedgerForFifo(sg.getId())) {
@@ -165,7 +175,7 @@ public class BillingStatusService {
         PaymentStatus status = displayStatus(sg, balance, fifo.debtSince(), today);
         BigDecimal fee = isPerLesson(sg) ? EnrollmentPricing.effectiveLessonPrice(sg)
             : EnrollmentPricing.effectiveMonthlyFee(sg);
-        NextPayment next = nextPayment(sg, balance, fifo.debtSince(), fee, billed, today);
+        NextPayment next = nextPayment(sg, balance, fifo.debtSince(), fee, billed, today, groupEnd);
         return new BillingSnapshot(balance, fifo.debt(), fifo.debtSince(), status,
             next.date(), next.amount(), fee);
     }
@@ -195,7 +205,8 @@ public class BillingStatusService {
      * qoplashi va keyingi davr boshi.
      */
     private NextPayment nextPayment(StudentGroup sg, BigDecimal balance, LocalDate debtSince,
-                                    BigDecimal fee, Collection<BillingCalendar.Span> billed, LocalDate today) {
+                                    BigDecimal fee, Collection<BillingCalendar.Span> billed, LocalDate today,
+                                    LocalDate groupEnd) {
         if (!isBillingOpen(sg)) {
             return NextPayment.NONE;
         }
@@ -210,7 +221,7 @@ public class BillingStatusService {
 
         if (isPerLesson(sg)) {
             LocalDate lesson = nthUpcomingLesson(sg, (int) Math.min(k + 1, 1000), today);
-            return lesson != null ? capByGroupEnd(sg, new NextPayment(lesson, amount)) : NextPayment.NONE;
+            return lesson != null ? capByGroupEnd(new NextPayment(lesson, amount), sg, groupEnd) : NextPayment.NONE;
         }
 
         LocalDate anchor = sg.getPaymentStartDate();
@@ -222,7 +233,7 @@ public class BillingStatusService {
         for (long i = 0; i < k; i++) {
             start = BillingCalendar.following(anchor, start);
         }
-        return capByGroupEnd(sg, new NextPayment(start, amount));
+        return capByGroupEnd(new NextPayment(start, amount), sg, groupEnd);
     }
 
     /**
@@ -230,12 +241,19 @@ public class BillingStatusService {
      * davr ham ochilmaydi, {@link AccrualCalculator#isAccruable}); PER_LESSON — {@code end_date} dan keyingi dars.
      */
     private static NextPayment capByGroupEnd(StudentGroup sg, NextPayment np) {
-        LocalDate end = sg.getGroup() != null ? sg.getGroup().getEndDate() : null;
+        return capByGroupEnd(np, sg, groupEnd(sg));
+    }
+
+    private static NextPayment capByGroupEnd(NextPayment np, StudentGroup sg, LocalDate end) {
         if (end == null || np.date() == null) {
             return np;
         }
         boolean after = isPerLesson(sg) ? np.date().isAfter(end) : !np.date().isBefore(end);
         return after ? NextPayment.NONE : np;
+    }
+
+    private static LocalDate groupEnd(StudentGroup sg) {
+        return sg.getGroup() != null ? sg.getGroup().getEndDate() : null;
     }
 
     /** Kutilayotgan to'lov (R2): sana va summa. */
@@ -262,7 +280,7 @@ public class BillingStatusService {
             : EnrollmentPricing.effectiveMonthlyFee(sg);
         NextPayment np;
         if (balance.signum() >= 0) {
-            np = nextPayment(sg, balance, null, fee, billed, today);
+            np = nextPayment(sg, balance, null, fee, billed, today, groupEnd(sg));
         } else if (fee == null || fee.signum() <= 0) {
             np = NextPayment.NONE;
         } else if (isPerLesson(sg)) {
