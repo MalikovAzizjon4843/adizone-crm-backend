@@ -34,6 +34,8 @@ public class GroupResponse {
     private LocalDate endDate;
     private String notes;
     private GroupStatus status;
+    /** Dars turi: GROUP | INDIVIDUAL (V82). */
+    private com.crm.entity.enums.LessonType lessonType;
     private List<ScheduleResponse> schedules;
     private List<ScheduleDayResponse> scheduleDays;
     /** Active members; populated only for single-group fetches (e.g. getById). */

@@ -90,6 +90,8 @@ public class AccrualService {
                 .amount(charge.amount())
                 .proratedLessons(charge.proratedLessons())
                 .lessonPrice(charge.lessonPrice())
+                // Payroll v3: o'qituvchi ulushi dars turiga qarab — davr yozilgan paytdagisi
+                .lessonType(sg.getGroup() != null ? sg.getGroup().getLessonType() : null)
                 .status(BillingPeriodStatus.CHARGED)
                 // Payroll v2 (§8): davr yozilgan paytdagi o'qituvchi — keyin almashsa ham shu qoladi
                 .teacherId(currentTeacherId(sg))

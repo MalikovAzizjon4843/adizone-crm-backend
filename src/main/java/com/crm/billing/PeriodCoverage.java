@@ -42,8 +42,25 @@ public final class PeriodCoverage {
     private record Root(Line line, BigDecimal net) {
     }
 
+    /** FIFO taqsimotining bir qismi: kredit (asl yozuv) majburiyatga (asl yozuv) {@code amount} berdi. */
+    public record Part(Long obligationId, Long creditId, LocalDate creditDate, BigDecimal amount) {
+    }
+
+    /**
+     * To'liq FIFO taqsimoti (payroll v3 — chala to'lov ulushi): har majburiyatning net summasi (musbat, asl yozuv
+     * id si bo'yicha) va har kreditning qaysi majburiyatga qancha ketgani — qisman yopilganlari ham.
+     */
+    public record Allocation(Map<Long, BigDecimal> obligations, List<Part> parts) {
+    }
+
     public static Map<Long, Covered> compute(List<Line> lines) {
-        return allocate(lines, null);
+        return allocate(lines, null, null);
+    }
+
+    public static Allocation allocation(List<Line> lines) {
+        Allocation out = new Allocation(new HashMap<>(), new ArrayList<>());
+        allocate(lines, null, out);
+        return out;
     }
 
     /**
@@ -52,11 +69,12 @@ public final class PeriodCoverage {
      */
     public static Map<Long, Set<Long>> contributors(List<Line> lines) {
         Map<Long, Set<Long>> out = new HashMap<>();
-        allocate(lines, out);
+        allocate(lines, out, null);
         return out;
     }
 
-    private static Map<Long, Covered> allocate(List<Line> lines, Map<Long, Set<Long>> contributors) {
+    private static Map<Long, Covered> allocate(List<Line> lines, Map<Long, Set<Long>> contributors,
+                                               Allocation allocation) {
         Map<Long, Line> byId = new HashMap<>();
         for (Line l : lines) {
             if (l.id() != null) {
@@ -86,6 +104,9 @@ public final class PeriodCoverage {
         });
         obligations.sort(order);
         credits.sort(order);
+        if (allocation != null) {
+            obligations.forEach(r -> allocation.obligations().put(r.line().id(), r.net()));
+        }
 
         Map<Long, Covered> out = new HashMap<>();
         int o = 0;
@@ -96,6 +117,10 @@ public final class PeriodCoverage {
             while (funds.signum() > 0 && o < obligations.size()) {
                 BigDecimal take = funds.min(remaining);
                 current.add(credit.line().id());
+                if (allocation != null && take.signum() > 0) {
+                    allocation.parts().add(new Part(obligations.get(o).line().id(), credit.line().id(),
+                        credit.line().effectiveDate(), take));
+                }
                 funds = funds.subtract(take);
                 remaining = remaining.subtract(take);
                 if (remaining.signum() == 0) {

@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V81 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V82 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V81 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V82 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
@@ -23,7 +23,7 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V81 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V82 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
@@ -356,7 +356,18 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V79', 'index', 'students', 'idx_students_source'),
     ('V80', 'column', 'tasks', 'auto_created'),
     ('V81', 'column', 'billing_periods', 'prorated_lessons'),
-    ('V81', 'column', 'billing_periods', 'lesson_price')
+    ('V81', 'column', 'billing_periods', 'lesson_price'),
+    ('V82', 'column', 'groups', 'lesson_type'),
+    ('V82', 'column', 'courses', 'lesson_type'),
+    ('V82', 'column', 'billing_periods', 'lesson_type'),
+    ('V82', 'column', 'salary_rules', 'per_student_individual'),
+    ('V82', 'column', 'salary_rules', 'employment_rate'),
+    ('V82', 'table', 'salary_rule_kpi_tiers', NULL),
+    ('V82', 'index', 'salary_rule_kpi_tiers', 'ux_salary_rule_kpi_tiers_rule_threshold'),
+    ('V82', 'constraint', 'groups', 'groups_lesson_type_chk'),
+    ('V82', 'constraint', 'courses', 'courses_lesson_type_chk'),
+    ('V82', 'constraint', 'billing_periods', 'billing_periods_lesson_type_chk'),
+    ('V82', 'constraint', 'salary_rules', 'salary_rules_employment_rate_chk')
 ), checked AS (
     SELECT w.*,
            CASE w.kind
@@ -557,6 +568,19 @@ SELECT 'V76 billing_periods ustma-ust emas (SG ichida)',
                      || ' FROM billing_periods) x WHERE nxt IS NOT NULL AND nxt <= period_end'
                      || ' AND status NOT IN (''REFUNDED'', ''PARTIALLY_REFUNDED'')',
                      false, true, '')))[1]::text = '0'
+       END
+UNION ALL
+-- V82 (payroll v3): admin/sotuv oyligi uchun payroll.teacher_id NULL bo'la oladi, egasi CHECK (teacher_id yoki user_id)
+-- bor — nomi payroll_owner_chk yoki boshqa (prod'da qo'lda qo'shilgan bo'lishi mumkin), ta'rifi bo'yicha
+SELECT 'V82 payroll.teacher_id NULL bo''la oladi + egasi CHECK',
+       CASE WHEN to_regclass('public.payroll') IS NULL THEN NULL
+            ELSE EXISTS (SELECT 1 FROM information_schema.columns c
+                          WHERE c.table_schema = 'public' AND c.table_name = 'payroll'
+                            AND c.column_name = 'teacher_id' AND c.is_nullable = 'YES')
+             AND EXISTS (SELECT 1 FROM pg_constraint k
+                          WHERE k.conrelid = 'public.payroll'::regclass AND k.contype = 'c'
+                            AND pg_get_constraintdef(k.oid) LIKE '%teacher_id IS NOT NULL%'
+                            AND pg_get_constraintdef(k.oid) LIKE '%user_id IS NOT NULL%')
        END
 UNION ALL
 -- V78 (buyurtmachi qarori 2026-10-05): BANK to'lov usuli yo'q — payments, cash_transactions, payroll da 0

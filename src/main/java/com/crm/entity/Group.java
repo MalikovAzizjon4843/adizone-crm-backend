@@ -63,6 +63,17 @@ public class Group extends BaseEntity {
     @Builder.Default
     private GroupStatus status = GroupStatus.ACTIVE;
 
+    /**
+     * Dars turi (V82): o'qituvchi ulushi shunga qarab; yangi guruhda standart — kursdan. Hech qachon null emas:
+     * boshlang'ich GROUP, setter va @PrePersist/@PreUpdate null ni GROUP ga aylantiradi; {@code @ColumnDefault} —
+     * Hibernate yaratgan sxemada ham V82 dagi kabi DEFAULT 'GROUP'.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "lesson_type", nullable = false, length = 20)
+    @org.hibernate.annotations.ColumnDefault("'GROUP'")
+    @Builder.Default
+    private com.crm.entity.enums.LessonType lessonType = com.crm.entity.enums.LessonType.GROUP;
+
     @Column(columnDefinition = "TEXT")
     private String notes;
 
@@ -73,4 +84,21 @@ public class Group extends BaseEntity {
     @OneToMany(mappedBy = "group", fetch = FetchType.LAZY)
     @Builder.Default
     private List<StudentGroup> studentGroups = new ArrayList<>();
+
+    /** null — GROUP: NOT NULL ustunga null yetib bormasin. */
+    public void setLessonType(com.crm.entity.enums.LessonType lessonType) {
+        this.lessonType = lessonType != null ? lessonType : com.crm.entity.enums.LessonType.GROUP;
+    }
+
+    public com.crm.entity.enums.LessonType getLessonType() {
+        return lessonType != null ? lessonType : com.crm.entity.enums.LessonType.GROUP;
+    }
+
+    @PrePersist
+    @PreUpdate
+    protected void defaultLessonType() {
+        if (lessonType == null) {
+            lessonType = com.crm.entity.enums.LessonType.GROUP;
+        }
+    }
 }

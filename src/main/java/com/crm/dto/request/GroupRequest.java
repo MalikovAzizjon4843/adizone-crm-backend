@@ -30,6 +30,11 @@ public class GroupRequest {
      * String — noto'g'ri qiymat Jackson xatosi emas, tushunarli 400 bo'lsin.
      */
     private String status;
+    /**
+     * Dars turi: GROUP | INDIVIDUAL (registr muhim emas, V82). Yaratishda berilmasa — kursniki, u ham bo'lmasa GROUP;
+     * tahrirlashda berilmasa o'zgarmaydi. Noto'g'ri qiymat — 400 {@code group.lessonType.invalid}.
+     */
+    private String lessonType;
     /** Legacy: frontend JSON "schedules" — {@link #scheduleDays} bo‘sh bo‘lsa shu yerga map qilinadi */
     private List<ScheduleRequest> schedules;
     private List<ScheduleDayRequest> scheduleDays;

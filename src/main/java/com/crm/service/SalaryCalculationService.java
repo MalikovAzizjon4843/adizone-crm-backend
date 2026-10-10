@@ -33,6 +33,7 @@ import com.crm.entity.enums.BonusPenaltyKind;
 import com.crm.entity.enums.BonusPenaltyStatus;
 import com.crm.entity.enums.BonusTargetType;
 import com.crm.entity.enums.LeaveStatus;
+import com.crm.entity.enums.LessonType;
 import com.crm.entity.enums.SubstitutionStatus;
 import com.crm.entity.enums.PaymentStatus;
 import com.crm.entity.enums.UserRole;
@@ -105,6 +106,7 @@ public class SalaryCalculationService {
     private final LeaveRepository leaveRepository;
     private final LessonSubstitutionRepository substitutionRepository;
     private final WorkdayCalendar workdayCalendar;
+    private final com.crm.billing.LessonProrationService lessonProration;
 
     @Transactional(readOnly = true)
     public List<SalaryCalculationDto> calculateAll(int month, int year) {
@@ -150,17 +152,29 @@ public class SalaryCalculationService {
         }
         SalaryRule rule = ruleOpt.get();
         UserRole role = user.getRole();
+        boolean v3 = versionFor(month, year) == PayrollCalculationDetails.VERSION;
         if (role == UserRole.TEACHER) {
             Teacher teacher = teacherRepository.findByUser_Id(user.getId()).orElse(null);
             if (teacher == null) {
                 return teacherProfileProblem(user, month, year);
             }
-            return teacher(user, teacher, rule, month, year, from, to);
+            return v3 ? teacherV3(user, teacher, rule, month, year, from, to)
+                : teacher(user, teacher, rule, month, year, from, to);
         }
         if (role == UserRole.ADMIN || role == UserRole.SALES_MANAGER || role == UserRole.SALES_HEAD) {
-            return staff(user, rule, month, year, from, to);
+            return v3 ? staffV3(user, rule, month, year, from, to) : staff(user, rule, month, year, from, to);
         }
         return notCalculable(user, month, year, "ROLE_NOT_CALCULATED", "Bu rol uchun oylik hisoblanmaydi");
+    }
+
+    /**
+     * Shu oy oyligining formula versiyasi: {@code app.payroll.v3-from} oyidan — 3 (payroll-v2 §14), oldin — 2.
+     * DRAFT shu versiyada bo'lmasa tasdiqlash 409 {@code payroll.recalculateRequired}.
+     */
+    public int versionFor(int month, int year) {
+        LocalDate v3From = properties.getV3From();
+        return v3From == null || !YearMonth.of(year, month).isBefore(YearMonth.from(v3From))
+            ? PayrollCalculationDetails.VERSION : PayrollCalculationDetails.VERSION_V2;
     }
 
     // ── cutover (§11 #1) ────────────────────────────────────────────────
@@ -305,7 +319,7 @@ public class SalaryCalculationService {
         BigDecimal bp = addBonusLines(lines, bonuses, status);
 
         PayrollCalculationDetails details = new PayrollCalculationDetails(
-            PayrollCalculationDetails.VERSION, month, year, UserRole.TEACHER.name(), estimated(month, year),
+            PayrollCalculationDetails.VERSION_V2, month, year, UserRole.TEACHER.name(), estimated(month, year),
             snapshot(rule, substituteRate), lines, gross, bp, gross.add(bp),
             new Items(paid, lessons, List.of(), null, toBonusItems(bonuses, status), leave.items(),
                 toSubstitutionItems(conducted)));
@@ -556,7 +570,7 @@ public class SalaryCalculationService {
         BigDecimal bp = addBonusLines(lines, bonuses, status);
 
         PayrollCalculationDetails details = new PayrollCalculationDetails(
-            PayrollCalculationDetails.VERSION, month, year, user.getRole().name(), estimated(month, year),
+            PayrollCalculationDetails.VERSION_V2, month, year, user.getRole().name(), estimated(month, year),
             snapshot(rule, null), lines, gross, bp, gross.add(bp),
             new Items(List.of(), List.of(), newStudents, kpi, toBonusItems(bonuses, status), leave.items(), List.of()));
 
@@ -657,6 +671,423 @@ public class SalaryCalculationService {
             ids.add(c.getStudent().getId());
         }
         return ids.size();
+    }
+
+    // ── v3: buyurtmachi qarorlari 2026-10-10 (payroll-v2 §14), oktyabr 2026 oyligidan ──────
+
+    /** Sanalgan birlik: aniq qiymat (summa shundan) va dars turi. */
+    private record Unit<T>(T item, BigDecimal exact, boolean individual) {
+    }
+
+    /**
+     * TEACHER v3: {@code gross = fiksa × stavka + perPayingStudent × Σ GROUP birlik + perStudentIndividual × Σ INDIVIDUAL
+     * birlik − haqsiz ta'til + o'rinbosar darslari}. Birlik — o'quvchi shu oyda to'lagan ulush (max 1): MONTHLY davrda
+     * {@code yopilgan qism / davr summasi}, darsbayda {@code to'langan / (dars narxi × lessons_per_month)}.
+     * Individual o'quvchi bor, ulushi belgilanmagan — hisoblanmaydi ({@code INDIVIDUAL_SHARE_MISSING}).
+     */
+    private SalaryCalculationDto teacherV3(User user, Teacher teacher, SalaryRule rule,
+                                           int month, int year, LocalDate from, LocalDate to) {
+        Map<Long, PeriodCoverageService.PaymentShares> shares = new HashMap<>();
+        List<Unit<PaidPeriod>> paid = paidPeriodsV3(teacher.getId(), from, to, shares);
+        List<Unit<LessonEnrollment>> lessons = lessonEnrollmentsV3(teacher.getId(), from, to, shares);
+
+        BigDecimal groupUnits = BigDecimal.ZERO;
+        BigDecimal individualUnits = BigDecimal.ZERO;
+        int individualStudents = 0;
+        for (Unit<?> u : concat(paid, lessons)) {
+            if (u.individual()) {
+                individualUnits = individualUnits.add(u.exact());
+                individualStudents++;
+            } else {
+                groupUnits = groupUnits.add(u.exact());
+            }
+        }
+        BigDecimal perGroup = nz(rule.getPerPayingStudent());
+        BigDecimal perIndividual = rule.getPerStudentIndividual();
+        if (individualStudents > 0 && perIndividual == null) {
+            return notCalculable(user, month, year, "INDIVIDUAL_SHARE_MISSING",
+                "Individual o'quvchi ulushi belgilanmagan (oylik qoidasi: perStudentIndividual) — "
+                    + individualStudents + " ta individual o'quvchi");
+        }
+        BigDecimal groupAmount = Money.uzs(perGroup.multiply(groupUnits));
+        BigDecimal individualAmount = individualUnits.signum() > 0
+            ? Money.uzs(perIndividual.multiply(individualUnits)) : BigDecimal.ZERO;
+
+        BigDecimal baseFixed = nz(rule.getFixedSalary());
+        BigDecimal rate = rate(rule);
+        BigDecimal fixed = Money.uzs(baseFixed.multiply(rate));
+
+        List<LessonSubstitution> conducted = substitutionRepository.findBySubstituteAndStatus(
+            teacher.getId(), SubstitutionStatus.CONDUCTED, from, to);
+        BigDecimal substituteRate = substituteRate(rule, user, to);
+        if (!conducted.isEmpty() && substituteRate == null) {
+            return notCalculable(user, month, year, "SUBSTITUTE_RATE_MISSING",
+                "O'rinbosar dars stavkasi belgilanmagan (oylik qoidasi: substituteLessonRate) — "
+                    + conducted.size() + " ta o'tilgan dars");
+        }
+        BigDecimal substituteAmount = conducted.isEmpty() ? BigDecimal.ZERO
+            : Money.uzs(substituteRate.multiply(BigDecimal.valueOf(conducted.size())));
+        LeaveCalc leave = leaveDeduction(user, fixed, from, to);
+        BigDecimal gross = fixed.add(groupAmount).add(individualAmount).subtract(leave.amount()).add(substituteAmount);
+
+        List<Line> lines = new ArrayList<>();
+        lines.add(fixedLine(baseFixed, rate, fixed));
+        BigDecimal groupDisplay = displayUnits(groupUnits);
+        lines.add(new Line(PayrollCalculationDetails.PER_PAYING_STUDENT, "Guruh o'quvchilari", perGroup, groupDisplay,
+            groupAmount, null, "Guruh " + groupDisplay.toPlainString() + " × " + sum(perGroup)));
+        if (individualUnits.signum() > 0) {
+            BigDecimal individualDisplay = displayUnits(individualUnits);
+            lines.add(new Line(PayrollCalculationDetails.PER_INDIVIDUAL_STUDENT, "Individual o'quvchilar",
+                perIndividual, individualDisplay, individualAmount, null,
+                "Individual " + individualDisplay.toPlainString() + " × " + sum(perIndividual)));
+        }
+        if (leave.line() != null) {
+            lines.add(leave.line());
+        }
+        if (!conducted.isEmpty()) {
+            lines.add(new Line(PayrollCalculationDetails.SUBSTITUTE_LESSONS, "O'rinbosar darslari",
+                substituteRate, BigDecimal.valueOf(conducted.size()), substituteAmount, null,
+                "O'rinbosar " + conducted.size() + " × " + sum(substituteRate)));
+        }
+        List<BonusPenalty> bonuses = pendingBonuses(user, to);
+        String status = BonusPenaltyStatus.PENDING.name();
+        BigDecimal bp = addBonusLines(lines, bonuses, status);
+
+        BigDecimal unitsTotal = groupUnits.add(individualUnits);
+        PayrollCalculationDetails details = new PayrollCalculationDetails(
+            PayrollCalculationDetails.VERSION, month, year, UserRole.TEACHER.name(), estimated(month, year),
+            snapshotV3(rule, substituteRate, kpiTiers(rule)), lines, gross, bp, gross.add(bp),
+            new Items(paid.stream().map(Unit::item).toList(), lessons.stream().map(Unit::item).toList(), List.of(),
+                null, toBonusItems(bonuses, status), leave.items(), toSubstitutionItems(conducted)));
+
+        return SalaryCalculationDto.builder()
+            .userId(user.getId()).fullName(fullName(user)).role(UserRole.TEACHER.name())
+            .month(month).year(year)
+            .baseSalary(fixed)
+            .paidStudentCount(paid.size() + lessons.size())
+            .paidStudentUnits(displayUnits(unitsTotal))
+            .perStudentAmount(groupAmount.add(individualAmount))
+            .newStudentCount(0).newStudentAmount(BigDecimal.ZERO)
+            .kpiApplied(false).kpiAmount(BigDecimal.ZERO)
+            .leaveDeduction(leave.amount())
+            .unpaidLeaveDays(leave.unpaidDays())
+            .substituteLessonCount(conducted.size())
+            .substituteAmount(substituteAmount)
+            .grossAmount(gross)
+            .bonusPenaltyAdjustment(bp)
+            .totalAmount(details.net())
+            .calculable(true)
+            .calculationDetails(details)
+            .build();
+    }
+
+    private static List<Unit<?>> concat(List<? extends Unit<?>> a, List<? extends Unit<?>> b) {
+        List<Unit<?>> out = new ArrayList<>(a);
+        out.addAll(b);
+        return out;
+    }
+
+    /**
+     * MONTHLY v3: o'qituvchiga yozilgan davrlarni yopgan real to'lov qismlari ({@link PeriodCoverageService#paymentShares}),
+     * har qism {@code max(to'lov sanasi, periodStart)} oyida — oldindan to'lov davr oyida, kech to'lov to'langan oyda.
+     * {@code unit = shu oyga tushgan qismlar / davr net summasi} (qaytarim va qayta hisob bilan); oylar bo'yicha ≤ 1.
+     */
+    private List<Unit<PaidPeriod>> paidPeriodsV3(Long teacherId, LocalDate from, LocalDate to,
+                                                Map<Long, PeriodCoverageService.PaymentShares> shares) {
+        List<BillingPeriod> candidates = em.createQuery("""
+                SELECT bp FROM BillingPeriod bp
+                WHERE bp.teacherId = :t AND bp.chargeTxId IS NOT NULL AND bp.status IN :st
+                  AND bp.periodStart <= :to
+                  AND (bp.paidOn IS NULL OR bp.paidOn >= :f OR bp.periodStart >= :f)
+                ORDER BY bp.periodStart, bp.id
+                """, BillingPeriod.class)
+            .setParameter("t", teacherId).setParameter("st", COLLECTIBLE)
+            .setParameter("f", from).setParameter("to", to)
+            .getResultList();
+        Map<Long, StudentGroup> sgs = enrollments(candidates.stream().map(BillingPeriod::getStudentGroupId).toList());
+        List<Unit<PaidPeriod>> out = new ArrayList<>();
+        for (BillingPeriod bp : candidates) {
+            if (!collectible(bp)) {
+                continue;
+            }
+            PeriodCoverageService.PaymentShares sh = shares.computeIfAbsent(bp.getStudentGroupId(),
+                id -> coverageService.paymentShares(id, properties.isCountDiscountCovered()));
+            BigDecimal net = sh.netOf(bp.getChargeTxId());
+            if (net.signum() <= 0) {
+                continue;
+            }
+            BigDecimal inMonth = BigDecimal.ZERO;
+            BigDecimal total = BigDecimal.ZERO;
+            LocalDate countedOn = null;
+            for (PeriodCoverageService.Share s : sh.of(bp.getChargeTxId())) {
+                LocalDate counted = s.creditDate().isBefore(bp.getPeriodStart()) ? bp.getPeriodStart() : s.creditDate();
+                if (counted.isAfter(to)) {
+                    continue;
+                }
+                total = total.add(s.amount());
+                if (!counted.isBefore(from)) {
+                    inMonth = inMonth.add(s.amount());
+                    countedOn = countedOn == null || counted.isAfter(countedOn) ? counted : countedOn;
+                }
+            }
+            if (inMonth.signum() <= 0) {
+                continue;
+            }
+            BigDecimal exact = Money.divide(inMonth, net).min(BigDecimal.ONE);
+            StudentGroup sg = sgs.get(bp.getStudentGroupId());
+            LessonType type = bp.getLessonType() != null ? bp.getLessonType()
+                : (sg != null && sg.getGroup().getLessonType() != null ? sg.getGroup().getLessonType() : LessonType.GROUP);
+            out.add(new Unit<>(new PaidPeriod(bp.getId(), bp.getStudentGroupId(),
+                sg != null ? sg.getStudent().getId() : null, sg != null ? studentName(sg.getStudent()) : null,
+                sg != null ? sg.getGroup().getId() : null, sg != null ? sg.getGroup().getGroupName() : null,
+                bp.getPeriodStart(), bp.getPaidOn(), countedOn, type.name(), Money.normalize(net),
+                Money.normalize(inMonth), Money.normalize(total), displayUnits(exact), total.compareTo(net) < 0),
+                exact, type == LessonType.INDIVIDUAL));
+        }
+        return out;
+    }
+
+    /**
+     * PER_LESSON v3: o'qituvchining darslarini (LESSON_CHARGE, {@code teacher_id}) yopgan real to'lov qismlari,
+     * har qism {@code max(to'lov sanasi, dars sanasi)} oyida; yozilma birligi
+     * {@code min(1, Σ qism / (dars narxi × lessons_per_month))}. So'nggi 12 oydagi darslar ko'riladi.
+     * Dars turi — guruhning joriy turi.
+     */
+    private List<Unit<LessonEnrollment>> lessonEnrollmentsV3(Long teacherId, LocalDate from, LocalDate to,
+                                                            Map<Long, PeriodCoverageService.PaymentShares> shares) {
+        Map<Long, List<BalanceTransaction>> bySg = new LinkedHashMap<>();
+        for (BalanceTransaction c : em.createQuery("""
+                SELECT t FROM BalanceTransaction t
+                WHERE t.type = :lc AND t.teacherId = :t AND t.effectiveDate BETWEEN :f AND :to
+                ORDER BY t.id
+                """, BalanceTransaction.class)
+            .setParameter("lc", BalanceTransactionType.LESSON_CHARGE).setParameter("t", teacherId)
+            .setParameter("f", from.minusMonths(12)).setParameter("to", to)
+            .getResultList()) {
+            bySg.computeIfAbsent(c.getStudentGroup().getId(), k -> new ArrayList<>()).add(c);
+        }
+        if (bySg.isEmpty()) {
+            return List.of();
+        }
+        BigDecimal perMonth = BigDecimal.valueOf(lessonProration.lessonsPerMonth());
+        Map<Long, StudentGroup> sgs = enrollments(bySg.keySet());
+        List<Unit<LessonEnrollment>> out = new ArrayList<>();
+        bySg.forEach((sgId, charges) -> {
+            PeriodCoverageService.PaymentShares sh = shares.computeIfAbsent(sgId,
+                id -> coverageService.paymentShares(id, properties.isCountDiscountCovered()));
+            BigDecimal paidInMonth = BigDecimal.ZERO;
+            BigDecimal exact = BigDecimal.ZERO;
+            BigDecimal monthly = null;
+            int paidLessons = 0;
+            for (BalanceTransaction c : charges) {
+                BigDecimal lessonPrice = c.getAmount().abs();
+                BigDecimal inMonth = BigDecimal.ZERO;
+                for (PeriodCoverageService.Share s : sh.of(c.getId())) {
+                    LocalDate counted = s.creditDate().isBefore(c.getEffectiveDate()) ? c.getEffectiveDate() : s.creditDate();
+                    if (within(counted, from, to)) {
+                        inMonth = inMonth.add(s.amount());
+                    }
+                }
+                if (inMonth.signum() > 0 && lessonPrice.signum() > 0) {
+                    paidLessons++;
+                    paidInMonth = paidInMonth.add(inMonth);
+                    monthly = lessonPrice.multiply(perMonth);
+                    exact = exact.add(Money.divide(inMonth, monthly));
+                }
+            }
+            if (paidInMonth.signum() <= 0) {
+                return;
+            }
+            exact = exact.min(BigDecimal.ONE);
+            StudentGroup sg = sgs.get(sgId);
+            LessonType type = sg != null && sg.getGroup().getLessonType() != null
+                ? sg.getGroup().getLessonType() : LessonType.GROUP;
+            out.add(new Unit<>(new LessonEnrollment(sgId, sg != null ? sg.getStudent().getId() : null,
+                sg != null ? studentName(sg.getStudent()) : null, sg != null ? sg.getGroup().getId() : null,
+                sg != null ? sg.getGroup().getGroupName() : null, paidLessons, 0, displayUnits(exact), type.name(),
+                Money.normalize(paidInMonth), Money.normalize(monthly)), exact, type == LessonType.INDIVIDUAL));
+        });
+        return out;
+    }
+
+    /**
+     * ADMIN / SALES v3: {@code gross = uzs(fiksa × stavka) + yangi o'quvchi bonusi × soni (stavkasiz) + KPI − haqsiz
+     * ta'til} (ta'til ayirmasi stavkali fiksadan). KPI (faqat ADMIN): {@code faol > threshold} bo'lgan eng yuqori
+     * pog'ona bonusi, yig'ilmaydi.
+     */
+    private SalaryCalculationDto staffV3(User user, SalaryRule rule, int month, int year,
+                                         LocalDate from, LocalDate to) {
+        boolean admin = user.getRole() == UserRole.ADMIN;
+        BigDecimal baseFixed = nz(rule.getFixedSalary());
+        BigDecimal rate = rate(rule);
+        BigDecimal fixed = Money.uzs(baseFixed.multiply(rate));
+        List<NewStudent> newStudents = newStudents(user.getId(), from, to);
+        BigDecimal perNew = nz(rule.getPerNewStudent());
+        BigDecimal newAmount = perNew.multiply(BigDecimal.valueOf(newStudents.size()));
+
+        List<Line> lines = new ArrayList<>();
+        lines.add(fixedLine(baseFixed, rate, fixed));
+        lines.add(new Line(PayrollCalculationDetails.PER_NEW_STUDENT, "Yangi o'quvchi",
+            perNew, BigDecimal.valueOf(newStudents.size()), newAmount, null,
+            "Yangi o'quvchi " + newStudents.size() + " × " + sum(perNew)));
+
+        List<PayrollCalculationDetails.KpiTier> tiers = kpiTiers(rule);
+        Kpi kpi = null;
+        BigDecimal kpiAmount = BigDecimal.ZERO;
+        Integer active = null;
+        if (admin) {
+            long actual = activeV3(from, to);
+            PayrollCalculationDetails.KpiTier hit = tiers.stream()
+                .filter(t -> actual > t.threshold())
+                .max(Comparator.comparing(PayrollCalculationDetails.KpiTier::threshold))
+                .orElse(null);
+            PayrollCalculationDetails.KpiTier shown = hit != null ? hit : (tiers.isEmpty() ? null : tiers.get(0));
+            kpiAmount = hit != null ? hit.bonus() : BigDecimal.ZERO;
+            kpi = new Kpi(shown != null ? shown.threshold() : null, actual, hit != null, kpiAmount, tiers);
+            active = (int) actual;
+            String formula = shown == null ? "KPI: pog'ona yo'q (faol " + actual + ")"
+                : hit != null ? "KPI: " + actual + " > " + hit.threshold() + " → " + sum(hit.bonus())
+                : "KPI: " + actual + " ≤ " + shown.threshold() + " → 0";
+            lines.add(new Line(PayrollCalculationDetails.KPI, "KPI bonusi", shown != null ? shown.bonus() : BigDecimal.ZERO,
+                hit != null ? BigDecimal.ONE : BigDecimal.ZERO, kpiAmount, null, formula));
+        }
+        LeaveCalc leave = leaveDeduction(user, fixed, from, to);
+        if (leave.line() != null) {
+            lines.add(leave.line());
+        }
+        BigDecimal gross = fixed.add(newAmount).add(kpiAmount).subtract(leave.amount());
+        List<BonusPenalty> bonuses = pendingBonuses(user, to);
+        String status = BonusPenaltyStatus.PENDING.name();
+        BigDecimal bp = addBonusLines(lines, bonuses, status);
+
+        PayrollCalculationDetails details = new PayrollCalculationDetails(
+            PayrollCalculationDetails.VERSION, month, year, user.getRole().name(), estimated(month, year),
+            snapshotV3(rule, null, tiers), lines, gross, bp, gross.add(bp),
+            new Items(List.of(), List.of(), newStudents, kpi, toBonusItems(bonuses, status), leave.items(), List.of()));
+
+        return SalaryCalculationDto.builder()
+            .userId(user.getId()).fullName(fullName(user)).role(user.getRole().name())
+            .month(month).year(year)
+            .baseSalary(fixed)
+            .newStudentCount(newStudents.size()).newStudentAmount(newAmount)
+            .kpiApplied(kpi != null && kpi.applied()).kpiAmount(kpiAmount)
+            .leaveDeduction(leave.amount())
+            .unpaidLeaveDays(leave.unpaidDays())
+            .totalActiveStudents(active)
+            .grossAmount(gross)
+            .bonusPenaltyAdjustment(bp)
+            .totalAmount(details.net())
+            .calculable(true)
+            .calculationDetails(details)
+            .build();
+    }
+
+    /**
+     * KPI "faol o'quvchi" v3 (buyurtmachi qarori): oy oxirida {@code status = ACTIVE} (holat tarixidan tiklanadi) VA
+     * shu oyga tushadigan (oy bilan kesishadigan) MONTHLY davri oy oxirigacha real to'lov bilan to'liq yoki qisman
+     * qoplangan (oldindan to'lov ham) — yoki darsbay yozilmasi bo'yicha shu oyda to'lov qilgan. Sinov yozilmalarida
+     * davr yo'q va darsbay to'lovi sinovda hisobga olinmaydi.
+     */
+    private long activeV3(LocalDate from, LocalDate to) {
+        Set<Long> candidates = new TreeSet<>();
+        Map<Long, PeriodCoverageService.PaymentShares> shares = new HashMap<>();
+        for (Object[] row : em.createQuery("""
+                SELECT bp, sg.student.id FROM BillingPeriod bp, StudentGroup sg
+                WHERE sg.id = bp.studentGroupId AND bp.chargeTxId IS NOT NULL AND bp.status IN :st
+                  AND bp.periodStart <= :to AND bp.periodEnd >= :f
+                """, Object[].class)
+            .setParameter("st", COLLECTIBLE).setParameter("f", from).setParameter("to", to).getResultList()) {
+            BillingPeriod bp = (BillingPeriod) row[0];
+            Long studentId = (Long) row[1];
+            if (candidates.contains(studentId) || !collectible(bp)) {
+                continue;
+            }
+            PeriodCoverageService.PaymentShares sh = shares.computeIfAbsent(bp.getStudentGroupId(),
+                id -> coverageService.paymentShares(id, false));
+            if (sh.of(bp.getChargeTxId()).stream().anyMatch(s -> !s.creditDate().isAfter(to))) {
+                candidates.add(studentId);
+            }
+        }
+        candidates.addAll(em.createQuery("""
+                SELECT DISTINCT p.student.id FROM Payment p
+                WHERE p.status = :paid AND p.paymentDate BETWEEN :f AND :to
+                  AND p.studentGroup.paymentType = :pl
+                  AND (p.studentGroup.isTrial = false OR p.studentGroup.isTrial IS NULL)
+                """, Long.class)
+            .setParameter("paid", PaymentStatus.PAID).setParameter("f", from).setParameter("to", to)
+            .setParameter("pl", com.crm.entity.enums.PaymentType.PER_LESSON).getResultList());
+        if (candidates.isEmpty()) {
+            return 0;
+        }
+        Map<Long, String> status = statusAtMonthEnd(candidates, to);
+        return candidates.stream().filter(id -> "ACTIVE".equals(status.get(id))).count();
+    }
+
+    /**
+     * O'quvchi holati {@code to} kuni oxirida: undan keyingi birinchi holat o'zgarishining {@code from_status} i
+     * ({@code student_status_history}), o'zgarish bo'lmasa — joriy holat. Hisob qayta bajarilganda natija o'zgarmaydi.
+     */
+    private Map<Long, String> statusAtMonthEnd(Collection<Long> studentIds, LocalDate to) {
+        Map<Long, String> out = new HashMap<>();
+        for (Object[] row : em.createQuery("SELECT s.id, s.status FROM Student s WHERE s.id IN :ids", Object[].class)
+                .setParameter("ids", studentIds).getResultList()) {
+            out.put((Long) row[0], row[1] != null ? row[1].toString() : null);
+        }
+        Set<Long> seen = new java.util.HashSet<>();
+        for (Object[] row : em.createQuery("""
+                SELECT h.student.id, h.fromStatus FROM StudentStatusHistory h
+                WHERE h.student.id IN :ids AND h.changedAt >= :end
+                ORDER BY h.changedAt ASC, h.id ASC
+                """, Object[].class)
+            .setParameter("ids", studentIds).setParameter("end", to.plusDays(1).atStartOfDay()).getResultList()) {
+            Long id = (Long) row[0];
+            if (seen.add(id)) {
+                out.put(id, (String) row[1]);
+            }
+        }
+        return out;
+    }
+
+    /** KPI pog'onalari (o'sish tartibida); V82 data qadami bajarilmagan bazada — eski ustundan ({@code ≥ N} = {@code > N−1}). */
+    private static List<PayrollCalculationDetails.KpiTier> kpiTiers(SalaryRule rule) {
+        if (rule.getKpiTiers() != null && !rule.getKpiTiers().isEmpty()) {
+            return rule.getKpiTiers().stream()
+                .map(t -> new PayrollCalculationDetails.KpiTier(t.getThreshold(), nz(t.getBonus())))
+                .sorted(Comparator.comparing(PayrollCalculationDetails.KpiTier::threshold))
+                .toList();
+        }
+        if (rule.getKpiThreshold() != null && nz(rule.getKpiBonus()).signum() > 0) {
+            return List.of(new PayrollCalculationDetails.KpiTier(Math.max(rule.getKpiThreshold() - 1, 0),
+                rule.getKpiBonus()));
+        }
+        return List.of();
+    }
+
+    private static BigDecimal rate(SalaryRule rule) {
+        BigDecimal r = rule.getEmploymentRate();
+        return r != null && r.signum() > 0 ? r : BigDecimal.ONE;
+    }
+
+    private static Line fixedLine(BigDecimal baseFixed, BigDecimal rate, BigDecimal fixed) {
+        boolean full = rate.compareTo(BigDecimal.ONE) == 0;
+        return new Line(PayrollCalculationDetails.FIXED, "Belgilangan oylik", baseFixed,
+            full ? BigDecimal.ONE : rate.stripTrailingZeros(), fixed, null,
+            full ? "Fiksa " + sum(baseFixed) : "Fiksa " + sum(baseFixed) + " × " + rate.stripTrailingZeros().toPlainString());
+    }
+
+    private static RuleSnapshot snapshotV3(SalaryRule r, BigDecimal substituteRate,
+                                           List<PayrollCalculationDetails.KpiTier> tiers) {
+        return new RuleSnapshot(r.getId(), r.getUser() != null ? "PERSONAL" : "ROLE",
+            r.getRole() != null ? r.getRole().name() : null, r.getEffectiveFrom(), r.getEffectiveTo(),
+            nz(r.getFixedSalary()), nz(r.getPerPayingStudent()), nz(r.getPerNewStudent()),
+            r.getKpiThreshold(), nz(r.getKpiBonus()), substituteRate, r.getPerStudentIndividual(), rate(r), tiers);
+    }
+
+    /** {@code 180000} → {@code "180 000"}. */
+    static String sum(BigDecimal value) {
+        java.text.DecimalFormatSymbols symbols = new java.text.DecimalFormatSymbols(java.util.Locale.ROOT);
+        symbols.setGroupingSeparator(' ');
+        return new java.text.DecimalFormat("#,##0", symbols).format(nz(value));
     }
 
     // ── yordamchilar ────────────────────────────────────────────────────

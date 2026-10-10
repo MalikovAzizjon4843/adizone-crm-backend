@@ -201,6 +201,9 @@ public class GroupService {
             .startDate(request.getStartDate())
             .endDate(request.getEndDate())
             .status(status)
+            .lessonType(isBlank(request.getLessonType())
+                ? (course.getLessonType() != null ? course.getLessonType() : com.crm.entity.enums.LessonType.GROUP)
+                : parseLessonType(request.getLessonType()))
             .notes(request.getNotes())
             .build();
 
@@ -243,6 +246,10 @@ public class GroupService {
         group.setEndDate(request.getEndDate());
         group.setNotes(request.getNotes());
         group.setStatus(newStatus);
+        // Berilmasa — joriy dars turi saqlanadi
+        if (!isBlank(request.getLessonType())) {
+            group.setLessonType(parseLessonType(request.getLessonType()));
+        }
 
         if (request.getTeacherId() != null) {
             Teacher teacher = teacherRepository.findById(request.getTeacherId())
@@ -652,6 +659,14 @@ public class GroupService {
     }
 
     /** POST, PUT va PATCH /status uchun yagona tahlil; noto'g'ri qiymat — 400. */
+    private static com.crm.entity.enums.LessonType parseLessonType(String raw) {
+        com.crm.entity.enums.LessonType type = com.crm.entity.enums.LessonType.parseOrNull(raw);
+        if (type == null) {
+            throw com.crm.exception.CodedException.badRequest("group.lessonType.invalid", raw);
+        }
+        return type;
+    }
+
     private GroupStatus parseStatus(String raw) {
         if (isBlank(raw)) {
             throw new BadRequestException(messages.get("group.status.invalid", String.valueOf(raw)));
@@ -814,6 +829,7 @@ public class GroupService {
             .endDate(g.getEndDate())
             .notes(g.getNotes())
             .status(g.getStatus())
+            .lessonType(g.getLessonType())
             .schedules(schedules)
             .scheduleDays(scheduleDays)
             .studentGroups(members)

@@ -279,8 +279,9 @@ public class PayrollService {
     public PayrollResponse approve(Long id, BigDecimal expectedNetSalary) {
         Payroll candidate = findById(id);
         requireDraft(candidate);
-        if (!Integer.valueOf(PayrollCalculationDetails.VERSION).equals(candidate.getCalcVersion())) {
-            // v1 dan qolgan qoralama — v2 snapshot yo'q
+        if (!Integer.valueOf(calculator.versionFor(candidate.getMonth(), candidate.getYear()))
+                .equals(candidate.getCalcVersion())) {
+            // oy formulasi versiyasida emas (v1 qoldig'i yoki oktyabrdan v2 — payroll-v2 §14) — qayta hisoblash kerak
             throw new ConflictException("payroll.recalculateRequired");
         }
         LocalDate monthEnd = monthEnd(candidate);
@@ -490,7 +491,7 @@ public class PayrollService {
         p.setKpiApplied(calc.getKpiApplied());
         p.setKpiAmount(calc.getKpiAmount());
         p.setCalculationDetails(calculator.toJson(d));
-        p.setCalcVersion(PayrollCalculationDetails.VERSION);
+        p.setCalcVersion(d.version());
     }
 
     private static void requireDraft(Payroll p) {

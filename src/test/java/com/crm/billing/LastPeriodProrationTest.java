@@ -241,16 +241,30 @@ class LastPeriodProrationTest extends AbstractBillingIT {
 
     @Test
     void lessonsPerMonthSetting() {
+        // settings testlar orasida tozalanmaydi; pgtest'da V81 qatori ('12') bor — yangilab, keyin tiklanadi
+        String previous = inTx(() -> settingRepo.findBySettingKey(LessonProrationService.LESSONS_PER_MONTH_KEY)
+            .map(Setting::getSettingValue).orElse(null));
+        boolean existed = inTx(() -> settingRepo.findBySettingKey(LessonProrationService.LESSONS_PER_MONTH_KEY).isPresent());
         try {
-            inTx(() -> settingRepo.save(Setting.builder().settingKey(LessonProrationService.LESSONS_PER_MONTH_KEY)
-                .settingValue("8").build()));
+            inTx(() -> {
+                Setting s = settingRepo.findBySettingKey(LessonProrationService.LESSONS_PER_MONTH_KEY)
+                    .orElseGet(() -> Setting.builder().settingKey(LessonProrationService.LESSONS_PER_MONTH_KEY).build());
+                s.setSettingValue("8");
+                settingRepo.save(s);
+            });
             Sg a = enroll(group("10.11.2026", true), "0");
             accrueOn(a, "26.10.2026");
             assertThat(period(a.id(), "26.10.2026").getLessonPrice()).isEqualByComparingTo("375000");
             assertThat(period(a.id(), "26.10.2026").getAmount()).isEqualByComparingTo("2625000");   // 7 × 375 000
         } finally {
-            inTx(() -> settingRepo.findBySettingKey(LessonProrationService.LESSONS_PER_MONTH_KEY)
-                .ifPresent(settingRepo::delete));
+            inTx(() -> settingRepo.findBySettingKey(LessonProrationService.LESSONS_PER_MONTH_KEY).ifPresent(s -> {
+                if (existed) {
+                    s.setSettingValue(previous);
+                    settingRepo.save(s);
+                } else {
+                    settingRepo.delete(s);
+                }
+            }));
         }
     }
 

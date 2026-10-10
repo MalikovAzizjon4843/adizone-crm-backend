@@ -129,14 +129,18 @@ public class StudentStatusService {
             || "GRADUATED".equalsIgnoreCase(trim(sg.getExitReason()));
     }
 
-    /** Eng oxirgi yopilgan: {@code leave_date ?? exit_date}, keyin {@code updated_at}, keyin id. */
+    /**
+     * Eng oxirgi yopilgan: {@code leave_date ?? exit_date}, bir kunda bo'lsa — id (keyin yaratilgan yozilma).
+     * {@code updated_at} ATAYLAB ishlatilmaydi: u devor soati ({@code @PreUpdate}, flush paytida) va yozilmaga tegadigan
+     * HAR QANDAY yozuvda (snapshot, kunlik job, davr qoplanishi) yangilanadi — eski yopilgan yozilma "oxirgi" bo'lib
+     * qolishi va holat oqim vaqtiga qarab LEFT/GRADUATED orasida sakrashi mumkin edi. Natija endi faqat ma'lumotga bog'liq.
+     */
     private static StudentGroup lastClosed(Collection<StudentGroup> all) {
         List<StudentGroup> closed = all.stream()
             .filter(sg -> !isActive(sg) && !EnrollmentLifecycleService.isFrozen(sg))
             .toList();
         return closed.stream()
             .max(Comparator.comparing((StudentGroup sg) -> closedOn(sg), Comparator.nullsFirst(Comparator.naturalOrder()))
-                .thenComparing(StudentGroup::getUpdatedAt, Comparator.nullsFirst(Comparator.naturalOrder()))
                 .thenComparing(StudentGroup::getId, Comparator.nullsFirst(Comparator.naturalOrder())))
             .orElse(null);
     }

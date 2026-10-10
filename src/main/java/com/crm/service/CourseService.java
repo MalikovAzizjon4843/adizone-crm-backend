@@ -44,6 +44,7 @@ public class CourseService {
             .lessonsCount(request.getLessonsCount())
             .monthlyPrice(request.getMonthlyPrice())
             .lessonPrice(request.getLessonPrice())
+            .lessonType(lessonType(request.getLessonType()))
             .isActive(true)
             .build();
         return toResponse(courseRepository.save(course));
@@ -63,7 +64,20 @@ public class CourseService {
         course.setLessonsCount(request.getLessonsCount());
         course.setMonthlyPrice(request.getMonthlyPrice());
         course.setLessonPrice(request.getLessonPrice());
+        course.setLessonType(lessonType(request.getLessonType()));
         return toResponse(courseRepository.save(course));
+    }
+
+    /** Bo'sh — null (guruh yaratishda GROUP); noto'g'ri — 400 {@code course.lessonType.invalid}. */
+    private static com.crm.entity.enums.LessonType lessonType(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        com.crm.entity.enums.LessonType type = com.crm.entity.enums.LessonType.parseOrNull(raw);
+        if (type == null) {
+            throw com.crm.exception.CodedException.badRequest("course.lessonType.invalid", raw);
+        }
+        return type;
     }
 
     @Transactional
@@ -88,6 +102,7 @@ public class CourseService {
             .lessonsCount(c.getLessonsCount())
             .monthlyPrice(c.getMonthlyPrice())
             .lessonPrice(c.getLessonPrice())
+            .lessonType(c.getLessonType())
             .isActive(c.getIsActive())
             .createdAt(c.getCreatedAt())
             .build();

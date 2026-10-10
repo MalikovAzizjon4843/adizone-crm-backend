@@ -252,8 +252,8 @@ class CashDirectionRuleOverlapProfileTest extends PayrollItBase {
     private Long insertRule(Long userId, long fixed, String from, String to) {
         return jdbc.queryForObject("""
             INSERT INTO salary_rules (role, user_id, base_salary, per_student_fee, new_student_bonus, kpi_bonus,
-                                      is_active, effective_from, effective_to, created_at, updated_at)
-            VALUES ('TEACHER', ?, ?, 0, 0, 0, TRUE, ?, ?, now(), now()) RETURNING id
+                                      employment_rate, is_active, effective_from, effective_to, created_at, updated_at)
+            VALUES ('TEACHER', ?, ?, 0, 0, 0, 1.00, TRUE, ?, ?, now(), now()) RETURNING id
             """, Long.class, userId, BigDecimal.valueOf(fixed), LocalDate.parse(from),
             to != null ? LocalDate.parse(to) : null);
     }

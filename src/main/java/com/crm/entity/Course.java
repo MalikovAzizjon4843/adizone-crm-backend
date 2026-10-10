@@ -46,4 +46,9 @@ public class Course extends BaseEntity {
     @Column(name = "is_active")
     @Builder.Default
     private Boolean isActive = true;
+
+    /** Yangi guruh uchun standart dars turi (V82); null — GROUP. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "lesson_type", length = 20)
+    private com.crm.entity.enums.LessonType lessonType;
 }

@@ -10,6 +10,8 @@ import com.crm.repository.BillingPeriodRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -114,6 +116,52 @@ public class PeriodCoverageService {
             }
         });
         return out;
+    }
+
+    /** Majburiyatni (qisman) yopgan kredit qismi: kredit sanasi va summasi. */
+    public record Share(LocalDate creditDate, BigDecimal amount) {
+    }
+
+    /**
+     * Real pul sifatida ulush beradigan kreditlar (payroll v3): {@code PAYMENT} va {@code TRANSFER_IN} (guruhdan guruhga
+     * ko'chganda eski yozilmadan o'tgan to'langan balans — qism sanasi o'tkazma kuni). Eski yozilmada o'sha pul
+     * TRANSFER_OUT majburiyatini yopadi, u davr emas — ikki marta sanalmaydi.
+     */
+    private static final Set<BalanceTransactionType> REAL_MONEY =
+        java.util.EnumSet.of(BalanceTransactionType.PAYMENT, BalanceTransactionType.TRANSFER_IN);
+
+    /**
+     * Payroll v3 (chala to'lov): har majburiyat ({@code charge_tx_id} / LESSON_CHARGE id) uchun FIFO bo'yicha uni
+     * yopgan kredit qismlari va majburiyatning net summasi (qaytarim / qayta hisob bilan). {@code anyCredit = false}
+     * — faqat real pul qismlari ({@link #REAL_MONEY}); DISCOUNT, BONUS, MANUAL_ADJUST ulush bermaydi. Ledgerga tegmaydi.
+     */
+    public record PaymentShares(Map<Long, BigDecimal> obligationNet, Map<Long, List<Share>> shares) {
+
+        public List<Share> of(Long obligationId) {
+            return shares.getOrDefault(obligationId, List.of());
+        }
+
+        public BigDecimal netOf(Long obligationId) {
+            return obligationNet.getOrDefault(obligationId, BigDecimal.ZERO);
+        }
+    }
+
+    public PaymentShares paymentShares(Long studentGroupId, boolean anyCredit) {
+        Map<Long, BalanceTransactionType> types = new HashMap<>();
+        List<PeriodCoverage.Line> lines = new ArrayList<>();
+        for (BalanceTransaction t : transactionRepository.findLedgerForFifo(studentGroupId)) {
+            types.put(t.getId(), t.getType());
+            lines.add(new PeriodCoverage.Line(t.getId(), t.getAmount(), t.getEffectiveDate(),
+                t.getRelatedTxId(), t.getCreatedAt(), isNeutral(t)));
+        }
+        PeriodCoverage.Allocation allocation = PeriodCoverage.allocation(lines);
+        Map<Long, List<Share>> shares = new HashMap<>();
+        for (PeriodCoverage.Part p : allocation.parts()) {
+            if (anyCredit || REAL_MONEY.contains(types.get(p.creditId()))) {
+                shares.computeIfAbsent(p.obligationId(), k -> new ArrayList<>()).add(new Share(p.creditDate(), p.amount()));
+            }
+        }
+        return new PaymentShares(allocation.obligations(), shares);
     }
 
     /** Muddatli majburiyat: yozilgan, qaytarilmagan, summasi bor (§1.2). */

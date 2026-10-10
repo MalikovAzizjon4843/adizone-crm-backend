@@ -120,6 +120,31 @@ class StudentStatusSyncTest extends AbstractBillingIT {
         assertThat(status(s)).isEqualTo(StudentStatus.GRADUATED);
     }
 
+    /**
+     * Bir kunda yopilgan ikki yozilma: "oxirgisi" id bo'yicha, {@code updated_at} ga bog'liq emas. Ilgari tartib
+     * {@code updated_at} bo'yicha edi — eski (A) yozilmaga keyinroq tegilsa (snapshot, kunlik job) yoki soat orqaga
+     * siljisa holat GRADUATED o'rniga LEFT bo'lardi (pgtest'da bir marta yiqilgan sabab).
+     */
+    @Test
+    void sameDayClosures_lastByIdNotUpdatedAt_deterministic() {
+        LocalDate day = d("10.09.2026");
+        StudentGroup leftEarlierTouchedLater = StudentGroup.builder().id(1L).isActive(false)
+            .leaveDate(day).exitDate(day).exitReason("LEFT")
+            .updatedAt(java.time.LocalDateTime.of(2026, 9, 10, 18, 0)).build();
+        StudentGroup graduated = StudentGroup.builder().id(2L).isActive(false)
+            .leaveDate(day).exitDate(day).exitReason("GRADUATED").exitReasonCode(ExitReasonCode.GRADUATED)
+            .updatedAt(java.time.LocalDateTime.of(2026, 9, 10, 12, 0)).build();
+
+        assertThat(StudentStatusService.derive(StudentStatus.ACTIVE, List.of(leftEarlierTouchedLater, graduated)))
+            .isEqualTo(StudentStatus.GRADUATED);
+        assertThat(StudentStatusService.derive(StudentStatus.ACTIVE, List.of(graduated, leftEarlierTouchedLater)))
+            .as("kirish tartibiga ham bog'liq emas").isEqualTo(StudentStatus.GRADUATED);
+        // Kunlar har xil bo'lsa — sana hal qiladi (id emas)
+        leftEarlierTouchedLater.setLeaveDate(day.plusDays(1));
+        assertThat(StudentStatusService.derive(StudentStatus.ACTIVE, List.of(leftEarlierTouchedLater, graduated)))
+            .isEqualTo(StudentStatus.LEFT);
+    }
+
     @Test
     void suspendedReason_SUSPENDED() {
         Long s = fixtures.student();

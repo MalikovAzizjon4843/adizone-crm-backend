@@ -79,6 +79,11 @@ public class BillingPeriod {
     @Column(name = "lesson_price", precision = 12, scale = 2)
     private BigDecimal lessonPrice;
 
+    /** Dars turi — accrual paytidagi guruhniki (V82, payroll v3); null (eski davr) — guruhning joriy turi. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "lesson_type", length = 20)
+    private com.crm.entity.enums.LessonType lessonType;
+
     // ── Direktor dashboardi (director-dashboard §1.2, §3.2, G5) ──
     /** Muddat — billing kuni (= period_start). */
     @Column(name = "due_date")

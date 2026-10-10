@@ -109,7 +109,7 @@ class PayrollLeaveSubstituteTest extends PayrollItBase {
             assertThat(l.paid()).isFalse();
             assertThat(l.workdaysInMonth()).isEqualTo(3);
         });
-        assertThat(d.version()).isEqualTo(PayrollCalculationDetails.VERSION);
+        assertThat(d.version()).isEqualTo(PayrollCalculationDetails.VERSION_V2);   // sentyabr — v3 oktyabrdan (§14)
         assertThat(p.getDeductions()).isEqualByComparingTo("346154");
         assertThat(p.getBasicSalary()).isEqualByComparingTo("3000000");
         assertThat(p.getAllowances()).isEqualByComparingTo("0");

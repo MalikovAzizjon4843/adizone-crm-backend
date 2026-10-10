@@ -396,3 +396,54 @@ Lokal bazada quruq tekshiruv (faqat o'qish): o'zgaradi — #1 (ustma-ust, faqat 
 `relatedTxId`; Excel eksportida "Yo'nalish" ustuni va ishorali "Summa (±)". REVERSAL yo'nalishi asl yozuvdan
 (`relatedTxId`) olinadi — bekor qilingan oylik (EXPENSE teskarisi) IN, bekor qilingan to'lov OUT. Transfer'ning
 yangi kirim qatori `relatedTxId` bilan chiqim qatoriga bog'lanadi (eskilari nom bo'yicha aniqlanadi).
+
+## 14. Payroll v3 — buyurtmachi qarorlari 2026-10-10 (`V82__payroll_lesson_type_rate_kpi_tiers.sql`)
+
+**Kuchga kirish:** oktyabr 2026 oyligidan (`app.payroll.v3-from`, standart `2026-10-01`). Undan oldingi oylar — v2
+formula (yuqoridagi §2), `calculationDetails.version = 2`; oktyabrdan — 3. DRAFT oy versiyasida bo'lmasa tasdiqlash —
+409 `payroll.recalculateRequired` (qayta hisoblash — `POST /api/payroll/{id}/recalculate` yoki generate `recalculate`).
+
+**Dars turi.** `groups.lesson_type` (GROUP | INDIVIDUAL, NOT NULL, standart GROUP); yangi guruhda standart —
+`courses.lesson_type`, u ham bo'lmasa GROUP. Accrual davrga nusxa yozadi (`billing_periods.lesson_type`); oylikda davr
+turi — nusxa, NULL bo'lsa guruhning joriy turi. Darsbay yozilmada — guruhning joriy turi. Mavjud individual guruhlarni
+belgilash: `docs/ops/group-lesson-type-backfill.sql` (avval SELECT, keyin UPDATE — oktyabr oyligidan oldin).
+
+**O'qituvchi:**
+```
+birlik(MONTHLY davr P, oy M) = Σ [P ni yopgan real PAYMENT qismlari, max(to'lov sanasi, P.start) ∈ M] / P.net   (≤ 1)
+birlik(darsbay yozilma, oy M) = min(1, Σ [o'qituvchi darslarini yopgan PAYMENT qismlari, max(to'lov, dars) ∈ M]
+                                      / (dars narxi × billing.lessons_per_month))
+gross = uzs(fixed × stavka) + uzs(per_student_fee × Σ GROUP birlik) + uzs(per_student_individual × Σ INDIVIDUAL birlik)
+        − haqsiz ta'til (stavkali fiksadan) + o'rinbosar darslari
+```
+- Qismlar — `PeriodCoverage.allocation` (FIFO taqsimoti, qisman yopilganlari ham), `PeriodCoverageService.paymentShares`.
+  `P.net` — davr majburiyati qaytarim / qayta hisob bilan. Oldindan to'lov davr oyida, kech to'lov to'langan oyda;
+  oylar bo'yicha yig'indi ≤ 1. Real pul — `PAYMENT` va `TRANSFER_IN` (guruhdan guruhga ko'chganda o'tgan to'langan
+  balans, qism sanasi = o'tkazma kuni; eski yozilmada o'sha pul TRANSFER_OUT ni yopadi — davr emas, ikki marta
+  sanalmaydi); `count-discount-covered = true` bo'lsa — har qanday kredit. DISCOUNT, BONUS, MANUAL_ADJUST ulush
+  bermaydi. KPI "faol" ta'rifi ham shu qismlardan foydalanadi.
+- Individual o'quvchi bor, `per_student_individual` NULL — `INDIVIDUAL_SHARE_MISSING` (hisoblanmaydi, jim 0 emas).
+- Darsbayda so'nggi 12 oydagi darslar ko'riladi.
+
+**Admin / sotuv:**
+```
+gross = uzs(fixed × stavka) + per_new_student × yangi o'quvchilar (stavkasiz) + KPI (faqat ADMIN) − haqsiz ta'til
+KPI = max{ tier.bonus : faol > tier.threshold }   (yig'ilmaydi; pog'onalar salary_rule_kpi_tiers)
+faol = oy oxirida status ACTIVE (student_status_history dan tiklanadi)
+       VA [ oy bilan kesishadigan MONTHLY davri oy oxirigacha PAYMENT bilan to'liq yoki qisman qoplangan
+            YOKI darsbay (sinovda emas) yozilmasi bo'yicha shu oyda PAID to'lov ]
+```
+Yangi o'quvchi ta'rifi o'zgarmagan (§2.2).
+
+**Qoida.** `per_student_individual` (TEACHER), `employment_rate` (0 < r ≤ 1, standart 1), `kpiTiers` (ADMIN).
+Eski `kpi_threshold` / `kpi_bonus` ("≥") V82 da bitta pog'onaga `threshold − 1` bilan ko'chadi; API'da `kpiTiers`
+berilmasa eski maydonlar xuddi shunday aylantiriladi, eski ustunlar eng past pog'onani aks ettiradi (v2 hisobi uchun).
+
+**Tafsilot (v3).** Qatorlarda `formula`: `"Fiksa 4 000 000 × 0.75"`, `"Guruh 23.4286 × 180 000"`,
+`"Individual 1 × 700 000"`, `"Yangi o'quvchi 26 × 50 000"`, `"KPI: 520 > 500 → 1 000 000"`. `items.paidPeriods[]` da
+`lessonType, periodAmount, paidInMonth, paidTotal, unit, partial`; `items.lessonEnrollments[]` da `lessonType,
+paidInMonth, monthlyEquivalent` (`share` — birlik); `items.kpi` da `bonus, tiers`; `rule` da `perStudentIndividual,
+employmentRate, kpiTiers`.
+
+**payroll.teacher_id** — NULL bo'la oladi (admin/sotuv), CHECK `teacher_id IS NOT NULL OR user_id IS NOT NULL`
+(prod'da qo'lda `payroll_owner_chk`; V82 ta'rifi bo'yicha topadi, ikkinchisini qo'shmaydi).

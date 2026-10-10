@@ -26,9 +26,23 @@ public class SalaryRuleResponse {
     private Integer kpiThreshold;
     private BigDecimal kpiBonus;
     private BigDecimal substituteLessonRate;
+    /** v3: INDIVIDUAL o'quvchi ulushi (TEACHER). */
+    private BigDecimal perStudentIndividual;
+    /** v3: stavka (fiksa × stavka). */
+    private BigDecimal employmentRate;
+    /** v3: KPI pog'onalari ("faol > threshold"); kpiThreshold/kpiBonus — eski ("≥") ko'rinish, eng past pog'ona. */
+    private java.util.List<KpiTier> kpiTiers;
     private Boolean isActive;
     private LocalDate effectiveFrom;
     private LocalDate effectiveTo;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class KpiTier {
+        private Integer threshold;
+        private BigDecimal bonus;
+    }
 }

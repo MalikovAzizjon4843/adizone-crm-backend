@@ -13,6 +13,7 @@ public class CourseResponse {
     private Integer lessonsCount;
     private BigDecimal monthlyPrice;
     private BigDecimal lessonPrice;
+    private com.crm.entity.enums.LessonType lessonType;
     private Boolean isActive;
     private LocalDateTime createdAt;
 }

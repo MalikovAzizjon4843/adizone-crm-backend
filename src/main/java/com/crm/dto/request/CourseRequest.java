@@ -11,4 +11,6 @@ public class CourseRequest {
     @NotNull(message = "{course.monthlyPrice.required}") @DecimalMin(value = "0.0", message = "{course.monthlyPrice.min}") private BigDecimal monthlyPrice;
     /** Ixtiyoriy — bir dars narxi */
     @DecimalMin(value = "0.0", message = "{course.lessonPrice.min}") private BigDecimal lessonPrice;
+    /** Ixtiyoriy (V82): yangi guruh uchun standart dars turi — GROUP | INDIVIDUAL; bo'sh — null (GROUP). */
+    private String lessonType;
 }

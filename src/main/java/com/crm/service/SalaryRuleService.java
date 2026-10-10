@@ -3,6 +3,7 @@ package com.crm.service;
 import com.crm.dto.request.SalaryRuleRequest;
 import com.crm.dto.response.SalaryRuleResponse;
 import com.crm.entity.SalaryRule;
+import com.crm.entity.SalaryRuleKpiTier;
 import com.crm.entity.User;
 import com.crm.entity.enums.PayrollStatus;
 import com.crm.entity.enums.UserRole;
@@ -146,6 +147,9 @@ public class SalaryRuleService {
         rule.setKpiThreshold(request.getKpiThreshold());
         rule.setKpiBonus(nz(request.getKpiBonus()));
         rule.setSubstituteLessonRate(role == UserRole.TEACHER ? request.getSubstituteLessonRate() : null);
+        rule.setPerStudentIndividual(role == UserRole.TEACHER ? request.getPerStudentIndividual() : null);
+        rule.setEmploymentRate(employmentRate(request.getEmploymentRate()));
+        applyKpiTiers(rule, role, request);
         rule.setIsActive(request.getIsActive() == null || request.getIsActive());
         if (request.getEffectiveFrom() != null && request.getEffectiveTo() != null
                 && request.getEffectiveTo().isBefore(request.getEffectiveFrom())) {
@@ -155,8 +159,57 @@ public class SalaryRuleService {
         rule.setEffectiveTo(request.getEffectiveTo());
     }
 
+    /** Stavka: berilmasa 1.00; 0 &lt; stavka ≤ 1 bo'lmasa — 400 {@code salaryRule.employmentRate.invalid}. */
+    private static BigDecimal employmentRate(BigDecimal raw) {
+        if (raw == null) {
+            return BigDecimal.ONE;
+        }
+        if (raw.signum() <= 0 || raw.compareTo(BigDecimal.ONE) > 0 || raw.stripTrailingZeros().scale() > 2) {
+            throw CodedException.badRequest("salaryRule.employmentRate.invalid", raw.toPlainString());
+        }
+        return raw;
+    }
+
+    /**
+     * KPI pog'onalari (payroll v3): {@code kpiTiers} berilsa — shular (chegaralar takrorlanmasin — 400
+     * {@code salaryRule.kpiTiers.invalid}); berilmasa va eski {@code kpiThreshold} berilsa — bitta pog'ona
+     * {@code threshold − 1} (eski "≥" = yangi "&gt;", V82 bilan bir xil). Eski ustunlar (v2 hisobi, oktyabrgacha) eng
+     * past pog'onani aks ettiradi: {@code kpi_threshold = threshold + 1}.
+     */
+    private static void applyKpiTiers(SalaryRule rule, UserRole role, SalaryRuleRequest request) {
+        java.util.TreeMap<Integer, BigDecimal> tiers = new java.util.TreeMap<>();
+        if (role == UserRole.ADMIN) {
+            if (request.getKpiTiers() != null) {
+                for (SalaryRuleRequest.KpiTier t : request.getKpiTiers()) {
+                    if (t == null || t.getThreshold() == null || t.getBonus() == null
+                            || tiers.put(t.getThreshold(), t.getBonus()) != null) {
+                        throw CodedException.badRequest("salaryRule.kpiTiers.invalid");
+                    }
+                }
+            } else if (request.getKpiThreshold() != null && positive(request.getKpiBonus())) {
+                tiers.put(Math.max(request.getKpiThreshold() - 1, 0), request.getKpiBonus());
+            }
+        }
+        rule.getKpiTiers().clear();
+        tiers.forEach((threshold, bonus) -> rule.getKpiTiers().add(SalaryRuleKpiTier.builder()
+            .salaryRule(rule).threshold(threshold).bonus(bonus).build()));
+        if (tiers.isEmpty()) {
+            rule.setKpiThreshold(null);
+            rule.setKpiBonus(BigDecimal.ZERO);
+        } else {
+            rule.setKpiThreshold(tiers.firstKey() + 1);
+            rule.setKpiBonus(tiers.firstEntry().getValue());
+        }
+    }
+
     private static void validateApplicable(UserRole role, SalaryRuleRequest r) {
         List<String> wrong = new ArrayList<>();
+        if (role != UserRole.TEACHER && positive(r.getPerStudentIndividual())) {
+            wrong.add("perStudentIndividual");
+        }
+        if (role != UserRole.ADMIN && r.getKpiTiers() != null && !r.getKpiTiers().isEmpty()) {
+            wrong.add("kpiTiers");
+        }
         if (role != UserRole.TEACHER && positive(r.getPerPayingStudent())) {
             wrong.add("perPayingStudent");
         }
@@ -194,6 +247,10 @@ public class SalaryRuleService {
             .kpiThreshold(r.getKpiThreshold())
             .kpiBonus(r.getKpiBonus())
             .substituteLessonRate(r.getSubstituteLessonRate())
+            .perStudentIndividual(r.getPerStudentIndividual())
+            .employmentRate(r.getEmploymentRate())
+            .kpiTiers(r.getKpiTiers().stream()
+                .map(t -> new SalaryRuleResponse.KpiTier(t.getThreshold(), t.getBonus())).toList())
             .isActive(r.getIsActive())
             .effectiveFrom(r.getEffectiveFrom())
             .effectiveTo(r.getEffectiveTo())

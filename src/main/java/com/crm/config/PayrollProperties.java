@@ -27,4 +27,11 @@ public class PayrollProperties {
      * DISCOUNT/BONUS bilan to'liq yopilgan davr sanalmaydi. true — har qanday kredit bilan yopilgan.
      */
     private boolean countDiscountCovered = false;
+
+    /**
+     * Payroll v3 (payroll-v2.md §14, buyurtmachi qarori 2026-10-10) shu sana OYIDAN kuchga kiradi: dars turi bo'yicha
+     * ulush, chala to'lov ulushi, stavka, KPI pog'onalari va yangi "faol" ta'rifi. Undan oldingi oylar — v2 formula
+     * (tasdiqlangan oyliklar va ularning qayta hisobi o'zgarmaydi). null — hamma oylar v3.
+     */
+    private LocalDate v3From = LocalDate.of(2026, 10, 1);
 }
