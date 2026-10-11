@@ -199,7 +199,7 @@ class LeadDefaultAssigneeTest extends Phase5ItBase {
         Long manual = task(leadId, manager, TaskStatus.OPEN, false);
         Long autoDone = task(leadId, manager, TaskStatus.DONE, true);
 
-        mvc.perform(patch("/api/leads/" + leadId + "/assign").with(as(admin))
+        mvc.perform(patch("/api/leads/" + leadId + "/assign").with(as(superAdmin))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"userId\":" + other.getId() + "}"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.assignedUserId").value(other.getId().intValue()));
@@ -212,7 +212,7 @@ class LeadDefaultAssigneeTest extends Phase5ItBase {
         assertThat(audit.get("details_json").toString()).contains("autoTasksReassigned").contains(auto.toString());
 
         // Biriktirish olib tashlansa — vazifalar joyida (assigned_to NOT NULL)
-        mvc.perform(patch("/api/leads/" + leadId + "/assign").with(as(admin))
+        mvc.perform(patch("/api/leads/" + leadId + "/assign").with(as(superAdmin))
                 .contentType(MediaType.APPLICATION_JSON).content("{\"userId\":null}"))
             .andExpect(status().isOk());
         assertThat(assigneeOfTask(auto)).isEqualTo(other.getId());

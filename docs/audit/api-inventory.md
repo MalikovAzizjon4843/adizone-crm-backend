@@ -325,7 +325,7 @@ qaytarilganlarga tegmaydi), **V77** (`billing_held_applications`, UNIQUE `idempo
 | `GET /api/settings/leads/default-assignee` | SA, A | **YANGI.** `{userId, fullName, role, active, valid}` — sozlanmagan bo'lsa `userId = null`; `valid = false` — foydalanuvchi endi nofaol/roli mos emas (biriktirilmaydi) |
 | `PUT /api/settings/leads/default-assignee` | SA, A | **YANGI.** `{"userId": 12}` yoki `{"userId": null}` (tozalash). Faol `SALES_MANAGER` / `ADMIN` / `SUPER_ADMIN` bo'lmasa (yoki topilmasa) — **400** `lead.defaultAssignee.invalid`. Audit: UPDATE Settings |
 | `POST /api/leads/public`, `POST /api/leads`, Meta webhook/backfill | — | Javobda `assignedUserId` standart mas'ul (Meta: avval `meta.task-assignee-user-id`) bo'lishi mumkin |
-| `PATCH /api/leads/{id}/assign` | SA, A, SH | Yangi mas'ulga lidning OCHIQ `auto_created` vazifalari ham o'tadi; ASSIGN audit yozuvida `autoTasksReassigned` (vazifa id lari) |
+| `PATCH /api/leads/{id}/assign` | SA, A, SH (2026-10-11 dan — faqat SA, SH) | Yangi mas'ulga lidning OCHIQ `auto_created` vazifalari ham o'tadi; ASSIGN audit yozuvida `autoTasksReassigned` (vazifa id lari) |
 | `TaskResponse` (barcha `/api/tasks/**`, `/api/leads/{id}/tasks`) | — | Yangi `autoCreated` (boolean) |
 | `POST /api/admin/repair/leads-missing-tasks?dryRun=true\|false` | SA | **YANGI.** `dryRun` standart **true** (hech narsa yozilmaydi). Qamrov: `requires_task` bosqichdagi, ochiq vazifasi yo'q lidlar. Mas'uli bor → unga "Bog'lanish" (CALL, `auto_created = true`, `dueAt` = bugun 18:00, o'tgan bo'lsa ertaga 10:00 — Asia/Tashkent); mas'uli yo'q → standart mas'ul bo'lsa lid unga biriktirilib vazifa; bo'lmasa o'tkazib yuboriladi. Har lid alohida tranzaksiyada (ichida qayta tekshiriladi). Javob: `{dryRun, dueAt, total, created, assignedToDefault, skippedNoAssignee, skippedAlreadyOk, failed, byStage: [{status, statusLabel, total, created, assignedToDefault, skippedNoAssignee}], errors[]}` (`dryRun` da `created` — yaratiladigan). Audit: REPAIR Lead (faqat `dryRun=false`) |
 
@@ -379,6 +379,17 @@ qaytarilganlarga tegmaydi), **V77** (`billing_held_applications`, UNIQUE `idempo
 | `POST /api/payroll/{id}/approve` | SA, A (avvalgidek) | DRAFT oy versiyasida bo'lmasa (oktyabrdan v2 qoralama) → **409** `payroll.recalculateRequired` — avval qayta hisoblash |
 | Admin / sotuv oyligi (generate) | — | `payroll.teacher_id = NULL` bilan saqlanadi (V82; ilgari prod'da NOT NULL xatosi) |
 
+## Yangilanishlar (2026-10-11, lid mas'uli — faqat SA va SALES_HEAD; ommaviy biriktirish)
+
+> Buyurtmachi qarori 11.10.2026. Ruxsat ikki qatlamda bir xil: `SecurityConfig` (umumiy `/api/leads/**` qoidasidan oldin)
+> va `@PreAuthorize`. Lidni ko'rish, tahrirlash, bosqich, izoh va boshqa lid ruxsatlari o'zgarmagan; `GET /api/leads/operators`
+> — avvalgidek SA, A, SH. Lid yaratishda operator tanlash (`POST /api/leads`, `assignedUserId`) ham o'zgarmagan.
+
+| Endpoint | Rollar | O'zgarish |
+|---|---|---|
+| `PATCH /api/leads/{id}/assign` | **SA, SH** | Ilgari SA, A, SH. Endi **ADMIN va SALES_MANAGER → 403** (biriktirish, almashtirish va olib tashlash — `{"userId": null}`). Mantiq o'zgarmagan |
+| `POST /api/leads/bulk-assign` | SA, SH | **YANGI.** Body `{"leadIds": [..], "userId": 12}`. `leadIds` — 1–200 ta (takrorlar bitta sanaladi; bo'sh yoki > 200 → **400** `lead.bulkAssign.size`). `userId` majburiy (**400** `lead.bulkAssign.userRequired`); faol va operator roli — `GET /api/leads/operators` sharti (aks holda, yo'q bo'lsa ham **400** `lead.bulkAssign.userInvalid`). Har lid **alohida tranzaksiyada** aynan `PATCH .../assign` mantig'i bilan: tayinlash tarixi (`lead_assignments`), ochiq `auto_created` vazifalar ko'chishi, har lidga ASSIGN audit. Bosqich cheklovi yo'q (CONVERTED/REJECTED ham). Allaqachon shu xodimda — `skipped` (tegilmaydi, tarix/audit yo'q). Javob: `{requested, assigned, skipped, failed: [{leadId, reason}]}` — `reason`: `lead.notFound` yoki xato kodi; bitta lid xatosi qolganlarini to'xtatmaydi |
+
 ## 0. Qanday o'qish kerak
 
 ### 0.1 Endpointlar soni
@@ -424,7 +435,7 @@ qaytarilganlarga tegmaydi), **V77** (`billing_held_applications`, UNIQUE `idempo
 |---|---|---|---|
 | Lidlar | `GET /api/leads`, `/kanban-stats`, `/{id}`, `/{id}/comments`, `/notes`, `/tasks`, `/timeline`, `/history` | ✅ hamma lid | SM — faqat o'ziga biriktirilgan |
 | | `POST /api/leads`, `PATCH /{id}/status`, `/amount`, `POST /{id}/comments`, `/notes` | ✅ hamma lid | `assignedUserId` — istalgan operator (SM — faqat o'zi) |
-| | `PATCH /api/leads/{id}/assign`, `GET /api/leads/operators` | ✅ | SM — 403. Operatorlar ro'yxatida SA, A, **SH**, SM |
+| | `PATCH /api/leads/{id}/assign`, `POST /api/leads/bulk-assign`, `GET /api/leads/operators` | ✅ | 2026-10-11: mas'ulni o'zgartirish faqat SA va **SH** (A, SM — 403); operatorlar ro'yxati — SA, A, SH. Ro'yxatda SA, A, **SH**, SM |
 | | `GET /api/leads/stats` | ✅ | SM — 403 |
 | | `POST /api/leads/{id}/convert` | ✅ hamma lid | SM — faqat o'z lidi |
 | | `PUT /api/leads/notes/{id}` | faqat o'z izohi | hammaga bir xil (muallif) |
@@ -1516,7 +1527,7 @@ Yo'l tartibi: `/grid` va `/by-room` literal segmentlar bo'lgani uchun `/{id}` da
 | GET | `/api/leads/kanban-stats` | `getKanbanStats` (`:124`) | SA, ADMIN, SM | — | `ApiResponse<LeadKanbanStatsResponse>` | yo'q | Ustun sarlavhalari: har bosqich uchun count + totalAmount; SM uchun o'z lidlari (`service/LeadService.java:721-764`). Bo'sh bosqichlar ham `count=0` bilan qaytadi, tartib `lead_stages.sortOrder` |
 | GET | `/api/leads/operators` | `getOperators` (`:129`) | SA, ADMIN (`:130`) | — | `ApiResponse<List<LeadOperatorResponse>>` | yo'q | Faol SA/ADMIN/SM foydalanuvchilar, ism bo'yicha tartib (`service/LeadService.java:594-603`). Operator filtri/biriktirish dropdowni uchun |
 | GET | `/api/leads/{id}` | `getById` (`:135`) | SA, ADMIN, SM (SM faqat o'zinikini) | path: `id: Long` (`\d+`) | `ApiResponse<LeadResponse>` | yo'q | |
-| PATCH | `/api/leads/{id}/assign` | `assignLead` (`:141`) | SA, ADMIN (`:142`) | path `id`; body: `LeadAssignRequest` (@Valid YO'Q) | `ApiResponse<LeadResponse>`, "Operator biriktirildi" | yo'q | `userId: null` → biriktirishni olib tashlash. Faqat SA/ADMIN/SM rolli userga (`service/LeadService.java:300-314`) |
+| PATCH | `/api/leads/{id}/assign` | `assignLead` (`:141`) | **SA, SH** (2026-10-11; URL qoidasi ham) | path `id`; body: `LeadAssignRequest` (@Valid YO'Q) | `ApiResponse<LeadResponse>`, "Operator biriktirildi" | yo'q | `userId: null` → biriktirishni olib tashlash. Faqat SA/ADMIN/SM rolli userga (`service/LeadService.java:300-314`) |
 | PATCH | `/api/leads/{id}/status` | `updateStatus` (`:152`) | SA, ADMIN, SM | path `id`; body: `LeadStatusRequest` (@Valid) | `ApiResponse<LeadResponse>`, "Status yangilandi" | yo'q | Kanban drag&drop. Faol bosqich kodi shart. CONVERTED turdagi bosqichga qo'lda o'tkazish TAQIQLANGAN → 400 (faqat `/convert` orqali) (`service/LeadService.java:347-349`). Bosqich `requiresAmount` bo'lsa va lidda summa yo'q bo'lsa `amount` majburiy → 400 (`:362-365`). Manfiy summa → 400. `requiresAmount` bosqichda tizim izohi yoziladi |
 | PATCH | `/api/leads/{id}/amount` | `updateAmount` (`:165`) | SA, ADMIN, SM | path `id`; body: `LeadAmountRequest` (@Valid) | `ApiResponse<LeadResponse>`, "Summa yangilandi" | yo'q | `amount: null` — olib tashlash, lekin `requiresAmount` bosqichda → 400 (`service/LeadService.java:417-419`). O'zgarmasa audit/izoh yozilmaydi |
 | POST | `/api/leads/{id}/comments` | `addComment` (`:174`) | SA, ADMIN, SM | path `id`; body: `LeadCommentRequest` (@Valid) | `ApiResponse<LeadCommentResponse>`, **201**, "Izoh qo'shildi" | yo'q | ESKI izoh tizimi (`lead_comments`), tahrirlanmaydi. Yangisi — `/notes` |

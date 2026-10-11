@@ -247,4 +247,8 @@ public interface LeadRepository extends JpaRepository<Lead, Long>, JpaSpecificat
           AND UPPER(COALESCE(format, 'OFFLINE')) != 'ONLINE'
         """, nativeQuery = true)
     int migrateEnrolledOffline();
+
+    /** Ommaviy biriktirish: [leadId, joriy mas'ul id (null — yo'q)]; ro'yxatda yo'q id — lid topilmadi. */
+    @Query(value = "SELECT l.id, u.id FROM Lead l LEFT JOIN l.assignedUser u WHERE l.id IN :ids")
+    List<Object[]> findAssigneeIdsByIds(@Param(value = "ids") java.util.Collection<Long> ids);
 }

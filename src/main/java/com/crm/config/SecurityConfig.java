@@ -207,6 +207,12 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/bonus-penalties", "/api/bonus-penalties/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                // Lid mas'ulini o'zgartirish — faqat SUPER_ADMIN va SALES_HEAD (buyurtmachi 11.10.2026).
+                // Umumiy lid qoidasidan OLDIN; controllerdagi @PreAuthorize bilan aynan bir xil.
+                .requestMatchers(HttpMethod.PATCH, "/api/leads/*/assign")
+                    .hasAnyRole("SUPER_ADMIN", "SALES_HEAD")
+                .requestMatchers(HttpMethod.POST, "/api/leads/bulk-assign")
+                    .hasAnyRole("SUPER_ADMIN", "SALES_HEAD")
                 .requestMatchers("/api/leads/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_HEAD", "SALES_MANAGER")
                 .requestMatchers("/api/tasks/**")

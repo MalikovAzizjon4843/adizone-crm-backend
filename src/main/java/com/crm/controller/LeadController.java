@@ -1,6 +1,7 @@
 package com.crm.controller;
 
 import com.crm.dto.request.LeadAssignRequest;
+import com.crm.dto.request.LeadBulkAssignRequest;
 import com.crm.dto.request.LeadAmountRequest;
 import com.crm.dto.request.LeadCommentRequest;
 import com.crm.dto.request.LeadConvertRequest;
@@ -10,6 +11,7 @@ import com.crm.dto.request.LeadRequest;
 import com.crm.dto.request.LeadStatusRequest;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.LeadCommentResponse;
+import com.crm.dto.response.LeadBulkAssignResponse;
 import com.crm.dto.response.LeadConvertResponse;
 import com.crm.dto.response.LeadOperatorResponse;
 import com.crm.dto.response.LeadResponse;
@@ -21,6 +23,7 @@ import com.crm.dto.response.LeadWithoutTaskStatsResponse;
 import com.crm.dto.response.LeadTimelineResponse;
 import com.crm.dto.response.PageResponse;
 import com.crm.dto.response.TaskResponse;
+import com.crm.service.LeadBulkAssignService;
 import com.crm.service.LeadService;
 import com.crm.service.LeadTimelineService;
 import com.crm.service.TaskService;
@@ -55,6 +58,7 @@ import java.util.List;
 public class LeadController {
 
     private final LeadService leadService;
+    private final LeadBulkAssignService leadBulkAssignService;
     private final LeadTimelineService leadTimelineService;
     private final TaskService taskService;
 
@@ -166,17 +170,30 @@ public class LeadController {
     }
 
     /**
-     * Operatorni almashtirish — ma'muriyat va sotuv bo'limi rahbari (istalgan menejerga, qayta ham).
-     * SALES_MANAGER lidni o'zidan olib tashlay olmaydi va boshqaga bera olmaydi.
+     * Mas'ulni biriktirish / almashtirish / olib tashlash — faqat SUPER_ADMIN va SALES_HEAD (buyurtmachi 11.10.2026;
+     * SecurityConfig da ham aynan shu). ADMIN va SALES_MANAGER — 403.
      */
-    @PatchMapping("/{id:\\d+}/assign")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','SALES_HEAD')")
+    @PatchMapping(value = "/{id:\\d+}/assign")
+    @PreAuthorize(value = "hasAnyRole('SUPER_ADMIN','SALES_HEAD')")
     public ResponseEntity<ApiResponse<LeadResponse>> assignLead(
             @PathVariable Long id,
             @RequestBody LeadAssignRequest request) {
         return ResponseEntity.ok(ApiResponse.success(
                 "Operator biriktirildi",
                 leadService.assignLead(id, request)));
+    }
+
+    /**
+     * Ommaviy biriktirish (SUPER_ADMIN, SALES_HEAD): {@code {leadIds: [1–200], userId}}. Har lid alohida tranzaksiyada
+     * yagona biriktirish mantig'i bilan ({@link LeadService#assignLead}); javob — assigned / skipped / failed.
+     */
+    @PostMapping(value = "/bulk-assign")
+    @PreAuthorize(value = "hasAnyRole('SUPER_ADMIN','SALES_HEAD')")
+    public ResponseEntity<ApiResponse<LeadBulkAssignResponse>> bulkAssign(
+            @RequestBody LeadBulkAssignRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Lidlar biriktirildi",
+                leadBulkAssignService.bulkAssign(request)));
     }
 
     /**
