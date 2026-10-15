@@ -1,5 +1,6 @@
 package com.crm.billing.support;
 
+import com.crm.repository.CashRegisterMemberRepository;
 import com.crm.repository.CashRegisterRepository;
 import com.crm.repository.CourseRepository;
 import com.crm.repository.GroupRepository;
@@ -37,12 +38,13 @@ public class BillingTestConfig {
             StudentRepository studentRepository,
             StudentGroupRepository studentGroupRepository,
             CashRegisterRepository cashRegisterRepository,
+            CashRegisterMemberRepository cashRegisterMemberRepository,
             UserRepository userRepository,
             TeacherRepository teacherRepository,
             TransactionTemplate transactionTemplate,
             JdbcTemplate jdbcTemplate) {
         return new BillingFixtures(courseRepository, groupRepository, studentRepository,
-            studentGroupRepository, cashRegisterRepository, userRepository, teacherRepository,
+            studentGroupRepository, cashRegisterRepository, cashRegisterMemberRepository, userRepository, teacherRepository,
             transactionTemplate, jdbcTemplate);
     }
 }

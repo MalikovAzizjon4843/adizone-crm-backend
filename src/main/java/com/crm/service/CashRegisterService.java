@@ -24,6 +24,12 @@ import com.crm.entity.enums.CashTransactionType;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.CodedException;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.entity.CashCategory;
+import com.crm.entity.CashRegisterMember;
+import com.crm.entity.enums.CashRegisterKind;
+import com.crm.entity.enums.UserRole;
+import com.crm.dto.response.CashCategoryTotalDto;
+import com.crm.repository.CashRegisterMemberRepository;
 import com.crm.repository.CashRegisterRepository;
 import com.crm.repository.CashTransactionRepository;
 import com.crm.repository.StudentRepository;
@@ -73,7 +79,12 @@ public class CashRegisterService {
     private final com.crm.billing.BillingLocks billingLocks;
     private final CashChannelService cashChannelService;
     private final com.crm.billing.PaymentDatePolicy datePolicy;
+    private final CashAccessService access;
+    private final CashCategoryService categoryService;
+    private final CashCategoryTotals categoryTotals;
+    private final CashRegisterMemberRepository memberRepository;
 
+    /** SA — hamma kassa; ADMIN / ACCOUNTANT — faqat a'zo bo'lgan ADMIN kassa (Direktor kassasi ko'rinmaydi). */
     @Transactional(readOnly = true)
     public List<CashRegisterDto> getAll(String status) {
         List<CashRegister> registers;
@@ -83,21 +94,38 @@ public class CashRegisterService {
         } else {
             registers = cashRegisterRepository.findAll();
         }
+        List<Long> visible = access.visibleRegisterIds();
+        if (visible != null) {
+            registers = registers.stream().filter(r -> visible.contains(r.getId())).toList();
+        }
         Map<Long, Map<PaymentChannel, CashChannelService.Flow>> flows = cashChannelService.flowsByRegister();
         return registers.stream()
             .map(r -> withChannels(toRegisterDto(r), flows.get(r.getId())))
             .collect(Collectors.toList());
     }
 
+    /**
+     * {@code GET /my}: to'lov, imtihon va xarajat dialoglari uchun — faol, yozish mumkin bo'lgan kassalar.
+     * ADMIN / ACCOUNTANT — o'z kassasi (odatda bitta); biriktirilmagan — 400 {@code cash.noRegisterAssigned}.
+     */
+    @Transactional(readOnly = true)
+    public List<CashRegisterDto> getMine() {
+        List<CashRegisterDto> active = getAll(CashRegisterStatus.ACTIVE.name());
+        if (active.isEmpty() && !access.isUnrestricted()) {
+            throw CodedException.badRequest("cash.noRegisterAssigned");
+        }
+        return active;
+    }
+
     @Transactional(readOnly = true)
     public CashRegisterDto getById(Long id) {
-        return withChannels(toRegisterDto(findRegisterById(id)), cashChannelService.flows(id, null, null));
+        return withChannels(toRegisterDto(access.requireAccessible(id)), cashChannelService.flows(id, null, null));
     }
 
     /** {@code GET /{id}/by-method}: davr oqimi to'lov usuli guruhlari bo'yicha. */
     @Transactional(readOnly = true)
     public CashChannelReportDto getChannelReport(Long id, LocalDate from, LocalDate to) {
-        findRegisterById(id);
+        access.requireAccessible(id);
         Map<PaymentChannel, CashChannelService.Flow> flows = cashChannelService.flows(id, from, to);
         return CashChannelReportDto.builder()
             .cashRegisterId(id)
@@ -122,6 +150,7 @@ public class CashRegisterService {
 
     @Transactional
     public CashRegisterDto create(CashRegisterCreateDto dto) {
+        access.requireDirector();
         CashRegister register = new CashRegister();
         register.setName(dto.getName());
         register.setAcceptOnlinePayment(Boolean.TRUE.equals(dto.getAcceptOnlinePayment()));
@@ -138,12 +167,26 @@ public class CashRegisterService {
         if (dto.getModeratorId() != null) {
             register.setModerator(findUserById(dto.getModeratorId()));
         }
+        register.setKind(parseKind(dto.getKind(), CashRegisterKind.ADMIN));
+        register.setFloatAmount(requireFloat(dto.getFloatAmount(), BigDecimal.ZERO));
         return toRegisterDto(cashRegisterRepository.save(register));
     }
 
+    /** Kassa tuzilmasi — faqat SA (controller ham). Turi DIRECTOR ga o'zgarsa — a'zolar olib tashlanadi. */
     @Transactional
     public CashRegisterDto update(Long id, CashRegisterCreateDto dto) {
+        access.requireDirector();
         CashRegister register = findRegisterById(id);
+        if (dto.getKind() != null) {
+            CashRegisterKind kind = parseKind(dto.getKind(), register.getKind());
+            if (kind != register.getKind() && kind == CashRegisterKind.DIRECTOR) {
+                memberRepository.deleteByRegister(id);
+            }
+            register.setKind(kind);
+        }
+        if (dto.getFloatAmount() != null) {
+            register.setFloatAmount(requireFloat(dto.getFloatAmount(), BigDecimal.ZERO));
+        }
         if (dto.getName() != null) {
             register.setName(dto.getName());
         }
@@ -163,6 +206,7 @@ public class CashRegisterService {
 
     @Transactional
     public String delete(Long id) {
+        access.requireDirector();
         CashRegister register = findRegisterById(id);
         if (cashTransactionRepository.countByCashRegister_Id(id) > 0) {
             register.setStatus(CashRegisterStatus.ARCHIVED);
@@ -176,11 +220,72 @@ public class CashRegisterService {
 
     @Transactional
     public CashRegisterDto updateStatus(Long id, String status) {
+        access.requireDirector();
         CashRegister register = findRegisterById(id);
         CashRegisterStatus registerStatus = parseRegisterStatus(status);
         register.setStatus(registerStatus);
         register.setArchived(registerStatus == CashRegisterStatus.ARCHIVED);
         return toRegisterDto(cashRegisterRepository.save(register));
+    }
+
+    /**
+     * {@code PUT /{id}/members} (SA): kassa a'zolari ro'yxatini almashtiradi. Faqat ADMIN kassa; a'zo —
+     * ADMIN yoki ACCOUNTANT roli. "Bir admin — bitta kassa": a'zo boshqa kassalardan olib tashlanadi.
+     */
+    @Transactional
+    @Audited(action = AuditAction.UPDATE, entity = "CashRegister",
+        summary = "'Kassa a''zolari: ' + #userIds", entityId = "#id")
+    public CashRegisterDto setMembers(Long id, List<Long> userIds) {
+        access.requireDirector();
+        CashRegister register = findRegisterById(id);
+        if (register.getKind() != CashRegisterKind.ADMIN) {
+            throw CodedException.badRequest("cash.members.directorRegister");
+        }
+        List<Long> ids = userIds != null ? userIds.stream().distinct().toList() : List.of();
+        for (Long userId : ids) {
+            User u = findUserById(userId);
+            if (u.getRole() != UserRole.ADMIN && u.getRole() != UserRole.ACCOUNTANT) {
+                throw CodedException.badRequest("cash.members.invalidUser", userId);
+            }
+        }
+        memberRepository.deleteByRegister(id);
+        if (!ids.isEmpty()) {
+            memberRepository.deleteOtherMemberships(ids, id);
+            memberRepository.saveAll(ids.stream()
+                .map(u -> CashRegisterMember.builder().cashRegisterId(id).userId(u).build())
+                .toList());
+        }
+        return toRegisterDto(register);
+    }
+
+    /**
+     * {@code GET /{id}/by-category}: davr kirim/chiqimi kategoriya bo'yicha (o'quvchi to'lovi, imtihon,
+     * oylik ham — kassa ko'rinishi), kirim − bekor qilinganlari. O'tkazmalar kirmaydi.
+     */
+    @Transactional(readOnly = true)
+    public List<CashCategoryTotalDto> getCategoryReport(Long id, LocalDate from, LocalDate to) {
+        access.requireAccessible(id);
+        Map<String, CashCategory> categories = categoryService.all();
+        Map<String, BigDecimal> sums = new LinkedHashMap<>();
+        for (CashCategoryTotals.Total t : categoryTotals.totals(id, from, to)) {
+            String code = categories.containsKey(t.category()) ? t.category() : CashCategories.OTHER;
+            sums.merge(code, t.amount(), BigDecimal::add);
+        }
+        return sums.entrySet().stream()
+            .filter(e -> e.getValue().signum() != 0)
+            .map(e -> {
+                CashCategory c = categories.get(e.getKey());
+                return CashCategoryTotalDto.builder()
+                    .category(e.getKey())
+                    .name(c.getName())
+                    .direction(c.getDirection())
+                    .scope(c.getScope())
+                    .amount(e.getValue())
+                    .build();
+            })
+            .sorted(java.util.Comparator.comparing(CashCategoryTotalDto::getDirection)
+                .thenComparing(d -> categories.get(d.getCategory()).getSortOrder()))
+            .toList();
     }
 
     /**
@@ -190,7 +295,7 @@ public class CashRegisterService {
      */
     @Transactional(readOnly = true)
     public CashBalanceDto getBalance(Long id) {
-        CashRegister register = findRegisterById(id);
+        CashRegister register = access.requireAccessible(id);
         Map<PaymentChannel, CashChannelService.Flow> flows = cashChannelService.flows(id, null, null);
         BigDecimal derivedCash = BigDecimal.ZERO;
         BigDecimal derivedNonCash = BigDecimal.ZERO;
@@ -232,7 +337,6 @@ public class CashRegisterService {
         return getTransactions(cashRegisterId, from, to, studentId, teacherId, type, paymentMethod, null, pageable);
     }
 
-    /** {@code channel} — to'lov usuli guruhi (CASH, CARD, TERMINAL, ONLINE, OTHER). */
     @Transactional(readOnly = true)
     public Page<CashTransactionDto> getTransactions(
             Long cashRegisterId,
@@ -244,8 +348,26 @@ public class CashRegisterService {
             String paymentMethod,
             String channel,
             Pageable pageable) {
+        return getTransactions(cashRegisterId, from, to, studentId, teacherId, type, paymentMethod, channel,
+            null, pageable);
+    }
 
-        findRegisterById(cashRegisterId);
+    /** {@code channel} — to'lov usuli guruhi (CASH, CARD, TERMINAL, ONLINE, OTHER); {@code category} — kod. */
+    @Transactional(readOnly = true)
+    public Page<CashTransactionDto> getTransactions(
+            Long cashRegisterId,
+            LocalDate from,
+            LocalDate to,
+            Long studentId,
+            Long teacherId,
+            String type,
+            String paymentMethod,
+            String channel,
+            String category,
+            Pageable pageable) {
+
+        access.requireAccessible(cashRegisterId);
+        String categoryFilter = CashCategoryService.normalize(category);
 
         CashTransactionType typeFilter = parseTransactionType(type);
         PaymentMethod methodFilter = parsePaymentMethod(paymentMethod);
@@ -259,6 +381,9 @@ public class CashRegisterService {
         Specification<CashTransaction> spec = buildTransactionSpec(
             cashRegisterId, from, to, studentId, teacherId, typeFilter, methodFilter)
             .and(channelSpec(channelFilter));
+        if (categoryFilter != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("category"), categoryFilter));
+        }
 
         Page<CashTransaction> page = cashTransactionRepository.findAll(spec, pageable);
 
@@ -291,7 +416,7 @@ public class CashRegisterService {
             String paymentMethod,
             String channel) {
 
-        findRegisterById(cashRegisterId);
+        access.requireAccessible(cashRegisterId);
         CashTransactionType typeFilter = parseTransactionType(type);
         PaymentMethod methodFilter = parsePaymentMethod(paymentMethod);
         Specification<CashTransaction> spec = buildTransactionSpec(
@@ -447,10 +572,7 @@ public class CashRegisterService {
             transactionDate, cashPart, cardPart, null);
     }
 
-    /**
-     * Kirim. Kassa qatori qulf ostida o'zgaradi (§7, I6) — parallel ikki kirim
-     * bir-birini yo'qotmaydi. {@code paymentId} — o'quvchi to'lovi (I5).
-     */
+    /** Kategoriya: {@code paymentId} bor — STUDENT_PAYMENT, aks holda OTHER_INCOME. */
     @Transactional
     public CashTransaction recordIncome(
             Long cashRegisterId,
@@ -463,8 +585,33 @@ public class CashRegisterService {
             BigDecimal cashPart,
             BigDecimal cardPart,
             Long paymentId) {
+        return recordIncome(cashRegisterId, amount, method, student, transactionName, note, transactionDate,
+            cashPart, cardPart, paymentId,
+            paymentId != null ? CashCategories.STUDENT_PAYMENT : CashCategories.OTHER_INCOME);
+    }
+
+    /**
+     * Kirim. Kassa qatori qulf ostida o'zgaradi (§7, I6) — parallel ikki kirim
+     * bir-birini yo'qotmaydi. {@code paymentId} — o'quvchi to'lovi (I5). Kassaga kirish —
+     * {@link CashAccessService} (yagona nuqta: to'lov, imtihon, qo'lda kirim — hammasi shu yerdan).
+     */
+    @Transactional
+    public CashTransaction recordIncome(
+            Long cashRegisterId,
+            BigDecimal amount,
+            PaymentMethod method,
+            Student student,
+            String transactionName,
+            String note,
+            LocalDate transactionDate,
+            BigDecimal cashPart,
+            BigDecimal cardPart,
+            Long paymentId,
+            String category) {
 
         CashRegister register = billingLocks.lockCashRegister(cashRegisterId);
+        access.assertAccessible(register);
+        categoryService.require(category, CashDirection.IN);
         BigDecimal positiveAmount = requirePositiveAmount(amount);
         PaymentMethod cashMethod = requirePaymentMethod(method);
         SplitParts parts = validateParts(cashMethod, positiveAmount, cashPart, cardPart);
@@ -490,6 +637,7 @@ public class CashRegisterService {
         tx.setStatus(CashTransactionStatus.COMPLETED);
         tx.setCreatedBy(currentUser());
         tx.setPaymentId(paymentId);
+        tx.setCategory(category);
         if (student != null) {
             tx.setStudent(student);
         }
@@ -514,6 +662,7 @@ public class CashRegisterService {
             throw new IllegalStateException("Faqat kirim yoki chiqim teskari yoziladi: " + original.getType());
         }
         CashRegister register = billingLocks.lockCashRegister(original.getCashRegister().getId());
+        access.assertAccessible(register);
         BucketAmounts parts = bucketAmounts(original);
         boolean income = original.getType() == CashTransactionType.INCOME;
 
@@ -536,6 +685,7 @@ public class CashRegisterService {
         tx.setPayrollId(original.getPayrollId());
         tx.setExamRegistrationId(original.getExamRegistrationId());
         tx.setRelatedTxId(original.getId());
+        tx.setCategory(original.getCategory());
         CashTransaction saved = cashTransactionRepository.save(tx);
 
         if (income) {
@@ -560,6 +710,10 @@ public class CashRegisterService {
             throw CodedException.badRequest("cash.income.studentPaymentViaPayments");
         }
         datePolicy.check(dto.getTransactionDate());     // kelajak — 400, o'tgan — faqat SA
+        // Kategoriya (V86): ko'rsatilmasa — OTHER_INCOME; SYSTEM (to'lov, imtihon ...) qo'lda tanlanmaydi
+        String category = CashCategoryService.normalize(dto.getCategory());
+        categoryService.checkManual(category != null ? category : CashCategories.OTHER_INCOME,
+            CashDirection.IN, access.requireAccessible(cashRegisterId));
 
         CashTransaction tx = recordIncome(
             cashRegisterId,
@@ -570,7 +724,9 @@ public class CashRegisterService {
             dto.getNote(),
             dto.getTransactionDate(),
             dto.getCashPart(),
-            dto.getCardPart());
+            dto.getCardPart(),
+            null,
+            category != null ? category : CashCategories.OTHER_INCOME);
 
         return toTransactionDto(tx);
     }
@@ -627,7 +783,7 @@ public class CashRegisterService {
             student, teacher, periodMonth, totalAmount, cashPart, cardPart, null);
     }
 
-    /** Chiqim. {@code payrollId} — oylik to'lovi (payroll-v2 §5.2): bekor qilishda shu yozuv teskari yoziladi. */
+    /** Kategoriya: {@code payrollId} bor — SALARY, aks holda OTHER_DAILY. */
     @Transactional
     public CashTransaction recordExpense(
             Long registerId,
@@ -644,8 +800,36 @@ public class CashRegisterService {
             BigDecimal cashPart,
             BigDecimal cardPart,
             Long payrollId) {
+        return recordExpense(registerId, amount, method, transactionName, note, date, createdBy, student, teacher,
+            periodMonth, totalAmount, cashPart, cardPart, payrollId,
+            payrollId != null ? CashCategories.SALARY : CashCategories.OTHER_DAILY);
+    }
+
+    /**
+     * Chiqim. {@code payrollId} — oylik to'lovi (payroll-v2 §5.2): bekor qilishda shu yozuv teskari yoziladi.
+     * Kassaga kirish — {@link CashAccessService} (yagona nuqta); kategoriya guruhi qoidasi chaqiruvchida.
+     */
+    @Transactional
+    public CashTransaction recordExpense(
+            Long registerId,
+            BigDecimal amount,
+            PaymentMethod method,
+            String transactionName,
+            String note,
+            LocalDate date,
+            User createdBy,
+            Student student,
+            Teacher teacher,
+            LocalDate periodMonth,
+            BigDecimal totalAmount,
+            BigDecimal cashPart,
+            BigDecimal cardPart,
+            Long payrollId,
+            String category) {
 
         CashRegister register = billingLocks.lockCashRegister(registerId);
+        access.assertAccessible(register);
+        categoryService.require(category, CashDirection.OUT);
         BigDecimal positiveAmount = requirePositiveAmount(amount);
         PaymentMethod cashMethod = requirePaymentMethod(method);
         SplitParts parts = validateParts(cashMethod, positiveAmount, cashPart, cardPart);
@@ -671,6 +855,7 @@ public class CashRegisterService {
         }
         tx.setPeriodMonth(periodMonth);
         tx.setTotalAmount(totalAmount);
+        tx.setCategory(category);
         cashTransactionRepository.save(tx);
 
         subtractFromBalanceAllowNegative(register, bucketAmounts(
@@ -685,6 +870,11 @@ public class CashRegisterService {
         entityId = "#cashRegisterId")
     public CashTransactionDto addExpense(Long cashRegisterId, ExpenseCreateDto dto) {
         datePolicy.check(dto.getTransactionDate());     // kelajak — 400, o'tgan — faqat SA
+        // Kategoriya (V86): DAILY — admin o'z kassasidan; STRATEGIC — faqat SA, Direktor kassasidan.
+        // Ko'rsatilmasa — OTHER_DAILY (eski UI kategoriyasiz yuboradi).
+        String code = CashCategoryService.normalize(dto.getCategory());
+        CashCategory category = categoryService.checkManual(code != null ? code : CashCategories.OTHER_DAILY,
+            CashDirection.OUT, access.requireAccessible(cashRegisterId));
         Student student = null;
         if (dto.getStudentId() != null) {
             student = findStudentById(dto.getStudentId());
@@ -694,7 +884,7 @@ public class CashRegisterService {
             cashRegisterId,
             dto.getAmount(),
             dto.getPaymentMethod(),
-            null,
+            category.getName(),
             dto.getNote(),
             dto.getTransactionDate(),
             currentUser(),
@@ -703,7 +893,9 @@ public class CashRegisterService {
             dto.getPeriodMonth(),
             dto.getTotalAmount(),
             dto.getCashPart(),
-            dto.getCardPart());
+            dto.getCardPart(),
+            null,
+            category.getCode());
 
         return toTransactionDto(tx);
     }
@@ -733,6 +925,8 @@ public class CashRegisterService {
     @Audited(action = AuditAction.PAYMENT, entity = "CashRegister",
         summary = "'Kassalar o''rtasida o''tkazma: ' + #dto.amount")
     public List<CashTransactionDto> transfer(TransferDto dto) {
+        // V86: erkin o'tkazma — faqat SA; admin naqdni kunlik topshirish orqali o'tkazadi
+        access.requireDirector();
         if (dto.getFromCashRegisterId() == null || dto.getToCashRegisterId() == null) {
             throw new BadRequestException("Manba va maqsad kassalari ko'rsatilishi shart");
         }
@@ -796,6 +990,77 @@ public class CashRegisterService {
         );
     }
 
+    // ------------------------------------------------------------------
+    // Kunlik topshirish (V86, cash-and-books §1.2.3) — qulflar CashHandoverService da
+    // ------------------------------------------------------------------
+
+    /**
+     * Qabul qilingan naqd: admin kassasidan Direktor kassasiga TRANSFER (CASH). Ikkala qator topshirishga
+     * bog'langan ({@code handover_id}) — keyingi topshirishga tushmaydi. Admin kassasi manfiyga tushishi mumkin
+     * (ortiqcha sanalgan bo'lsa) — farq yozuvi uni razmenga qaytaradi.
+     */
+    void recordHandoverTransfer(CashRegister from, CashRegister to, BigDecimal amount, Long handoverId,
+                                LocalDate date, String note) {
+        BucketAmounts buckets = new BucketAmounts(amount, BigDecimal.ZERO);
+        subtractFromBalanceAllowNegative(from, buckets);
+        addToBalance(to, buckets);
+        cashRegisterRepository.save(from);
+        cashRegisterRepository.save(to);
+        User creator = currentUser();
+
+        CashTransaction outTx = handoverRow(from, to, amount, "Topshirish (chiqim)", note, date, creator, handoverId);
+        CashTransaction savedOut = cashTransactionRepository.save(outTx);
+        CashTransaction inTx = handoverRow(to, from, amount, "Topshirish (kirim)", note, date, creator, handoverId);
+        inTx.setRelatedTxId(savedOut.getId());
+        cashTransactionRepository.save(inTx);
+    }
+
+    /**
+     * Topshirish farqi (naqd): {@code diff < 0} — kamomad (EXPENSE CASH_SHORTAGE), {@code diff > 0} — ortiqcha
+     * (INCOME CASH_SURPLUS). Admin kassasining naqd chelagi razmenga qaytadi; jarima yo'q (buyurtmachi qarori).
+     */
+    void recordHandoverDiff(CashRegister register, BigDecimal diff, Long handoverId, LocalDate date, String note) {
+        boolean shortage = diff.signum() < 0;
+        BigDecimal amount = diff.abs();
+        CashTransaction tx = new CashTransaction();
+        tx.setCashRegister(register);
+        tx.setType(shortage ? CashTransactionType.EXPENSE : CashTransactionType.INCOME);
+        tx.setPaymentMethod(PaymentMethod.CASH);
+        tx.setAmount(amount);
+        tx.setTransactionName(shortage ? "Topshirishda kamomad" : "Topshirishda ortiqcha");
+        tx.setNote(note);
+        tx.setTransactionDate(date);
+        tx.setStatus(CashTransactionStatus.COMPLETED);
+        tx.setCreatedBy(currentUser());
+        tx.setCategory(shortage ? CashCategories.CASH_SHORTAGE : CashCategories.CASH_SURPLUS);
+        tx.setHandoverId(handoverId);
+        cashTransactionRepository.save(tx);
+        BucketAmounts buckets = new BucketAmounts(amount, BigDecimal.ZERO);
+        if (shortage) {
+            subtractFromBalanceAllowNegative(register, buckets);
+        } else {
+            addToBalance(register, buckets);
+        }
+        cashRegisterRepository.save(register);
+    }
+
+    private static CashTransaction handoverRow(CashRegister register, CashRegister target, BigDecimal amount,
+                                               String name, String note, LocalDate date, User creator,
+                                               Long handoverId) {
+        CashTransaction tx = new CashTransaction();
+        tx.setCashRegister(register);
+        tx.setTargetCashRegister(target);
+        tx.setType(CashTransactionType.TRANSFER);
+        tx.setPaymentMethod(PaymentMethod.CASH);
+        tx.setAmount(amount);
+        tx.setTransactionName(name);
+        tx.setNote(note);
+        tx.setTransactionDate(date);
+        tx.setStatus(CashTransactionStatus.COMPLETED);
+        tx.setCreatedBy(creator);
+        tx.setHandoverId(handoverId);
+        return tx;
+    }
     // ------------------------------------------------------------------
     // Chelaklar (bucket): taqsimot faqat PaymentMethod.getCashBucket() dan olinadi
     // ------------------------------------------------------------------
@@ -1037,7 +1302,36 @@ public class CashRegisterService {
         dto.setStatus(r.getStatus());
         dto.setAcceptOnlinePayment(r.isAcceptOnlinePayment());
         dto.setArchived(r.isArchived());
+        dto.setKind(r.getKind());
+        dto.setFloatAmount(r.getFloatAmount());
+        if (r.getId() != null) {
+            List<Long> memberIds = memberRepository.findByCashRegisterId(r.getId()).stream()
+                .map(CashRegisterMember::getUserId).toList();
+            dto.setMembers(memberIds.isEmpty() ? List.of() : userRepository.findAllById(memberIds).stream()
+                .map(u -> new CashRegisterDto.Member(u.getId(), u.getFirstName() + " " + u.getLastName(),
+                    u.getRole() != null ? u.getRole().name() : null))
+                .toList());
+        }
         return dto;
+    }
+
+    private static CashRegisterKind parseKind(String raw, CashRegisterKind fallback) {
+        if (raw == null || raw.isBlank()) {
+            return fallback;
+        }
+        try {
+            return CashRegisterKind.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw CodedException.badRequest("cash.register.kindInvalid", raw);
+        }
+    }
+
+    private static BigDecimal requireFloat(BigDecimal value, BigDecimal fallback) {
+        BigDecimal v = value != null ? value : fallback;
+        if (v.signum() < 0) {
+            throw CodedException.badRequest("cash.register.floatNegative");
+        }
+        return v;
     }
 
     /**
@@ -1107,6 +1401,8 @@ public class CashRegisterService {
         dto.setStatus(t.getStatus());
         dto.setPeriodMonth(t.getPeriodMonth());
         dto.setTotalAmount(t.getTotalAmount());
+        dto.setCategory(t.getCategory());
+        dto.setHandoverId(t.getHandoverId());
         dto.setTransactionDate(t.getTransactionDate());
         dto.setCreatedAt(t.getCreatedAt());
         if (t.getCreatedBy() != null) {

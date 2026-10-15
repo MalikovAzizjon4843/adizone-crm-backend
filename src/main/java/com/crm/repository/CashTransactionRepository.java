@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import java.util.List;
@@ -40,4 +41,29 @@ public interface CashTransactionRepository extends JpaRepository<CashTransaction
         WHERE t.examRegistrationId IS NOT NULL AND t.transactionDate BETWEEN :from AND :to
         """)
     java.math.BigDecimal sumExamFees(@Param("from") java.time.LocalDate from, @Param("to") java.time.LocalDate to);
+
+    /** Kunlik topshirish (V86): kassaning hali topshirilmagan, bajarilgan yozuvlari, eskisi avval. */
+    @Query(value = """
+        SELECT t FROM CashTransaction t
+        WHERE t.cashRegister.id = :registerId AND t.handoverId IS NULL
+          AND t.status = com.crm.entity.enums.CashTransactionStatus.COMPLETED
+        ORDER BY t.id
+        """)
+    List<CashTransaction> findUnhanded(@Param(value = "registerId") Long registerId);
+
+    /** Topshirishga bog'lash: {@code maxId} gacha (preview bilan bir xil to'plam), qulf ostida. */
+    @Modifying
+    @Query(value = """
+        UPDATE CashTransaction t SET t.handoverId = :handoverId
+        WHERE t.cashRegister.id = :registerId AND t.handoverId IS NULL AND t.id <= :maxId
+          AND t.status = com.crm.entity.enums.CashTransactionStatus.COMPLETED
+        """)
+    int stampHandover(@Param(value = "handoverId") Long handoverId,
+                      @Param(value = "registerId") Long registerId,
+                      @Param(value = "maxId") Long maxId);
+
+    /** Rad etilgan topshirish: yozuvlar bo'shatiladi (keyingi topshirishga tushadi). */
+    @Modifying
+    @Query(value = "UPDATE CashTransaction t SET t.handoverId = NULL WHERE t.handoverId = :handoverId")
+    int releaseHandover(@Param(value = "handoverId") Long handoverId);
 }

@@ -50,4 +50,8 @@ public class CashTransactionDto {
     private LocalDate transactionDate;
     private LocalDateTime createdAt;
     private String createdByName;
+    /** Kassa kategoriyasi kodi (V86; TRANSFER — null). */
+    private String category;
+    /** Kunlik topshirish (null — hali topshirilmagan). */
+    private Long handoverId;
 }

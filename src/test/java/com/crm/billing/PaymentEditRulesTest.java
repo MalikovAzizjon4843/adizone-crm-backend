@@ -5,7 +5,6 @@ import com.crm.dto.request.ExpenseCreateDto;
 import com.crm.dto.request.ExpenseRequest;
 import com.crm.dto.request.IncomeCreateDto;
 import com.crm.dto.request.PaymentRequest;
-import com.crm.entity.enums.ExpenseCategory;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.UserRole;
 import com.crm.exception.CodedException;
@@ -85,9 +84,11 @@ class PaymentEditRulesTest extends AbstractBillingIT {
         return dto;
     }
 
-    private static ExpenseRequest expense(LocalDate date) {
+    /** V86: kundalik xarajat (DAILY) — admin o'z kassasidan. */
+    private static ExpenseRequest expense(Long reg, LocalDate date) {
         ExpenseRequest e = new ExpenseRequest();
-        e.setCategory(ExpenseCategory.values()[0]);
+        e.setCategory("STATIONERY");
+        e.setCashRegisterId(reg);
         e.setTitle("Qog'oz");
         e.setAmount(BigDecimal.valueOf(5_000));
         e.setExpenseDate(date);
@@ -126,21 +127,21 @@ class PaymentEditRulesTest extends AbstractBillingIT {
         assertCode(() -> cash.addIncome(reg, income(past)), "payment.date.pastNotAllowed", HttpStatus.FORBIDDEN);
         assertCode(() -> cash.addIncome(reg, income(future)), "payment.date.future", HttpStatus.BAD_REQUEST);
         assertCode(() -> cash.addExpense(reg, cashExpense(past)), "payment.date.pastNotAllowed", HttpStatus.FORBIDDEN);
-        assertCode(() -> finance.createExpense(expense(past)), "payment.date.pastNotAllowed", HttpStatus.FORBIDDEN);
-        assertCode(() -> finance.createExpense(expense(future)), "payment.date.future", HttpStatus.BAD_REQUEST);
+        assertCode(() -> finance.createExpense(expense(reg, past)), "payment.date.pastNotAllowed", HttpStatus.FORBIDDEN);
+        assertCode(() -> finance.createExpense(expense(reg, future)), "payment.date.future", HttpStatus.BAD_REQUEST);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM payments", Long.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cash_transactions", Long.class)).isZero();
 
         // bugun — hamma rollar (ACC); sana berilmasa ham bugun
         cash.addIncome(reg, income(TODAY));
         cash.addIncome(reg, income(null));
-        finance.createExpense(expense(TODAY));
+        finance.createExpense(expense(reg, TODAY));
         assertThat(payments.createPayment(req(ids, reg, TODAY), null).getId()).isNotNull();
 
         // SA — o'tgan sana mumkin, kelajak baribir 400
         fixtures.loginAs(UserRole.SUPER_ADMIN);
         cash.addExpense(reg, cashExpense(past));
-        finance.createExpense(expense(past));
+        finance.createExpense(expense(reg, past));
         assertCode(() -> cash.addExpense(reg, cashExpense(future)), "payment.date.future", HttpStatus.BAD_REQUEST);
         Ids other = enrollment();
         fixtures.loginAs(UserRole.SUPER_ADMIN);

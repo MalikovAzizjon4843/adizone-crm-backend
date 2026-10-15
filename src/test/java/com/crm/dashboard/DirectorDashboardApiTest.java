@@ -97,17 +97,19 @@ class DirectorDashboardApiTest extends AbstractBillingIT {
 
     @Test
     @WithMockUser(roles = "ACCOUNTANT")
-    void accountant_financeOnly() throws Exception {
+    void accountant_sameAsAdmin_financeSectionsSuperAdminOnly() throws Exception {
+        // V86 (cash-and-books §0.1): ACCOUNTANT = ADMIN; collections / debtors (moliya) — faqat SA
         dashboard.invalidate();
         mvc.perform(get("/api/dashboard/director"))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.data.collections").exists())
-            .andExpect(jsonPath("$.data.debtors").exists())
-            .andExpect(jsonPath("$.data.funnel").doesNotExist())
-            .andExpect(jsonPath("$.data.operators").doesNotExist())
-            .andExpect(jsonPath("$.data.meta.hiddenSections", contains("funnel", "attendance", "trials", "operators")));
-        mvc.perform(get("/api/dashboard/director/operators")).andExpect(status().isForbidden());
-        mvc.perform(get("/api/dashboard/director/debtors")).andExpect(status().isOk());
+            .andExpect(jsonPath("$.data.collections").doesNotExist())
+            .andExpect(jsonPath("$.data.debtors").doesNotExist())
+            .andExpect(jsonPath("$.data.funnel").exists())
+            .andExpect(jsonPath("$.data.operators").exists())
+            .andExpect(jsonPath("$.data.meta.hiddenSections", contains("collections", "debtors")));
+        mvc.perform(get("/api/dashboard/director/operators")).andExpect(status().isOk());
+        mvc.perform(get("/api/dashboard/director/debtors")).andExpect(status().isForbidden());
+        mvc.perform(get("/api/dashboard/director/collections/periods")).andExpect(status().isForbidden());
     }
 
     @Test

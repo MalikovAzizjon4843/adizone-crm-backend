@@ -5,7 +5,6 @@ import com.crm.entity.Lead;
 import com.crm.entity.Payment;
 import com.crm.entity.User;
 import com.crm.entity.enums.ExitReasonCode;
-import com.crm.entity.enums.ExpenseCategory;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.PaymentStatus;
@@ -83,7 +82,7 @@ class AnalyticsPhase6Test extends LecItBase {
         payment(a, "2026-09-03", PaymentMethod.CARD, 500_000, PaymentStatus.PAID, admin);
         payment(b, "2026-09-10", PaymentMethod.CASH, 700_000, PaymentStatus.PAID, admin);
         payment(b, "2026-09-05", PaymentMethod.CASH, 999_000, PaymentStatus.CANCELLED, admin);
-        inTx(() -> expenseRepository.save(Expense.builder().category(ExpenseCategory.RENT).title("Ijara")
+        inTx(() -> expenseRepository.save(Expense.builder().category("RENT").title("Ijara")
             .amount(BigDecimal.valueOf(200_000)).expenseDate(LocalDate.of(2026, 9, 5)).build()));
 
         lead("INSTAGRAM", "2026-09-02T10:00:00", true, null);
@@ -126,7 +125,12 @@ class AnalyticsPhase6Test extends LecItBase {
 
     @Test
     void overview_financeStudentsLeadsGroups_seriesSumToTotals_previousPeriod() throws Exception {
-        JsonNode d = data(overview(admin, "from", "2026-09-01", "to", "2026-09-14", "groupBy", "WEEK")
+        // V86: moliya bloki — faqat SA; admin uchun finance = null, qolgan bloklar o'zgarmaydi
+        overview(admin, "from", "2026-09-01", "to", "2026-09-14", "groupBy", "WEEK")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.finance").doesNotExist())
+            .andExpect(jsonPath("$.data.students").exists());
+        JsonNode d = data(overview(newUser(UserRole.SUPER_ADMIN), "from", "2026-09-01", "to", "2026-09-14", "groupBy", "WEEK")
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.period.previousFrom").value("2026-08-18"))
             .andExpect(jsonPath("$.data.period.previousTo").value("2026-08-31"))

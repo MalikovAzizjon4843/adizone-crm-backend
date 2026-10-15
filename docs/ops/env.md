@@ -34,6 +34,9 @@ sirsiz yoki eski sir bilan jimgina ishga tushib qolmasin.
 
 **Sokin soatlar (21:00–08:00, Asia/Tashkent)** — env bilan o'zgarmaydi (`TelegramOutboxService.QUIET_FROM/QUIET_TO`). Avtomatik bot xabarlari (davomat, qarz, to'lov yaqinlashdi, direktor xulosasi, vazifa muddati) tunda yuborilmaydi — 08:00 da ketadi; dars eslatmasi tunda umuman yuborilmaydi; qo'lda boshlangan (chat, qo'lda chop etilgan e'lon) — darhol, ovozsiz. Batafsil: [../design/notifications.md](../design/notifications.md) §2.
 
+**Kassa va ruxsatlar (V86, 2026-10-18)** — yangi muhit o'zgaruvchisi **yo'q**. Kassa turi, a'zolar, razmen va
+kategoriyalar bazada (SA UI / API orqali sozlaydi). Deploy tartibi va cut-over: [cash-and-books-deploy.md](cash-and-books-deploy.md).
+
 "Bo'sh" deganda o'zgaruvchi e'lon qilinadi, lekin qiymatsiz: `META_VERIFY_TOKEN=`.
 Umuman e'lon qilinmasa ilova ishga tushmaydi (`TELEGRAM_*` dan tashqari — ularda default bor).
 

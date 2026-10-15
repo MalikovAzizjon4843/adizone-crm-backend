@@ -1,6 +1,8 @@
 package com.crm.controller;
 
 import com.crm.dto.request.CashRegisterCreateDto;
+import com.crm.dto.request.CashRegisterMembersRequest;
+import com.crm.dto.response.CashCategoryTotalDto;
 import com.crm.dto.request.CashRegisterStatusUpdateDto;
 import com.crm.dto.request.ExpenseCreateDto;
 import com.crm.dto.request.IncomeCreateDto;
@@ -40,12 +42,38 @@ public class CashRegisterController {
         return ResponseEntity.ok(ApiResponse.success(cashRegisterService.getAll(status)));
     }
 
+    /** To'lov / imtihon / xarajat dialoglari: yozish mumkin bo'lgan faol kassalar (admin — o'z kassasi). */
+    @GetMapping(value = "/my")
+    public ResponseEntity<ApiResponse<List<CashRegisterDto>>> getMine() {
+        return ResponseEntity.ok(ApiResponse.success(cashRegisterService.getMine()));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<CashRegisterDto>> getById(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.success(cashRegisterService.getById(id)));
     }
 
+    /** A'zolar (ADMIN / ACCOUNTANT) — faqat SA; "bir admin — bitta kassa" (boshqa kassadan ko'chiriladi). */
+    @PutMapping(value = "/{id}/members")
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<CashRegisterDto>> setMembers(
+            @PathVariable(name = "id") Long id, @RequestBody CashRegisterMembersRequest request) {
+        return ResponseEntity.ok(ApiResponse.success("Kassa a'zolari yangilandi",
+            cashRegisterService.setMembers(id, request.getUserIds())));
+    }
+
+    /** Davr kirim/chiqimi kategoriya bo'yicha (kunlik tushum: o'quvchi to'lovi, imtihon, boshqa ...). */
+    @GetMapping(value = "/{id}/by-category")
+    public ResponseEntity<ApiResponse<List<CashCategoryTotalDto>>> getByCategory(
+            @PathVariable(name = "id") Long id,
+            @RequestParam(name = "from", required = false) String from,
+            @RequestParam(name = "to", required = false) String to) {
+        return ResponseEntity.ok(ApiResponse.success(
+            cashRegisterService.getCategoryReport(id, parseOptionalDate(from), parseOptionalDate(to))));
+    }
+
     @PostMapping
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<CashRegisterDto>> create(
             @RequestBody CashRegisterCreateDto dto) {
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -53,6 +81,7 @@ public class CashRegisterController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<CashRegisterDto>> update(
             @PathVariable Long id,
             @RequestBody CashRegisterCreateDto dto) {
@@ -60,15 +89,16 @@ public class CashRegisterController {
             cashRegisterService.update(id, dto)));
     }
 
-    /** Kassani o'chirish — faqat ma'muriyat (boshqa modullardagi DELETE siyosati bilan bir xil). */
+    /** Kassani o'chirish — faqat SA (V86: kassa tuzilmasi faqat Direktorda). */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
         String message = cashRegisterService.delete(id);
         return ResponseEntity.ok(ApiResponse.success(message, null));
     }
 
     @PatchMapping("/{id}/status")
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<CashRegisterDto>> updateStatus(
             @PathVariable Long id,
             @RequestBody CashRegisterStatusUpdateDto dto) {
@@ -106,6 +136,7 @@ public class CashRegisterController {
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String paymentMethod,
             @RequestParam(required = false) String channel,
+            @RequestParam(name = "category", required = false) String category,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         LocalDate fromDate = parseOptionalDate(from);
@@ -114,7 +145,7 @@ public class CashRegisterController {
             Sort.by(Sort.Direction.DESC, "transactionDate", "createdAt"));
         return ResponseEntity.ok(ApiResponse.success(
             cashRegisterService.getTransactions(
-                id, fromDate, toDate, studentId, teacherId, type, paymentMethod, channel, pageable)));
+                id, fromDate, toDate, studentId, teacherId, type, paymentMethod, channel, category, pageable)));
     }
 
     @GetMapping("/{id}/transactions/export")
@@ -163,6 +194,7 @@ public class CashRegisterController {
     }
 
     @PostMapping("/transfer")
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<List<CashTransactionDto>>> transfer(
             @RequestBody TransferDto dto) {
         return ResponseEntity.status(HttpStatus.CREATED)

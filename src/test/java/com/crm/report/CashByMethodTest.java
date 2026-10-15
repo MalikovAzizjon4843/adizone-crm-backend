@@ -189,7 +189,7 @@ class CashByMethodTest extends AbstractBillingIT {
             PageRequest.of(0, 50))).isInstanceOf(BadRequestException.class);
 
         mvc.perform(get("/api/cash-registers/{id}/transactions", reg).param("channel", "TERMINAL")
-                .with(user("acc").roles("ACCOUNTANT")))
+                .with(user("test-accountant").roles("ACCOUNTANT")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.totalElements").value(3))
             .andExpect(jsonPath("$.data.content[0].channelAmounts.TERMINAL").exists());
@@ -236,7 +236,7 @@ class CashByMethodTest extends AbstractBillingIT {
         assertThatThrownBy(() -> cash.getTransactions(reg, null, null, null, null, null, null, "BANK",
             PageRequest.of(0, 50))).isInstanceOf(BadRequestException.class);
         mvc.perform(get("/api/cash-registers/{id}/transactions", reg).param("channel", "BANK")
-                .with(user("acc").roles("ACCOUNTANT")))
+                .with(user("test-accountant").roles("ACCOUNTANT")))
             .andExpect(status().isBadRequest());
 
         String body = "{\"amount\":1000,\"paymentMethod\":\"BANK\",\"transactionDate\":\"2026-09-15\","
@@ -262,7 +262,7 @@ class CashByMethodTest extends AbstractBillingIT {
         assertThat(day.getTotal().getChannel()).isNull();
 
         mvc.perform(get("/api/cash-registers/{id}/by-method", reg)
-                .with(user("acc").roles("ACCOUNTANT")))
+                .with(user("test-accountant").roles("ACCOUNTANT")))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.channels.length()").value(5))
             .andExpect(jsonPath("$.data.channels[3].channel").value("ONLINE"))

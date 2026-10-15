@@ -1,7 +1,6 @@
 package com.crm.repository;
 
 import com.crm.entity.Expense;
-import com.crm.entity.enums.ExpenseCategory;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
@@ -17,7 +16,16 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long>, JpaSpec
 
     List<Expense> findByExpenseDateBetweenOrderByExpenseDateDesc(LocalDate from, LocalDate to);
 
-    List<Expense> findByCategory(ExpenseCategory category);
+    List<Expense> findByCategory(String category);
+
+    /** Kassasiz xarajatlar (bank orqali, faqat SA) — kassa yozuvi yo'q, moliya hisobotiga shu yerdan (V86). */
+    @Query(value = "SELECT e.category, SUM(e.amount) FROM Expense e "
+        + "WHERE e.cashRegister IS NULL AND e.expenseDate BETWEEN :from AND :to GROUP BY e.category")
+    List<Object[]> sumByCategoryWithoutRegister(@Param(value = "from") LocalDate from, @Param(value = "to") LocalDate to);
+
+    @Query(value = "SELECT e.expenseDate, SUM(e.amount) FROM Expense e "
+        + "WHERE e.cashRegister IS NULL AND e.expenseDate BETWEEN :from AND :to GROUP BY e.expenseDate")
+    List<Object[]> sumByDateWithoutRegister(@Param(value = "from") LocalDate from, @Param(value = "to") LocalDate to);
 
     @Query("SELECT SUM(e.amount) FROM Expense e WHERE e.expenseDate BETWEEN :from AND :to")
     BigDecimal sumByDateRange(@Param("from") LocalDate from, @Param("to") LocalDate to);

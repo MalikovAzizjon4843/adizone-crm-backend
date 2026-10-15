@@ -1,12 +1,13 @@
 package com.crm.dto.request;
-import com.crm.entity.enums.ExpenseCategory;
+
 import jakarta.validation.constraints.*;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 @Data
 public class ExpenseRequest {
-    @NotNull(message = "{expense.category.required}") private ExpenseCategory category;
+    /** {@code cash_categories.code}: admin — faqat DAILY (kassa majburiy); STRATEGIC — SA (kassa bo'lsa Direktor kassasi). */
+    @NotBlank(message = "{expense.category.required}") private String category;
     @NotBlank(message = "{expense.title.required}") private String title;
     @NotNull(message = "{expense.amount.required}") @DecimalMin(value = "0.01", message = "{expense.amount.min}") private BigDecimal amount;
     @NotNull(message = "{expense.expenseDate.required}") private LocalDate expenseDate;

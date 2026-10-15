@@ -97,6 +97,17 @@ public class CashTransaction {
     @Column(name = "exam_registration_id")
     private Long examRegistrationId;
 
+    /**
+     * Kassa kategoriyasi — {@code cash_categories.code} (V86). TRANSFER — null; REVERSAL — asl yozuvniki.
+     * Eski yozuvlar: docs/ops/cash-category-backfill.sql.
+     */
+    @Column(name = "category", length = 40)
+    private String category;
+
+    /** Kunlik topshirish ({@code cash_handovers.id}); null — hali topshirilmagan (V86). */
+    @Column(name = "handover_id")
+    private Long handoverId;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 

@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V85 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V86 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V85 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V86 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
@@ -23,7 +23,7 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V85 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V86 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
@@ -381,7 +381,31 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V85', 'constraint', 'app_notice_reads', 'fk_app_notice_reads_identity'),
     ('V85', 'table', 'app_notification_prefs', NULL),
     ('V85', 'index', 'app_notification_prefs', 'ux_app_notification_prefs_identity_topic'),
-    ('V85', 'constraint', 'app_notification_prefs', 'fk_app_notification_prefs_identity')
+    ('V85', 'constraint', 'app_notification_prefs', 'fk_app_notification_prefs_identity'),
+    ('V86', 'column', 'cash_registers', 'kind'),
+    ('V86', 'column', 'cash_registers', 'float_amount'),
+    ('V86', 'constraint', 'cash_registers', 'ck_cash_registers_float_nonneg'),
+    ('V86', 'table', 'cash_register_members', NULL),
+    ('V86', 'index', 'cash_register_members', 'ux_cash_register_members_register_user'),
+    ('V86', 'index', 'cash_register_members', 'idx_cash_register_members_user'),
+    ('V86', 'constraint', 'cash_register_members', 'fk_cash_register_members_register'),
+    ('V86', 'constraint', 'cash_register_members', 'fk_cash_register_members_user'),
+    ('V86', 'table', 'cash_categories', NULL),
+    ('V86', 'table', 'cash_handovers', NULL),
+    ('V86', 'index', 'cash_handovers', 'ux_cash_handovers_one_submitted'),
+    ('V86', 'index', 'cash_handovers', 'ux_cash_handovers_idempotency_key'),
+    ('V86', 'constraint', 'cash_handovers', 'fk_cash_handovers_register'),
+    ('V86', 'constraint', 'cash_handovers', 'ck_cash_handovers_amounts_nonneg'),
+    ('V86', 'table', 'cash_handover_lines', NULL),
+    ('V86', 'index', 'cash_handover_lines', 'ux_cash_handover_lines_method'),
+    ('V86', 'constraint', 'cash_handover_lines', 'fk_cash_handover_lines_handover'),
+    ('V86', 'column', 'cash_transactions', 'category'),
+    ('V86', 'column', 'cash_transactions', 'handover_id'),
+    ('V86', 'index', 'cash_transactions', 'idx_cash_transactions_category_date'),
+    ('V86', 'index', 'cash_transactions', 'idx_cash_transactions_unhanded'),
+    ('V86', 'constraint', 'cash_transactions', 'fk_cash_transactions_category'),
+    ('V86', 'constraint', 'cash_transactions', 'fk_cash_transactions_handover'),
+    ('V86', 'constraint', 'expenses', 'fk_expenses_category')
 ), checked AS (
     SELECT w.*,
            CASE w.kind

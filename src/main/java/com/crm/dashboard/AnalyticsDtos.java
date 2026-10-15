@@ -33,8 +33,12 @@ public final class AnalyticsDtos {
     public record Metric(BigDecimal value, BigDecimal previous, BigDecimal changePercent, List<BigDecimal> series) {
     }
 
+    /**
+     * Moliya bloki — faqat SUPER_ADMIN (V86; boshqalar uchun {@code finance = null}). {@code otherIncome} — kassadagi
+     * boshqa kirim, {@code refunds} — o'quvchiga qaytarilgan; {@code net} moliya hisobotidagi {@code netProfit} bilan bir xil.
+     */
     public record Finance(Metric income, Map<String, BigDecimal> incomeByMethod, Metric expenses,
-                          Metric payrollPaid, Metric examFees, Metric net) {
+                          Metric payrollPaid, Metric examFees, Metric otherIncome, Metric refunds, Metric net) {
     }
 
     public record Students(Metric newStudents, Metric exits, Map<String, Long> exitsByReason, Metric activeAtEnd) {

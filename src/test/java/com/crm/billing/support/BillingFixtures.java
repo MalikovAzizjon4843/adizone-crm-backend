@@ -1,17 +1,20 @@
 package com.crm.billing.support;
 
 import com.crm.entity.CashRegister;
+import com.crm.entity.CashRegisterMember;
 import com.crm.entity.Course;
 import com.crm.entity.Group;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
+import com.crm.entity.enums.CashRegisterKind;
 import com.crm.entity.enums.CashRegisterStatus;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.entity.enums.PaymentType;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.entity.enums.UserRole;
+import com.crm.repository.CashRegisterMemberRepository;
 import com.crm.repository.CashRegisterRepository;
 import com.crm.repository.CourseRepository;
 import com.crm.repository.GroupRepository;
@@ -46,7 +49,7 @@ public class BillingFixtures {
     /** Testlar tozalaydigan jadvallar (FK tekshiruvi vaqtincha o'chiriladi). */
     private static final List<String> TABLES = List.of(
         "balance_transactions", "billing_periods", "income", "payments", "cash_transactions",
-        "cash_registers", "bonus_penalties", "attendance", "student_status_history",
+        "cash_handover_lines", "cash_handovers", "cash_register_members", "cash_registers", "bonus_penalties", "attendance", "student_status_history",
         "student_groups", "students", "group_schedule_days", "groups", "courses", "teachers",
         "billing_held_applications", "billing_job_runs", "billing_migration_runs", "audit_logs",
         "lead_assignments", "lead_status_history", "lead_comments", "lead_notes", "tasks", "leads",
@@ -66,6 +69,7 @@ public class BillingFixtures {
     private final StudentRepository studentRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final CashRegisterRepository cashRegisterRepository;
+    private final CashRegisterMemberRepository memberRepository;
     private final UserRepository userRepository;
     private final TeacherRepository teacherRepository;
     private final TransactionTemplate tx;
@@ -156,14 +160,63 @@ public class BillingFixtures {
         return new EnrollmentBuilder(studentId, groupId);
     }
 
+    /**
+     * ADMIN kassa (V86). Standart test foydalanuvchilari {@code test-admin} va {@code test-accountant} unga a'zo —
+     * mavjud testlar avvalgidek istalgan fixture kassaga to'lov qabul qiladi. A'zolik qoidasini tekshiradigan
+     * testlar {@link #bareRegister} va {@link #member} dan foydalanadi.
+     */
     public Long cashRegister(boolean acceptOnline) {
+        Long id = bareRegister(acceptOnline);
+        member(id, user(UserRole.ADMIN, "test-admin"));
+        member(id, user(UserRole.ACCOUNTANT, "test-accountant"));
+        return id;
+    }
+
+    /** A'zosiz ADMIN kassa. */
+    public Long bareRegister(boolean acceptOnline) {
+        return register(CashRegisterKind.ADMIN, acceptOnline);
+    }
+
+    /** Direktor kassasi (faqat SA ko'radi; oylik, qaytarish, strategik xarajat, topshirish qabuli). */
+    public Long directorRegister() {
+        return register(CashRegisterKind.DIRECTOR, true);
+    }
+
+    private Long register(CashRegisterKind kind, boolean acceptOnline) {
         return tx.execute(s -> {
             CashRegister r = new CashRegister();
-            r.setName("Kassa " + SEQ.incrementAndGet());
+            r.setName((kind == CashRegisterKind.DIRECTOR ? "Direktor kassasi " : "Kassa ") + SEQ.incrementAndGet());
             r.setStatus(CashRegisterStatus.ACTIVE);
             r.setAcceptOnlinePayment(acceptOnline);
+            r.setKind(kind);
             return cashRegisterRepository.save(r).getId();
         });
+    }
+
+    public void member(Long registerId, Long userId) {
+        tx.executeWithoutResult(s -> {
+            if (!memberRepository.existsByCashRegisterIdAndUserId(registerId, userId)) {
+                memberRepository.save(CashRegisterMember.builder().cashRegisterId(registerId).userId(userId).build());
+            }
+        });
+    }
+
+    /** Foydalanuvchi (bo'lmasa yaratiladi) — id. */
+    public Long user(UserRole role, String username) {
+        return tx.execute(s -> userRepository.findByUsername(username).orElseGet(() -> userRepository.save(User.builder()
+            .username(username)
+            .password("x")
+            .firstName("Test")
+            .lastName(username)
+            .role(role)
+            .build())).getId());
+    }
+
+    /** Berilgan foydalanuvchi sifatida kirish (a'zolik testlari uchun). */
+    public void loginAs(String username, UserRole role) {
+        user(role, username);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+            username, null, List.of(new SimpleGrantedAuthority("ROLE_" + role.name()))));
     }
 
     /** Test foydalanuvchisi va SecurityContext (joriy thread uchun). */

@@ -1,5 +1,5 @@
 package com.crm.dto.response;
-import com.crm.entity.enums.ExpenseCategory;
+
 import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -9,7 +9,8 @@ import java.util.UUID;
 public class ExpenseResponse {
     private Long id;
     private UUID uuid;
-    private ExpenseCategory category;
+    private String category;
+    private String categoryName;
     private String title;
     private BigDecimal amount;
     private LocalDate expenseDate;

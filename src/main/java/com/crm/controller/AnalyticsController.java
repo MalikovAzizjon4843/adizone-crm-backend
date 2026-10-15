@@ -92,6 +92,7 @@ public class AnalyticsController {
     /** @deprecated {@code GET /overview}. */
     @Deprecated
     @GetMapping("/dashboard")
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<DashboardResponse>> getDashboard() {
         return ResponseEntity.ok(ApiResponse.success(analyticsService.getDashboard()));
     }
@@ -99,6 +100,7 @@ public class AnalyticsController {
     /** @deprecated {@code GET /overview} ({@code finance.income}, {@code groupBy}). */
     @Deprecated
     @GetMapping("/revenue")
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getRevenue(
             @RequestParam(required = false) String period,
             @RequestParam(required = false) Integer count,

@@ -1,6 +1,5 @@
 package com.crm.entity;
 
-import com.crm.entity.enums.ExpenseCategory;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.UuidGenerator;
@@ -27,9 +26,9 @@ public class Expense {
     @Column(unique = true, nullable = false, updatable = false)
     private UUID uuid;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private ExpenseCategory category;
+    /** {@code cash_categories.code} (V86: FK; avval ExpenseCategory enum edi — qiymatlari seed'da bor). */
+    @Column(name = "category", nullable = false)
+    private String category;
 
     @Column(nullable = false)
     private String title;

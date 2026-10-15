@@ -89,7 +89,7 @@ class CashDirectionRuleOverlapProfileTest extends PayrollItBase {
         teacherRule(t, 3_000_000, 0);
         Long id = draftFor(t.userId(), SEP).getId();
         payroll.approve(id, null);
-        Long reg = fixtures.cashRegister(false);
+        Long reg = fixtures.directorRegister();
         PayrollPayDto pay = new PayrollPayDto();
         pay.setCashRegisterId(reg);
         payroll.markAsPaid(id, pay, null);

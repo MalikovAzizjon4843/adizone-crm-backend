@@ -55,6 +55,9 @@ class ExamFeeTest extends LecItBase {
         accountant = newUser(UserRole.ACCOUNTANT);
         admin = newUser(UserRole.ADMIN);
         superAdmin = newUser(UserRole.SUPER_ADMIN);
+        // V86: imtihon to'lovi faqat a'zo bo'lgan kassaga
+        fixtures.member(register, accountant.getId());
+        fixtures.member(register, admin.getId());
     }
 
     private Long exam(long fee, LocalDate date) {
@@ -130,7 +133,7 @@ class ExamFeeTest extends LecItBase {
             .isEqualByComparingTo("0");
 
         // Moliya hisoboti: alohida qator
-        mvc.perform(get("/api/finance/report").param("from", "2026-09-01").param("to", "2026-09-30").with(as(admin)))
+        mvc.perform(get("/api/finance/report").param("from", "2026-09-01").param("to", "2026-09-30").with(as(superAdmin)))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.examFees").value(150000));
 

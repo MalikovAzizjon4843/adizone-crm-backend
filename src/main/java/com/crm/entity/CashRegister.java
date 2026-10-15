@@ -1,5 +1,6 @@
 package com.crm.entity;
 
+import com.crm.entity.enums.CashRegisterKind;
 import com.crm.entity.enums.CashRegisterStatus;
 import jakarta.persistence.*;
 import lombok.Getter;
@@ -47,6 +48,15 @@ public class CashRegister {
     @Column(name = "accept_online_payment")
     private boolean acceptOnlinePayment = false;
 
+    /** ADMIN — admin kassasi (a'zolari ko'radi), DIRECTOR — faqat SUPER_ADMIN (V86). */
+    @Enumerated(value = EnumType.STRING)
+    @Column(name = "kind", nullable = false, length = 20)
+    private CashRegisterKind kind = CashRegisterKind.ADMIN;
+
+    /** Razmen: topshirishdan keyin kassada qoladigan naqd; SA belgilaydi (V86). */
+    @Column(name = "float_amount", nullable = false, precision = 15, scale = 2)
+    private BigDecimal floatAmount = BigDecimal.ZERO;
+
     private boolean archived = false;
 
     @Column(name = "created_at")
@@ -68,6 +78,12 @@ public class CashRegister {
         }
         if (balance == null) {
             balance = BigDecimal.ZERO;
+        }
+        if (kind == null) {
+            kind = CashRegisterKind.ADMIN;
+        }
+        if (floatAmount == null) {
+            floatAmount = BigDecimal.ZERO;
         }
         if (status == null) {
             status = archived ? CashRegisterStatus.ARCHIVED : CashRegisterStatus.ACTIVE;

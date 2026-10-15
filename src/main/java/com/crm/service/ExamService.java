@@ -503,7 +503,7 @@ public class ExamService {
                 request.getCashRegisterId(), fee, request.getPaymentMethod(), student,
                 "Imtihon to'lovi: " + exam.getExamName(),
                 "Chek " + receipt + " · imtihon #" + exam.getId(),
-                today, request.getCashPart(), request.getCardPart(), null);
+                today, request.getCashPart(), request.getCardPart(), null, CashCategories.EXAM);
             tx.setExamRegistrationId(reg.getId());
             reg.setCashTransactionId(tx.getId());
             reg.setReceiptNumber(receipt);

@@ -19,4 +19,6 @@ public class ExpenseCreateDto {
     private BigDecimal cardPart;
     private LocalDate transactionDate;
     private String note;
+    /** Kategoriya kodi (V86): ko'rsatilmasa — OTHER_DAILY; admin — faqat DAILY, STRATEGIC — SA, Direktor kassasi. */
+    private String category;
 }

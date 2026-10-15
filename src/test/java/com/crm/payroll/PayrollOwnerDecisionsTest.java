@@ -368,7 +368,7 @@ class PayrollOwnerDecisionsTest extends PayrollItBase {
         fixtures.loginAs(UserRole.SUPER_ADMIN);
         payroll.generatePayroll(SEP, YEAR, false);
         clock.setDate(d("30.09.2026"));
-        Long reg = fixtures.cashRegister(false);
+        Long reg = fixtures.directorRegister();
         PayrollPayDto viaCash = new PayrollPayDto();
         viaCash.setCashRegisterId(reg);
         for (Long userId : new Long[]{t.userId(), cancelled.userId(), admin}) {

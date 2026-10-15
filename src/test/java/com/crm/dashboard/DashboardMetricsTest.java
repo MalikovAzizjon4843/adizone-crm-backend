@@ -607,7 +607,9 @@ class DashboardMetricsTest extends AbstractBillingIT {
         r.setStudentId(s);
         r.setGroupId(g);
         r.setAmount(BigDecimal.valueOf(700_000));
-        r.setCashRegisterId(fixtures.cashRegister(false));
+        Long reg = fixtures.cashRegister(false);
+        fixtures.member(reg, fixtures.user(UserRole.SALES_MANAGER, "test-sales_manager"));   // V86: a'zo kassa
+        r.setCashRegisterId(reg);
         r.setPaymentMethod(PaymentMethod.CASH);
         jdbc.update("UPDATE students SET attributed_user_id = ? WHERE id = ?", sm.getId(), s);
         payments.createPayment(r, null);

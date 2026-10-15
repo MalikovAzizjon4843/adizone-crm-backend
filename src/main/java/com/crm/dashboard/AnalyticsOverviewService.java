@@ -1,5 +1,6 @@
 package com.crm.dashboard;
 
+import com.crm.billing.BillingAuth;
 import com.crm.dashboard.AnalyticsDtos.CourseStudents;
 import com.crm.dashboard.AnalyticsDtos.Finance;
 import com.crm.dashboard.AnalyticsDtos.GroupBy;
@@ -107,12 +108,15 @@ public class AnalyticsOverviewService {
         Snapshot cur = snapshot(r.from(), r.to(), buckets, idx);
         Snapshot prev = snapshot(prevFrom, prevTo, null, null);
 
-        Finance finance = new Finance(
+        // V86: moliya bloki — faqat SUPER_ADMIN; boshqalar uchun null (frontend blokni yashiradi)
+        Finance finance = !BillingAuth.hasAnyRole("SUPER_ADMIN") ? null : new Finance(
             metric(cur.income, prev.income, cur.incomeSeries),
             cur.incomeByMethod,
             metric(cur.expenses, prev.expenses, cur.expenseSeries),
             metric(cur.payroll, prev.payroll, cur.payrollSeries),
             metric(cur.examFees, prev.examFees, cur.examFeeSeries),
+            metric(cur.otherIncome, prev.otherIncome, cur.otherIncomeSeries),
+            metric(cur.refunds, prev.refunds, cur.refundSeries),
             metric(cur.net(), prev.net(), cur.netSeries()));
         Students students = new Students(
             metric(cur.newStudents, prev.newStudents, cur.newStudentSeries),
@@ -139,6 +143,8 @@ public class AnalyticsOverviewService {
         s.expenses = nz(report.getTotalExpenses());
         s.payroll = nz(report.getPayrollPaid());
         s.examFees = nz(report.getExamFees());
+        s.otherIncome = nz(report.getOtherIncome());
+        s.refunds = nz(report.getRefunds());
 
         DashboardPeriod p = DashboardPeriod.of("CUSTOM", null, from, to, LocalDateTime.now(billingClock));
         List<DashboardQueries.FirstPayment> firsts = queries.firstPaymentsBetween(from, to);
@@ -165,12 +171,13 @@ public class AnalyticsOverviewService {
             add(s.incomeSeries, idx.apply((LocalDate) row[0]), amount);
             s.incomeByMethod.merge(row[1] != null ? row[1].toString() : "UNKNOWN", amount, BigDecimal::add);
         }
-        for (Object[] row : queries.em().createQuery("""
-                SELECT e.expenseDate, SUM(e.amount) FROM Expense e WHERE e.expenseDate BETWEEN :f AND :t
-                GROUP BY e.expenseDate
-                """, Object[].class).setParameter("f", from).setParameter("t", to).getResultList()) {
-            add(s.expenseSeries, idx.apply((LocalDate) row[0]), nz((BigDecimal) row[1]));
-        }
+        // Xarajat, boshqa kirim, qaytarish — moliya hisoboti bilan bir xil tasnif (FinanceService.classifyByDay)
+        financeService.classifyByDay(from, to).forEach((day, c) -> {
+            int i = idx.apply(day);
+            add(s.expenseSeries, i, c.expenses);
+            add(s.otherIncomeSeries, i, c.otherIncome);
+            add(s.refundSeries, i, c.refunds);
+        });
         for (Object[] row : queries.em().createQuery("""
                 SELECT p.paidAt, p.netSalary FROM Payroll p
                 WHERE p.status = :paid AND p.paidAt >= :a AND p.paidAt < :b
@@ -329,6 +336,8 @@ public class AnalyticsOverviewService {
         BigDecimal expenses = BigDecimal.ZERO;
         BigDecimal payroll = BigDecimal.ZERO;
         BigDecimal examFees = BigDecimal.ZERO;
+        BigDecimal otherIncome = BigDecimal.ZERO;
+        BigDecimal refunds = BigDecimal.ZERO;
         BigDecimal newStudents = BigDecimal.ZERO;
         BigDecimal exits = BigDecimal.ZERO;
         BigDecimal activeAtEnd = BigDecimal.ZERO;
@@ -338,6 +347,8 @@ public class AnalyticsOverviewService {
         final List<BigDecimal> expenseSeries;
         final List<BigDecimal> payrollSeries;
         final List<BigDecimal> examFeeSeries;
+        final List<BigDecimal> otherIncomeSeries;
+        final List<BigDecimal> refundSeries;
         final List<BigDecimal> newStudentSeries;
         final List<BigDecimal> exitSeries;
         final List<BigDecimal> activeSeries;
@@ -352,6 +363,8 @@ public class AnalyticsOverviewService {
             expenseSeries = zeros(n);
             payrollSeries = zeros(n);
             examFeeSeries = zeros(n);
+            otherIncomeSeries = zeros(n);
+            refundSeries = zeros(n);
             newStudentSeries = zeros(n);
             exitSeries = zeros(n);
             activeSeries = zeros(n);
@@ -360,14 +373,14 @@ public class AnalyticsOverviewService {
         }
 
         BigDecimal net() {
-            return income.add(examFees).subtract(expenses).subtract(payroll);
+            return income.add(examFees).add(otherIncome).subtract(expenses).subtract(payroll).subtract(refunds);
         }
 
         List<BigDecimal> netSeries() {
             List<BigDecimal> out = new ArrayList<>();
             for (int i = 0; i < incomeSeries.size(); i++) {
-                out.add(incomeSeries.get(i).add(examFeeSeries.get(i)).subtract(expenseSeries.get(i))
-                    .subtract(payrollSeries.get(i)));
+                out.add(incomeSeries.get(i).add(examFeeSeries.get(i)).add(otherIncomeSeries.get(i))
+                    .subtract(expenseSeries.get(i)).subtract(payrollSeries.get(i)).subtract(refundSeries.get(i)));
             }
             return out;
         }

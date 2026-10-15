@@ -34,8 +34,8 @@ import java.util.TreeSet;
 
 /**
  * {@code GET /api/dashboard/director} xulosasi (director-dashboard §4.1). Bo'limlar rol bo'yicha
- * (§7 #15 qarori): SA — hammasi; ADMIN — funnel, attendance, trials, operators; ACCOUNTANT —
- * collections, debtors; SALES_HEAD — funnel, operators. Ruxsatsiz bo'lim — null va {@code meta.hiddenSections}.
+ * (§7 #15 qarori; V86): SA — hammasi; ADMIN va ACCOUNTANT — funnel, attendance, trials, operators;
+ * SALES_HEAD — funnel, operators; collections, debtors — faqat SA. Ruxsatsiz bo'lim — null va {@code meta.hiddenSections}.
  *
  * <p>O'tgan kun (DAY) — yakuniy snapshot bo'lsa undan ({@code SNAPSHOT}), aks holda jonli. Natija
  * {@code app.dashboard.cache-seconds} (60) soniya keshlanadi.
@@ -107,11 +107,9 @@ public class DirectorDashboardService {
             return EnumSet.allOf(Section.class);
         }
         Set<Section> s = EnumSet.noneOf(Section.class);
-        if (BillingAuth.hasAnyRole("ADMIN")) {
+        // V86 (cash-and-books §0.1): ACCOUNTANT = ADMIN; moliya bloklari (collections, debtors) — faqat SA
+        if (BillingAuth.hasAnyRole("ADMIN", "ACCOUNTANT")) {
             s.addAll(EnumSet.of(Section.FUNNEL, Section.ATTENDANCE, Section.TRIALS, Section.OPERATORS));
-        }
-        if (BillingAuth.hasAnyRole("ACCOUNTANT")) {
-            s.addAll(EnumSet.of(Section.COLLECTIONS, Section.DEBTORS));
         }
         if (BillingAuth.hasAnyRole("SALES_HEAD")) {
             // Sotuv bo'limi rahbari — faqat sotuv bo'limlari (lid voronkasi va operatorlar)

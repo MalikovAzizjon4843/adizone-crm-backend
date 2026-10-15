@@ -574,7 +574,7 @@ class PaymentFlowTest extends AbstractBillingIT {
     }
 
     @Test
-    @WithMockUser(roles = "ACCOUNTANT")
+    @WithMockUser(username = "test-accountant", roles = "ACCOUNTANT")
     void discount_forbiddenOverHttp() throws Exception {
         Ids ids = charged();
         Long reg = fixtures.cashRegister(false);
@@ -612,7 +612,7 @@ class PaymentFlowTest extends AbstractBillingIT {
     }
 
     @Test
-    @WithMockUser(roles = "ACCOUNTANT")
+    @WithMockUser(username = "test-accountant", roles = "ACCOUNTANT")
     void idempotencyKey_replay() throws Exception {
         Ids ids = charged();
         Long reg = fixtures.cashRegister(false);
@@ -649,10 +649,17 @@ class PaymentFlowTest extends AbstractBillingIT {
         payments.createPayment(req(ids, 830_000, reg), null);
         assertThat(balance(ids.sg())).isEqualByComparingTo("200000");
 
+        // V86 (buyurtmachi qarori 2026-10-18): qaytarish — faqat SA, faqat Direktor kassasidan
         fixtures.loginAs(UserRole.ADMIN);
         RefundPayoutRequest r = new RefundPayoutRequest();
         r.setAmount(m(150_000));
         r.setCashRegisterId(reg);
+        r.setReason("O'qishni to'xtatdi");
+        assertCode(() -> refunds.payout(ids.student(), r), "cash.directorOnly");
+        fixtures.loginAs(UserRole.SUPER_ADMIN);
+        assertCode(() -> refunds.payout(ids.student(), r), "cash.directorRegisterRequired");
+        Long dir = fixtures.directorRegister();
+        r.setCashRegisterId(dir);
         r.setReason("O'qishni to'xtatdi");
         RefundPayoutResponse res = refunds.payout(ids.student(), r);
 
@@ -660,7 +667,8 @@ class PaymentFlowTest extends AbstractBillingIT {
         assertThat(res.getLine().getAmount()).isEqualByComparingTo("-150000");
         assertThat(res.getBalanceAfter()).isEqualByComparingTo("50000");
         assertThat(balance(ids.sg())).isEqualByComparingTo("50000");
-        assertThat(register(reg).getCashBalance()).isEqualByComparingTo("680000");
+        assertThat(register(reg).getCashBalance()).isEqualByComparingTo("830000");
+        assertThat(register(dir).getCashBalance()).isEqualByComparingTo("-150000");
         BalanceTransaction tx = ledger(ids.sg()).get(ledger(ids.sg()).size() - 1);
         assertThat(tx.getReferenceId()).isEqualTo(res.getCashTransactionId());
 
@@ -672,7 +680,7 @@ class PaymentFlowTest extends AbstractBillingIT {
     }
 
     @Test
-    @WithMockUser(roles = "ACCOUNTANT")
+    @WithMockUser(username = "test-accountant", roles = "ACCOUNTANT")
     void refundPayout_forbiddenForAccountant() throws Exception {
         Ids ids = charged();
         mvc.perform(post("/api/students/" + ids.student() + "/refund-payout")
@@ -682,7 +690,7 @@ class PaymentFlowTest extends AbstractBillingIT {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
+    @WithMockUser(username = "test-admin", roles = "ADMIN")
     void bonusApply_endpoint() throws Exception {
         Ids ids = charged();
         Long b = bonus(ids.student(), BonusPenaltyKind.PENALTY, 20_000, "Kech qoldi");

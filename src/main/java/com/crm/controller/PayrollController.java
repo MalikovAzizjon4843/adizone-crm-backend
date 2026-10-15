@@ -115,7 +115,7 @@ public class PayrollController {
 
     /** {@code Idempotency-Key} — frontend to'lov dialogi ochilganda UUID; takror bosish ikkinchi chiqim yozmaydi. */
     @PostMapping("/{id}/pay")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','ACCOUNTANT')")
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<PayrollResponse>> markPayrollPaid(
             @PathVariable Long id,
             @RequestBody(required = false) PayrollPayDto body,

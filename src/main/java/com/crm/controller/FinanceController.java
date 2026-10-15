@@ -35,7 +35,9 @@ public class FinanceController {
             .body(ApiResponse.success("Expense recorded", financeService.createExpense(req)));
     }
 
+    /** To'liq kirim-chiqim va moliya hisoboti — faqat Direktor (V86, buyurtmachi qarori 2026-10-18). */
     @GetMapping("/report")
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<FinanceReportResponse>> getReport(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {

@@ -24,4 +24,13 @@ public class CashRegisterDto {
     private CashRegisterStatus status;
     private boolean acceptOnlinePayment;
     private boolean archived;
+    /** ADMIN — admin kassasi, DIRECTOR — Direktor kassasi (faqat SA ko'radi). */
+    private com.crm.entity.enums.CashRegisterKind kind;
+    /** Razmen (topshirishdan keyin kassada qoladi). */
+    private BigDecimal floatAmount;
+    /** A'zolar: ADMIN / ACCOUNTANT (V86). */
+    private java.util.List<Member> members;
+
+    public record Member(Long userId, String name, String role) {
+    }
 }

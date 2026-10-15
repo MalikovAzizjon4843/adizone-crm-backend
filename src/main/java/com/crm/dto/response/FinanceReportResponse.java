@@ -4,16 +4,29 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 /**
- * {@code GET /api/finance/report}. {@code netProfit = totalIncome + examFees − totalExpenses − payrollPaid}
- * (payroll-v2 §11 #8). Oylik kassadan chiqim ({@code CashTransaction}) sifatida ham yoziladi, lekin
- * {@code totalExpenses} faqat {@code Expense} jadvalidan — oylik ikki marta ayirilmaydi.
+ * {@code GET /api/finance/report} — faqat SUPER_ADMIN (V86).
+ * {@code netProfit = totalIncome + examFees + otherIncome − totalExpenses − payrollPaid − refunds}
+ * (docs/design/cash-and-books.md §1.3). Oylikning kassa chiqimi {@code totalExpenses} ga kirmaydi —
+ * {@code payrollPaid} dan, ikki marta ayirilmaydi.
  */
 @Data @Builder @NoArgsConstructor @AllArgsConstructor
 public class FinanceReportResponse {
     private BigDecimal totalIncome;
     /** Imtihon to'lovlari (kassa: kirim − REVERSAL), leaves-exams-contracts §4.2. */
     private BigDecimal examFees;
+    /** Kassadagi boshqa kirim kategoriyalari (OTHER_INCOME, CASH_SURPLUS ...) − bekor qilinganlari (V86). */
+    private BigDecimal otherIncome;
+    /**
+     * Xarajatlar (V86): kassadan chiqimlar kategoriya bo'yicha (oylik va qaytarishdan tashqari; kamomad ham)
+     * + kassasiz xarajatlar ({@code expenses.cash_register_id IS NULL}).
+     */
     private BigDecimal totalExpenses;
+    /** O'quvchiga qaytarilgan pul (REFUND) − bekor qilinganlari (V86). */
+    private BigDecimal refunds;
+    /** Topshirishdagi kamomad (CASH_SHORTAGE) — {@code totalExpenses} ichida, ma'lumot uchun alohida. */
+    private BigDecimal cashShortage;
+    /** Xarajatlar guruh bo'yicha: DAILY / STRATEGIC / SYSTEM (kamomad). */
+    private Map<String, BigDecimal> expenseByScope;
     /** Σ PAID oylik {@code netSalary}, {@code paidAt} davr ichida; CANCELLED kirmaydi. */
     private BigDecimal payrollPaid;
     /** Rol bo'yicha: TEACHER / ADMIN / SALES_MANAGER (xodimi aniqlanmagan eski yozuv — OTHER). */

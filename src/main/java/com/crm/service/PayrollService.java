@@ -84,6 +84,7 @@ public class PayrollService {
     private final BonusPenaltyRepository bonusPenaltyRepository;
     private final CashTransactionRepository cashTransactionRepository;
     private final CashRegisterService cashRegisterService;
+    private final CashAccessService cashAccess;
     private final SalaryCalculationService calculator;
     private final BillingLocks locks;
     private final ObjectMapper objectMapper;
@@ -344,11 +345,16 @@ public class PayrollService {
             throw CodedException.badRequest("payroll.idempotency.keyTooLong", IDEMPOTENCY_KEY_MAX);
         }
         findById(id);
+        // V86 (buyurtmachi qarori 2026-10-18): oylik to'lash — faqat SA, kassa bo'lsa — faqat Direktor kassasi
+        cashAccess.requireDirector();
 
         BillingLocks.Locked locked = locks.acquire(BillingLocks.Plan.of()
             .payroll(id)
             .cashRegister(dto.getCashRegisterId()));
         Payroll p = locked.payroll();
+        if (dto.getCashRegisterId() != null) {
+            cashAccess.requireDirectorRegister(locked.cashRegister(dto.getCashRegisterId()));
+        }
         if (p.getStatus() == PayrollStatus.PAID) {
             if (key != null && key.equals(p.getPayIdempotencyKey())) {
                 return toResponse(p);

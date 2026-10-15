@@ -138,9 +138,12 @@ public class StudentController {
             studentService.transferBalance(id, request)));
     }
 
-    /** Billing v2 (§13 #24): musbat balansdan pul qaytarish — kassa chiqimi bilan, sabab majburiy. */
+    /**
+     * Billing v2 (§13 #24): musbat balansdan pul qaytarish — kassa chiqimi bilan, sabab majburiy.
+     * V86: faqat SA, faqat Direktor kassasidan (cash-and-books §0.1).
+     */
     @PostMapping("/{id:\\d+}/refund-payout")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
     public ResponseEntity<ApiResponse<RefundPayoutResponse>> refundPayout(
             @PathVariable Long id,
             @Valid @RequestBody RefundPayoutRequest request) {

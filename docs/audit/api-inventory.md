@@ -10,6 +10,42 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-10-18, kassa va ruxsatlar — 1-bosqich, V86)
+
+> Dizayn: [cash-and-books.md](../design/cash-and-books.md) §0.1, §1. Ruxsat **bitta nuqtada** (`CashAccessService`): SA — hamma kassa;
+> ADMIN va **ACCOUNTANT (endi admin kabi)** — faqat a'zo bo'lgan ADMIN kassa; boshqa kassa va Direktor kassasi — **404**;
+> hech qaysi kassaga biriktirilmagan — **400** `cash.noRegisterAssigned`. To'lov, imtihon, qo'lda kirim/chiqim, xarajat — faqat a'zo kassaga
+> (`recordIncome / recordExpense / recordReversal` ichida tekshiriladi). V86 + ops: [cash-and-books-deploy.md](../ops/cash-and-books-deploy.md).
+
+| Endpoint | Rol (oldin → keyin) | Izoh |
+|---|---|---|
+| `GET /api/cash-registers` | SA, A, ACC (hammasi) → SA hammasi; A/ACC — o'z kassasi | `CashRegisterDto` + `kind` (`ADMIN`/`DIRECTOR`), `floatAmount` (razmen), `members[{userId, name, role}]` |
+| `GET /api/cash-registers/my` | **yangi** — SA, A, ACC | To'lov / imtihon / xarajat dialoglari uchun faol, yoziladigan kassalar. Biriktirilmagan — 400 `cash.noRegisterAssigned` |
+| `GET /api/cash-registers/{id}`, `/balance`, `/by-method`, `/transactions`, `/transactions/export` | A/ACC — faqat o'z kassasi (boshqasi **404**) | `/transactions` + query `category`; qatorda `category`, `handoverId` |
+| `GET /api/cash-registers/{id}/by-category?from&to` | **yangi** — SA; A/ACC o'z kassasi | `[{category, name, direction, scope, amount}]` — kirim/chiqim − bekor qilingan; o'quvchi to'lovi, imtihon, oylik ham (kassa ko'rinishi) |
+| `POST /api/cash-registers`, `PUT /{id}`, `PATCH /{id}/status`, `DELETE /{id}` | SA, A, ACC / SA, A → **SA** | body + `kind` (`ADMIN` standart / `DIRECTOR`), `floatAmount` (≥ 0, aks holda 400 `cash.register.floatNegative`) |
+| `PUT /api/cash-registers/{id}/members` | **yangi** — SA | `{userIds: [..]}` — ro'yxat almashtiriladi; faqat ADMIN/ACCOUNTANT (400 `cash.members.invalidUser`), DIRECTOR kassaga — 400 `cash.members.directorRegister`; "bir admin — bitta kassa": boshqa kassadan ko'chiriladi |
+| `POST /api/cash-registers/{id}/income` | kassa — a'zo | + `category` (standart `OTHER_INCOME`; admin — faqat DAILY; SYSTEM — 400 `cash.category.system`) |
+| `POST /api/cash-registers/{id}/expense` | kassa — a'zo | + `category` (standart `OTHER_DAILY`). DAILY — admin o'z kassasidan; STRATEGIC — 403 `cash.category.directorOnly` (SA: faqat Direktor kassasidan, aks holda 400 `cash.directorRegisterRequired`). Nomi = kategoriya nomi |
+| `POST /api/cash-registers/transfer` | SA, A, ACC → **SA** | Admin naqdni kunlik topshirish orqali o'tkazadi |
+| `GET /api/cash-registers/{id}/handover/preview` | **yangi** — SA; A/ACC o'z kassasi | `{cashBalance, floatAmount, expectedCash = cashBalance − floatAmount, transactionCount, fromDate, toDate, previewHash, pendingHandoverId, lines[{paymentMethod, expectedIn, expectedOut, expectedNet}], byCategory[]}` — topshirilmagan yozuvlar aniq usul bo'yicha (CASH, CARD, TERMINAL, CLICK, PAYME, UZUM, OTHER) |
+| `POST /api/cash-registers/{id}/handovers` | **yangi** — A/ACC o'z kassasi (SA ham) | `{declaredCash, note, previewHash}`, header `Idempotency-Key` (takror — 200 + `idempotentReplay`). 201 → `CashHandoverDto` (SUBMITTED). Ochiq topshirish bor — 409 `cash.handover.pending`; preview'dan keyin yangi yozuv — 409 `cash.handover.previewChanged` |
+| `GET /api/cash-handovers?status&cashRegisterId&from&to&page&size` | **yangi** — SA hammasi; A/ACC o'z kassasiniki | Spring `Page<CashHandoverDto>` |
+| `GET /api/cash-handovers/{id}` | **yangi** — SA; A/ACC o'z kassasiniki (boshqasi 404) | `CashHandoverDto {.., status, expectedCash, declaredCash, countedCash, cashDiff, lines[{.., actual, diff}], submittedByName, decidedByName}` |
+| `POST /api/cash-handovers/{id}/accept` | **yangi** — SA | `{countedCash, actuals: {CARD: .., TERMINAL: .., CLICK: ..}, diffNote, targetCashRegisterId?}`. Naqd → Direktor kassasiga TRANSFER (`Topshirish (chiqim/kirim)`), farq → `CASH_SHORTAGE` / `CASH_SURPLUS` yozuvi (jarima yo'q), naqdsiz — faqat `diff`. Maqsad ko'rsatilmasa — yagona faol DIRECTOR kassa, aks holda 400 `cash.handover.targetRequired` |
+| `POST /api/cash-handovers/{id}/reject` | **yangi** — SA | `{reason}` (≥ 3). Yozuvlar bo'shatiladi — admin qayta topshiradi |
+| `GET /api/cash-handovers/report?from&to` | **yangi** — SA | Kassa bo'yicha: `count`, `countedCash`, `shortage`, `surplus` |
+| `GET /api/cash-categories?direction` | **yangi** — SA hammasi; A/ACC — faqat faol DAILY | `[{code, direction, scope, name, active, sortOrder}]` |
+| `POST /api/cash-categories`, `PUT /api/cash-categories/{code}` | **yangi** — SA | Yangi: DAILY / STRATEGIC (SYSTEM — 400); PUT: `name`, `sortOrder`, `active` (SYSTEM ni o'chirib bo'lmaydi) |
+| `POST /api/expenses`, `/api/finance/expenses` | kassa — a'zo | `category` — `cash_categories.code` (String; avval enum). DAILY — admin, kassa majburiy (400 `expense.cashRegister.required`); STRATEGIC — SA (kassasiz yoki Direktor kassasi); SYSTEM (SALARY ...) — 400. Javob + `categoryName` |
+| `GET /api/expenses`, `/api/finance/expenses` | SA hammasi; A/ACC — o'z kassasidagi DAILY | |
+| `GET /api/finance/report` | SA, A, ACC → **SA** | + `otherIncome`, `refunds`, `cashShortage`, `expenseByScope {DAILY, STRATEGIC, SYSTEM}`. `totalExpenses` = kassadan chiqimlar kategoriya bo'yicha (oylik, qaytarishdan tashqari; eski kategoriyasiz yozuvlar ham) + kassasiz xarajatlar. `netProfit = totalIncome + examFees + otherIncome − totalExpenses − payrollPaid − refunds`. **O'tgan oylar raqamlari o'zgaradi** |
+| `GET /api/analytics/overview` | SA, A | A uchun `finance: null`; SA — + `otherIncome`, `refunds` metrikalari, `net` hisobot bilan bir xil |
+| `GET /api/analytics/dashboard`, `/revenue` (eskirgan) | SA, A → **SA** | |
+| `GET /api/dashboard/director` | ACC: collections, debtors → ADMIN bilan bir xil | `collections`, `debtors` (va drill-down) — faqat SA |
+| `POST /api/payroll/{id}/pay` | SA, A, ACC → **SA** | Kassa ko'rsatilsa — faqat DIRECTOR (400 `cash.directorRegisterRequired`) |
+| `POST /api/students/{id}/refund-payout` | SA, A → **SA** | Faqat Direktor kassasidan |
+
 ## Yangilanishlar (2026-10-17, o'quvchi kanali: to'lov yaqinlashdi, dars eslatmasi, Mini App e'lonlari va sozlamalari — V85)
 
 > Hammasi `NotificationService.dispatch` orqali ([notifications.md](../design/notifications.md) §4, §6–§7). O'quvchi / ota-ona bot flag'lari **standart O'CHIQ** (`app.notify.*`, [env.md](../ops/env.md)). V85: `app_notice_reads`, `app_notification_prefs`. E'lon auditoriyasi o'zgarmadi (`notice_target_roles` da `STUDENT` / `PARENT` allaqachon bor).

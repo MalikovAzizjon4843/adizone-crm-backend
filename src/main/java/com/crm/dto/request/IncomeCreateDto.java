@@ -18,4 +18,6 @@ public class IncomeCreateDto {
     private BigDecimal cardPart;
     private LocalDate transactionDate;
     private String note;
+    /** Kategoriya kodi (V86): ko'rsatilmasa — OTHER_INCOME; admin uchun faqat DAILY. */
+    private String category;
 }

@@ -151,7 +151,7 @@ class PayrollLifecycleTest extends PayrollItBase {
         Staff a = teacherWithPaidStudent();
         Long id = draftFor(a.userId(), SEP).getId();
         payroll.approve(id, null);
-        Long reg = fixtures.cashRegister(false);
+        Long reg = fixtures.directorRegister();
         PayrollPayDto pay = new PayrollPayDto();
         pay.setCashRegisterId(reg);
         PayrollResponse paid = payroll.markAsPaid(id, pay, null);
@@ -209,7 +209,7 @@ class PayrollLifecycleTest extends PayrollItBase {
         Staff a = teacherWithPaidStudent();
         Long id = draftFor(a.userId(), SEP).getId();
         payroll.approve(id, null);
-        Long reg = fixtures.cashRegister(false);
+        Long reg = fixtures.directorRegister();
         PayrollPayDto dto = new PayrollPayDto();
         dto.setCashRegisterId(reg);
 

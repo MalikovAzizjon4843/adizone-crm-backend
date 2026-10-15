@@ -15,6 +15,8 @@ import com.crm.entity.enums.PaymentMethod;
 import com.crm.exception.CodedException;
 import com.crm.repository.BalanceTransactionRepository;
 import com.crm.repository.StudentGroupRepository;
+import com.crm.service.CashAccessService;
+import com.crm.service.CashCategories;
 import com.crm.service.CashRegisterService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -27,7 +29,7 @@ import java.util.List;
  * O'quvchiga pul qaytarish — {@code REFUND_PAYOUT} (§13 #24 qarori, v2 da).
  *
  * <ul>
- *   <li>Faqat SUPER_ADMIN, ADMIN (controller).</li>
+ *   <li>Faqat SUPER_ADMIN (V86, buyurtmachi qarori 2026-10-18), faqat Direktor kassasidan.</li>
  *   <li>Sabab majburiy.</li>
  *   <li>Kassa chiqimi bilan — bitta tranzaksiyada (I5 ruhida: pul kassadan chiqdi).</li>
  *   <li>Faqat musbat balans doirasida: SG balansidan ko'p qaytarib bo'lmaydi.</li>
@@ -46,6 +48,7 @@ public class RefundPayoutService {
     private final StudentGroupRepository studentGroupRepository;
     private final BalanceTransactionRepository transactionRepository;
     private final CashRegisterService cashRegisterService;
+    private final CashAccessService cashAccess;
 
     @Transactional
     @Audited(action = AuditAction.REFUND, entity = "Student",
@@ -65,6 +68,11 @@ public class RefundPayoutService {
             throw CodedException.badRequest("refund.reason.required");
         }
 
+        // V86 (buyurtmachi qarori 2026-10-18): qaytarish — faqat SA, faqat Direktor kassasidan
+        cashAccess.requireDirector();
+        if (r.getCashRegisterId() == null) {
+            throw CodedException.badRequest("payment.cashRegister.required");
+        }
         StudentGroup candidate = resolve(studentId, r.getGroupId());
         BillingLocks.Locked locked = locks.acquire(BillingLocks.Plan.of()
             .student(studentId).enrollment(candidate.getId()).cashRegister(r.getCashRegisterId()));
@@ -73,6 +81,7 @@ public class RefundPayoutService {
         if (register.isArchived() || register.getStatus() == CashRegisterStatus.ARCHIVED) {
             throw CodedException.badRequest("payment.cashRegister.archived");
         }
+        cashAccess.requireDirectorRegister(register);
 
         BigDecimal balance = transactionRepository.sumAmountByStudentGroupId(sg.getId());
         if (r.getAmount().compareTo(Money.nz(balance)) > 0) {
@@ -83,7 +92,8 @@ public class RefundPayoutService {
         PaymentMethod method = r.getPaymentMethod() != null ? r.getPaymentMethod() : PaymentMethod.CASH;
         CashTransaction cash = cashRegisterService.recordExpense(
             register.getId(), r.getAmount(), method, "O'quvchiga pul qaytarildi", reason,
-            statusService.today(), null, student, null, null, null, r.getCashPart(), r.getCardPart());
+            statusService.today(), null, student, null, null, null, r.getCashPart(), r.getCardPart(),
+            null, CashCategories.REFUND);
 
         BalanceTransaction tx = ledger.post(LedgerService.Entry.builder()
             .enrollment(sg)
