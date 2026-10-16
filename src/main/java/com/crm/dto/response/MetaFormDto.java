@@ -29,6 +29,11 @@ public class MetaFormDto {
     private MetaFormType leadType;
     private String defaultStageCode;
     private String defaultStudyFormat;
+    /** FORMAT savoli kalit so'zlari (vergul bilan) — sozlanmagan bo'lsa standart ro'yxat ko'rsatiladi. */
+    private String formatOnlineKeywords;
+    private String formatOfflineKeywords;
+    /** true — ikkala ro'yxat ham standart (formada sozlanmagan). */
+    private Boolean formatKeywordsDefault;
     private String defaultSource;
     private Boolean autoCreateTask;
     private String taskTimeQuestionKey;

@@ -156,9 +156,8 @@ public class Lead {
         if (source == null) {
             source = "WEBSITE";
         }
-        if (format == null) {
-            format = "OFFLINE";
-        }
+        // format: standart YO'Q (buyurtmachi 16.10.2026) — Meta / sayt lidida aniqlanmasa null ("aniqlanmagan").
+        // Qo'lda (createLeadByStaff) va importda format servisning o'zida aniq qo'yiladi.
         if (converted == null) {
             converted = false;
         }

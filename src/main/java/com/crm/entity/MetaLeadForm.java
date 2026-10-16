@@ -86,9 +86,20 @@ public class MetaLeadForm {
     @Column(name = "default_stage_code", length = 50)
     private String defaultStageCode;
 
-    /** {@code ONLINE} | {@code OFFLINE} | null — {@code Lead.format} ga tushadi. */
+    /**
+     * {@code ONLINE} | {@code OFFLINE} | null — admin aniq tanlagan standart: FORMAT savoli javobi tanilmasa yoki savol
+     * bo'lmasa {@code Lead.format} ga tushadi (UNMAPPED formada ishlatilmaydi). null — lid formati null ("aniqlanmagan").
+     */
     @Column(name = "default_study_format", length = 20)
     private String defaultStudyFormat;
+
+    /** FORMAT savoli: ONLINE kalit so'zlari (vergul bilan, V83); bo'sh — standart (onlayn, online, онлайн). */
+    @Column(name = "format_online_keywords", length = 500)
+    private String formatOnlineKeywords;
+
+    /** FORMAT savoli: OFFLINE kalit so'zlari (vergul bilan, V83); bo'sh — standart (oflayn, offline, офлайн, markaz, o'quv markaz). */
+    @Column(name = "format_offline_keywords", length = 500)
+    private String formatOfflineKeywords;
 
     /**
      * Marketing manbasi ({@code MarketingSource} nomi). Bo'sh bo'lsa

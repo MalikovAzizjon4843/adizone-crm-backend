@@ -56,6 +56,8 @@ public class StudentDetailResponse {
     /** Linked parents via {@code student_parents}. */
     private List<StudentParentInfo> parents;
     private LocalDateTime createdAt;
+    /** Ochiq sinov yozilmasi bor va uning {@code paymentStartDate} i o'tgan (sinov muddati tugagan, to'lovli qilinmagan). */
+    private Boolean trialOverdue;
 
     @Data
     @Builder

@@ -23,9 +23,17 @@ public class MetaFormSettingsRequest {
     @Size(max = 50)
     private String defaultStageCode;
 
-    /** ONLINE | OFFLINE. */
+    /** ONLINE | OFFLINE; bo'sh matn — tozalash (FORMAT javobi tanilmasa lid formati null). */
     @Size(max = 20)
     private String defaultStudyFormat;
+
+    /** FORMAT savoli: ONLINE kalit so'zlari, vergul bilan ("onlayn, online, онлайн"); bo'sh matn — standartga qaytish. */
+    @Size(max = 500)
+    private String formatOnlineKeywords;
+
+    /** FORMAT savoli: OFFLINE kalit so'zlari, vergul bilan; bo'sh matn — standart (oflayn, offline, офлайн, markaz, o'quv markaz). */
+    @Size(max = 500)
+    private String formatOfflineKeywords;
 
     /** {@code MarketingSource} nomi - tekshiriladi. */
     @Size(max = 30)

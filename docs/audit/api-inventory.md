@@ -390,6 +390,19 @@ qaytarilganlarga tegmaydi), **V77** (`billing_held_applications`, UNIQUE `idempo
 | `PATCH /api/leads/{id}/assign` | **SA, SH** | Ilgari SA, A, SH. Endi **ADMIN va SALES_MANAGER → 403** (biriktirish, almashtirish va olib tashlash — `{"userId": null}`). Mantiq o'zgarmagan |
 | `POST /api/leads/bulk-assign` | SA, SH | **YANGI.** Body `{"leadIds": [..], "userId": 12}`. `leadIds` — 1–200 ta (takrorlar bitta sanaladi; bo'sh yoki > 200 → **400** `lead.bulkAssign.size`). `userId` majburiy (**400** `lead.bulkAssign.userRequired`); faol va operator roli — `GET /api/leads/operators` sharti (aks holda, yo'q bo'lsa ham **400** `lead.bulkAssign.userInvalid`). Har lid **alohida tranzaksiyada** aynan `PATCH .../assign` mantig'i bilan: tayinlash tarixi (`lead_assignments`), ochiq `auto_created` vazifalar ko'chishi, har lidga ASSIGN audit. Bosqich cheklovi yo'q (CONVERTED/REJECTED ham). Allaqachon shu xodimda — `skipped` (tegilmaydi, tarix/audit yo'q). Javob: `{requested, assigned, skipped, failed: [{leadId, reason}]}` — `reason`: `lead.notFound` yoki xato kodi; bitta lid xatosi qolganlarini to'xtatmaydi |
 
+## Yangilanishlar (2026-10-16, o'quvchilar statistikasi, sinov muddati, Meta lid formati — V83)
+
+| Endpoint | Rollar | O'zgarish |
+|---|---|---|
+| `GET /api/students/stats` | SA, A | Kalitlar: `total`, **`active`** (ACTIVE va ochiq sinov yozilmasi YO'Q — ilgari barcha ACTIVE), **`trial`** (ACTIVE va ochiq sinov yozilmasi bor: faol, muzlatilmagan, `is_trial`), **`trialOverdue`** (`trial` ichida, sinov yozilmasining `paymentStartDate < bugun`; yig'indiga kirmaydi), `frozen`, `left`, **`suspended`**, **`graduated`**, `finished`, **`archived`**, `byGender`, `bySource`. Invariant: `active + trial + frozen + left + suspended + graduated + finished + archived = total` |
+| `GET /api/students` | avvalgidek | Yangi ixtiyoriy **`trial`** (boolean): `true` — ochiq sinov yozilmasi bor, `false` — yo'q. "Faol" kartasi = `status=ACTIVE&trial=false`, "Sinovda" = `status=ACTIVE&trial=true` (statistika bilan bir xil ta'rif). Berilmasa — avvalgidek |
+| `GET /api/students/trial` | avvalgidek | Har qatorda yangi `studentGroupId`, `paymentStartDate`, **`trialOverdue`**; muddati o'tganlar tepada (eng eskisi birinchi), keyin `paymentStartDate` bo'yicha. Muzlatilgan sinov yozilmalari chiqmaydi |
+| `GET /api/students/{id}` | avvalgidek | Yangi **`trialOverdue`** (boolean) — ochiq sinov yozilmasining `paymentStartDate` i o'tgan |
+| `PUT /api/meta/forms/{formId}/mapping` (`crmField`) | SA, A | Yangi qiymat **`FORMAT`**: javob matnida `onlayn` / `online` / `онлайн` → lid `format = ONLINE`; `oflayn` / `offline` / `офлайн` / `markaz` / `o'quv markaz` → `OFFLINE` (katta-kichik harfsiz, `o'` / `o‘` / `oʻ` bir xil; ikkalasi ham bo'lsa — aniqlanmagan). Javob lid izohiga ham avvalgidek yoziladi |
+| `PUT /api/meta/forms/{formId}` (forma sozlamalari), `GET /api/meta/forms*` | SA, A | Yangi **`formatOnlineKeywords`**, **`formatOfflineKeywords`** (vergul bilan, ≤ 500; bo'sh matn — standartga qaytish). Javobda shu ikki maydon (sozlanmagan bo'lsa standart ro'yxat) va `formatKeywordsDefault` |
+| Meta lidi (webhook / backfill) | — | Format: FORMAT javobidan; tanilmasa — forma sozlamasidagi aniq `defaultStudyFormat` (faqat xaritalangan formada); aks holda **`null`** ("aniqlanmagan"). Ilgari OFFLINE taxmin qilinardi |
+| `POST /api/leads/public` (sayt) | — | `format` berilmasa **`null`** (ilgari OFFLINE). Qo'lda (`POST /api/leads`) va Excel import — o'zgarmagan (OFFLINE standarti saqlangan) |
+
 ## 0. Qanday o'qish kerak
 
 ### 0.1 Endpointlar soni

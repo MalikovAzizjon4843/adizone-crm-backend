@@ -146,4 +146,27 @@ public interface StudentRepository extends JpaRepository<Student, Long>, JpaSpec
     List<Student> findByPhoneInAndStatusNot(java.util.Collection<String> phones, StudentStatus status);
 
     List<Student> findByParentPhoneInAndStatusNot(java.util.Collection<String> phones, StudentStatus status);
+
+    /** Holatlar bo'yicha soni (statistika kartalari) — [status, soni]. */
+    @Query(value = "SELECT s.status, COUNT(s) FROM Student s GROUP BY s.status")
+    List<Object[]> countGroupedByStatus();
+
+    /** ACTIVE va ochiq sinov yozilmasi bor (faol, muzlatilmagan, {@code is_trial}) o'quvchilar soni — "sinovda". */
+    @Query(value = """
+        SELECT COUNT(s) FROM Student s
+        WHERE s.status = com.crm.entity.enums.StudentStatus.ACTIVE
+          AND EXISTS (SELECT 1 FROM StudentGroup sg
+                      WHERE sg.student = s AND sg.isTrial = true AND sg.isActive = true AND sg.frozenFrom IS NULL)
+        """)
+    long countActiveWithOpenTrial();
+
+    /** Shulardan sinov muddati o'tgani: ochiq sinov yozilmasining {@code payment_start_date < today}. */
+    @Query(value = """
+        SELECT COUNT(s) FROM Student s
+        WHERE s.status = com.crm.entity.enums.StudentStatus.ACTIVE
+          AND EXISTS (SELECT 1 FROM StudentGroup sg
+                      WHERE sg.student = s AND sg.isTrial = true AND sg.isActive = true AND sg.frozenFrom IS NULL
+                        AND sg.paymentStartDate < :today)
+        """)
+    long countActiveWithOverdueTrial(@Param(value = "today") java.time.LocalDate today);
 }

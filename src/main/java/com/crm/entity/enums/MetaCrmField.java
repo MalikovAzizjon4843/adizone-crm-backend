@@ -31,6 +31,11 @@ public enum MetaCrmField {
     PLANNED_START,
     /** "Nima maqsadda o'qiysiz" — izohga yoziladi. */
     PURPOSE,
+    /**
+     * "Onlayn yoki markazda?" — javobdan {@code Lead.format} aniqlanadi ({@code MetaFormatDetector}: ONLINE / OFFLINE /
+     * tanilmadi → null); javob izohga ham yoziladi.
+     */
+    FORMAT,
     /** Boshqa har qanday javob — izohga yoziladi. */
     NOTE,
     /** CRM ga umuman yozilmaydi. */

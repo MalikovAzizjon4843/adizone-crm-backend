@@ -175,7 +175,7 @@ public class MetaLeadIngestService {
         Lead lead = Lead.builder()
             .fullName(data.fullName())
             .phone(data.storedPhone())
-            .format(resolveFormat(form))
+            .format(resolveFormat(form, data.format()))
             .source(resolveSource(payload, form))
             .status(resolveStage(form))
             .notes(data.noteText())
@@ -227,7 +227,9 @@ public class MetaLeadIngestService {
         /** Vazifa sarlavhasiga tushadigan vaqt oralig'i, yoki null. */
         String callTime,
         /** Lid kartasidagi izoh matni, yoki null. */
-        String noteText) {
+        String noteText,
+        /** FORMAT savoli javobidan aniqlangan ONLINE / OFFLINE, yoki null (savol yo'q / tanilmadi). */
+        String format) {
     }
 
     private Extracted extract(MetaLeadPayload payload, MetaLeadForm form) {
@@ -241,6 +243,7 @@ public class MetaLeadIngestService {
         String rawPhone = null;
         String rawPhoneAlt = null;
         String callTime = null;
+        String format = null;
         List<String> noteLines = new ArrayList<>();
 
         for (MetaLeadPayload.FieldValue field : payload.fields()) {
@@ -269,6 +272,15 @@ public class MetaLeadIngestService {
                 case PHONE_ALT -> rawPhoneAlt = value;
                 case PREFERRED_CALL_TIME -> {
                     callTime = value;
+                    noteLines.add(labelOf(question, field.key()) + ": " + value);
+                }
+                case FORMAT -> {
+                    // Birinchi tanilgan javob; javob izohda ham to'liq qoladi
+                    if (format == null) {
+                        format = MetaFormatDetector.detect(value,
+                            form != null ? form.getFormatOnlineKeywords() : null,
+                            form != null ? form.getFormatOfflineKeywords() : null);
+                    }
                     noteLines.add(labelOf(question, field.key()) + ": " + value);
                 }
                 case PLANNED_START, PURPOSE, NOTE ->
@@ -314,7 +326,8 @@ public class MetaLeadIngestService {
             canonical,
             truncate(storedPhone, 50),
             callTime,
-            noteLines.isEmpty() ? null : String.join("\n", noteLines));
+            noteLines.isEmpty() ? null : String.join("\n", noteLines),
+            format);
     }
 
     /**
@@ -427,15 +440,20 @@ public class MetaLeadIngestService {
         return "INSTAGRAM";
     }
 
-    private static String resolveFormat(MetaLeadForm form) {
-        String format = form != null ? form.getDefaultStudyFormat() : null;
-        if (format == null || format.isBlank()) {
-            // null qoldirmaymiz: Lead.@PrePersist uni "OFFLINE" qilib qo'yadi
-            // va shu yerda ham aynan shu qiymat bo'lsin, ikki xil yo'l bitta
-            // natijaga kelsin.
-            return "OFFLINE";
+    /**
+     * Lid formati (buyurtmachi 16.10.2026): FORMAT savoli javobidan aniqlangani; aks holda forma sozlamasidagi aniq
+     * {@code defaultStudyFormat} (faqat xaritalangan formada); aks holda null — "aniqlanmagan". Ilgari bu yerda va
+     * {@code Lead.@PrePersist} da OFFLINE taxmin qilinardi — olib tashlangan.
+     */
+    private static String resolveFormat(MetaLeadForm form, String detected) {
+        if (detected != null) {
+            return detected;
         }
-        return format.trim().toUpperCase(Locale.ROOT);
+        if (form == null || form.getLeadType() == MetaFormType.UNMAPPED) {
+            return null;
+        }
+        String format = form.getDefaultStudyFormat();
+        return format == null || format.isBlank() ? null : format.trim().toUpperCase(Locale.ROOT);
     }
 
     // -- Yon yozuvlar -----------------------------------------------------

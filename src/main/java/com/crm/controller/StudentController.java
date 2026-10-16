@@ -45,9 +45,10 @@ public class StudentController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) StudentStatus status,
-            @RequestParam(name = "source", required = false) String source) {
+            @RequestParam(name = "source", required = false) String source,
+            @RequestParam(name = "trial", required = false) Boolean trial) {
         return ResponseEntity.ok(ApiResponse.success(
-            studentService.getAllStudents(page, size, search, status, source)));
+            studentService.getAllStudents(page, size, search, status, source, trial)));
     }
 
     @GetMapping("/{id}/groups")

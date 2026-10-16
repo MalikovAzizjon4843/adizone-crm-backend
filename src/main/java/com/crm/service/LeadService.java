@@ -130,9 +130,10 @@ public class LeadService {
                 .parentPhone(request.getParentPhone())
                 .address(request.getAddress())
                 .course(request.getCourse())
-                .format(request.getFormat() != null
-                        ? request.getFormat().toUpperCase()
-                        : "OFFLINE")
+                // Sayt formasi: format berilmasa null ("aniqlanmagan"), OFFLINE taxmin qilinmaydi (16.10.2026)
+                .format(request.getFormat() != null && !request.getFormat().isBlank()
+                        ? request.getFormat().trim().toUpperCase()
+                        : null)
                 .source(request.getSource() != null
                         ? request.getSource().toUpperCase()
                         : "WEBSITE")

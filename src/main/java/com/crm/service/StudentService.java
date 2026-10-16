@@ -83,13 +83,23 @@ public class StudentService {
     @Transactional(readOnly = true)
     public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status,
                                                         String source) {
+        return getAllStudents(page, size, search, status, source, null);
+    }
+
+    /**
+     * {@code trial}: true — ochiq sinov yozilmasi bor (faol, muzlatilmagan), false — yo'q. "Faol" kartasi —
+     * {@code status=ACTIVE&trial=false}, "Sinovda" — {@code status=ACTIVE&trial=true} (statistika bilan bir xil ta'rif).
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status,
+                                                        String source, Boolean trial) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<Student> studentPage;
 
         var teacherScope = teacherAccessService.resolveTeacherScope();
-        if (source != null && !source.isBlank()) {
+        if ((source != null && !source.isBlank()) || trial != null) {
             studentPage = studentRepository.findAll(
-                filterSpec(search, status, source, teacherScope.map(t -> t.getId()).orElse(null)), pageable);
+                filterSpec(search, status, source, trial, teacherScope.map(t -> t.getId()).orElse(null)), pageable);
         } else if (teacherScope.isPresent()) {
             Long teacherId = teacherScope.get().getId();
             if (search != null && !search.isBlank()) {
@@ -591,14 +601,33 @@ public class StudentService {
         return toResponse(studentRepository.save(student));
     }
 
+    /**
+     * Ro'yxat kartalari. Bo'laklar o'zaro kesishmaydi va yig'indisi = {@code total} (har holat aynan bitta kalitda):
+     * {@code active} — ACTIVE va ochiq sinov yozilmasi YO'Q; {@code trial} — ACTIVE va ochiq sinov yozilmasi bor
+     * (ro'yxatda {@code status=ACTIVE&trial=true}); qolganlari holat bo'yicha. {@code trialOverdue} — {@code trial}
+     * ning ichidagi (yig'indiga kirmaydi) sinov muddati o'tganlar ({@code payment_start_date < bugun}).
+     */
     @Transactional(readOnly = true)
     public Map<String, Object> getStudentStats() {
+        Map<StudentStatus, Long> byStatus = new java.util.EnumMap<>(StudentStatus.class);
+        for (Object[] row : studentRepository.countGroupedByStatus()) {
+            if (row[0] != null) {
+                byStatus.put((StudentStatus) row[0], (Long) row[1]);
+            }
+        }
+        long activeAll = byStatus.getOrDefault(StudentStatus.ACTIVE, 0L);
+        long trial = studentRepository.countActiveWithOpenTrial();
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("total", studentRepository.count());
-        stats.put("active", studentRepository.countByStatus(StudentStatus.ACTIVE));
-        stats.put("frozen", studentRepository.countByStatus(StudentStatus.FROZEN));
-        stats.put("finished", studentRepository.countByStatus(StudentStatus.FINISHED));
-        stats.put("left", studentRepository.countByStatus(StudentStatus.LEFT));
+        stats.put("active", activeAll - trial);
+        stats.put("trial", trial);
+        stats.put("trialOverdue", studentRepository.countActiveWithOverdueTrial(billingStatusService.today()));
+        stats.put("frozen", byStatus.getOrDefault(StudentStatus.FROZEN, 0L));
+        stats.put("left", byStatus.getOrDefault(StudentStatus.LEFT, 0L));
+        stats.put("suspended", byStatus.getOrDefault(StudentStatus.SUSPENDED, 0L));
+        stats.put("graduated", byStatus.getOrDefault(StudentStatus.GRADUATED, 0L));
+        stats.put("finished", byStatus.getOrDefault(StudentStatus.FINISHED, 0L));
+        stats.put("archived", byStatus.getOrDefault(StudentStatus.ARCHIVED, 0L));
 
         Map<String, Long> byGender = new LinkedHashMap<>();
         studentRepository.countByGender().forEach(row -> byGender.put((String) row[0], (Long) row[1]));
@@ -683,10 +712,20 @@ public class StudentService {
      * manba va o'qituvchi doirasi ({@code findDistinctActiveByTeacherId} — faol yozilmasi bor) birga.
      */
     private static org.springframework.data.jpa.domain.Specification<Student> filterSpec(
-            String search, StudentStatus status, String source, Long teacherId) {
+            String search, StudentStatus status, String source, Boolean trial, Long teacherId) {
         return (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> and = new ArrayList<>();
-            List<String> codes = Arrays.stream(source.split(","))
+            if (trial != null) {
+                var tq = query.subquery(Long.class);
+                var tsg = tq.from(StudentGroup.class);
+                tq.select(tsg.get("id")).where(
+                    cb.equal(tsg.get("student"), root),
+                    cb.isTrue(tsg.get("isTrial")),
+                    cb.isTrue(tsg.get("isActive")),
+                    cb.isNull(tsg.get("frozenFrom")));
+                and.add(trial ? cb.exists(tq) : cb.not(cb.exists(tq)));
+            }
+            List<String> codes = source == null || source.isBlank() ? List.of() : Arrays.stream(source.split(","))
                 .map(SourceCatalog::normalize)
                 .filter(Objects::nonNull)
                 .toList();
@@ -902,7 +941,9 @@ public class StudentService {
             .paymentHistory(paymentHistory)
             .attendanceSummary(attendanceSummary)
             .parents(parents)
-            .createdAt(s.getCreatedAt());
+            .createdAt(s.getCreatedAt())
+            .trialOverdue(studentGroupRepository.findActiveByStudentId(s.getId()).stream()
+                .anyMatch(sg -> isTrialOverdue(sg, billingStatusService.today())));
 
         if (current != null && current.getGroup() != null) {
             builder.currentGroupId(current.getGroup().getId())
@@ -986,10 +1027,22 @@ public class StudentService {
         return "\"" + val.replace("\"", "\"\"") + "\"";
     }
 
+    /**
+     * Ochiq sinov yozilmalari. {@code trialOverdue} — sinov muddati o'tgan ({@code payment_start_date < bugun}); ular
+     * ro'yxat tepasida (eng eskisi birinchi), qolganlari {@code payment_start_date} bo'yicha.
+     */
+    @Transactional(readOnly = true)
     public List<Map<String, Object>> getTrialStudents() {
+        LocalDate today = billingStatusService.today();
         return studentGroupRepository
             .findActiveTrials()
             .stream()
+            .filter(sg -> sg.getFrozenFrom() == null)
+            .sorted(java.util.Comparator
+                .comparing((StudentGroup sg) -> !isTrialOverdue(sg, today))
+                .thenComparing(StudentGroup::getPaymentStartDate,
+                    java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()))
+                .thenComparing(StudentGroup::getId))
             .map(sg -> {
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("studentId", sg.getStudent().getId());
@@ -1001,9 +1054,19 @@ public class StudentService {
                 m.put("groupName", sg.getGroup().getGroupName());
                 m.put("joinDate", sg.getJoinDate());
                 m.put("lessonsAttended", sg.getLessonsAttended());
+                m.put("studentGroupId", sg.getId());
+                m.put("paymentStartDate", sg.getPaymentStartDate());
+                m.put("trialOverdue", isTrialOverdue(sg, today));
                 return m;
             })
             .collect(Collectors.toList());
+    }
+
+    /** Ochiq (faol, muzlatilmagan) sinov yozilmasi va {@code payment_start_date < today}. */
+    static boolean isTrialOverdue(StudentGroup sg, LocalDate today) {
+        return Boolean.TRUE.equals(sg.getIsTrial()) && Boolean.TRUE.equals(sg.getIsActive())
+            && sg.getFrozenFrom() == null && sg.getPaymentStartDate() != null
+            && sg.getPaymentStartDate().isBefore(today);
     }
 
     @Transactional(readOnly = true)

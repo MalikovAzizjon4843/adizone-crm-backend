@@ -63,6 +63,7 @@ spring:
         - classpath:db/migration/V80__tasks_auto_created.sql
         - classpath:db/migration/V81__billing_period_prorated_lessons.sql
         - classpath:db/migration/V82__payroll_lesson_type_rate_kpi_tiers.sql
+        - classpath:db/migration/V83__meta_form_format_keywords.sql
         - classpath:pgtest-schema.sql
 
 app:

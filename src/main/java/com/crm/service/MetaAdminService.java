@@ -136,6 +136,12 @@ public class MetaAdminService {
         if (request.getDefaultSource() != null) {
             form.setDefaultSource(parseSource(request.getDefaultSource()));
         }
+        if (request.getFormatOnlineKeywords() != null) {
+            form.setFormatOnlineKeywords(blankToNull(request.getFormatOnlineKeywords()));
+        }
+        if (request.getFormatOfflineKeywords() != null) {
+            form.setFormatOfflineKeywords(blankToNull(request.getFormatOfflineKeywords()));
+        }
         if (request.getAutoCreateTask() != null) {
             form.setAutoCreateTask(request.getAutoCreateTask());
         }
@@ -295,6 +301,11 @@ public class MetaAdminService {
             .leadType(form.getLeadType())
             .defaultStageCode(form.getDefaultStageCode())
             .defaultStudyFormat(form.getDefaultStudyFormat())
+            .formatOnlineKeywords(form.getFormatOnlineKeywords() != null ? form.getFormatOnlineKeywords()
+                : String.join(", ", MetaFormatDetector.DEFAULT_ONLINE))
+            .formatOfflineKeywords(form.getFormatOfflineKeywords() != null ? form.getFormatOfflineKeywords()
+                : String.join(", ", MetaFormatDetector.DEFAULT_OFFLINE))
+            .formatKeywordsDefault(form.getFormatOnlineKeywords() == null && form.getFormatOfflineKeywords() == null)
             .defaultSource(form.getDefaultSource())
             .autoCreateTask(form.getAutoCreateTask())
             .taskTimeQuestionKey(form.getTaskTimeQuestionKey())
