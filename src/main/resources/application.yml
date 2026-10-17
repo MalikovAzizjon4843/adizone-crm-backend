@@ -70,6 +70,19 @@ app:
   attendance:
     # O'tgan kun davomatini ochish ruxsati (APPROVED) reviewedAt dan shuncha soat amal qiladi.
     unlock-valid-hours: 48
+  tasks:
+    reminder:
+      # Vazifa muddati eslatmasi (TaskDeadlineReminderJob, docs/design/notifications.md §4): qo'ng'iroqcha
+      # egasiga — 1 soat qolganda va muddati o'tganda. false — o'chiq.
+      enabled: ${APP_TASK_REMINDER_ENABLED:true}
+      cron: "0 */15 * * * *"
+  # O'quvchi / ota-onaga bot xabarlari (NotifyProperties, docs/design/notifications.md §4.1) — standart O'CHIQ.
+  # O'chiq: outbox'ga yozilmaydi, faqat log. Xodimlar qo'ng'iroqchasiga ta'sir qilmaydi.
+  notify:
+    student-absent:
+      enabled: ${APP_NOTIFY_STUDENT_ABSENT_ENABLED:false}
+    payment-overdue:
+      enabled: ${APP_NOTIFY_PAYMENT_OVERDUE_ENABLED:false}
   # Direktor dashboardi (docs/design/director-dashboard.md). Qolgan sozlamalar — DashboardProperties default'lari.
   dashboard:
     digest:
@@ -133,7 +146,7 @@ meta:
 telegram:
   # Sir — faqat env (docs/ops/env.md). Bo'sh qoldirish mumkin.
   bot-token: "${TELEGRAM_BOT_TOKEN:}"
-  # Token bo'sh bo'lsa Telegram o'chiq ishlaydi (xabar yuborilmaydi, xato yo'q) — TelegramService.
+  # Token bo'sh bo'lsa Telegram o'chiq ishlaydi (xabar yuborilmaydi, xato yo'q) — TelegramOutboxWorker, HttpTelegramBotApi.
   enabled: ${TELEGRAM_ENABLED:true}
   # Bot webhook (docs/design/telegram-platform.md §1). Sir — faqat env, ≥ 32 belgi [A-Za-z0-9_-].
   # Bo'sh bo'lsa POST /api/telegram/webhook har doim 401 (himoyasiz ishlamaydi).

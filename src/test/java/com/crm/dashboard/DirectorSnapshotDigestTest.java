@@ -7,23 +7,18 @@ import com.crm.entity.enums.UserRole;
 import com.crm.repository.DirectorDailyStatRepository;
 import com.crm.repository.DirectorDigestLogRepository;
 import com.crm.service.LeadService;
-import com.crm.service.TelegramService;
+import com.crm.entity.TelegramOutbox;
+import com.crm.repository.TelegramOutboxRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDateTime;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /** Direktor dashboardi, 5-bosqich: kunlik snapshot (§3.6, §7 #19) va Telegram xulosasi (§5). */
 class DirectorSnapshotDigestTest extends AbstractBillingIT {
@@ -36,7 +31,7 @@ class DirectorSnapshotDigestTest extends AbstractBillingIT {
     @Autowired LeadService leadService;
     @Autowired JdbcTemplate jdbc;
     @Autowired ObjectMapper objectMapper;
-    @MockBean TelegramService telegram;
+    @Autowired TelegramOutboxRepository outboxRepo;
 
     @AfterEach
     void resetDigest() {
@@ -109,24 +104,23 @@ class DirectorSnapshotDigestTest extends AbstractBillingIT {
         clock.setDateTime(LocalDateTime.of(2026, 10, 1, 20, 0));
         DirectorDigestService.Result r = digest.send(d("01.10.2026"));
         assertThat(r.enabled()).isFalse();
-        verify(telegram, never()).sendMessage(anyString(), anyString());
+        assertThat(inTx(() -> outboxRepo.count())).isZero();
         assertThat(stat("01.10.2026", "funnel")).isNull();
     }
 
+    /** Bot outbox orqali (notifications.md): kun + chat bo'yicha bitta, noto'g'ri chat id — xato, shaxsiy ma'lumot yo'q. */
     @Test
-    void digest_sendsOncePerChat_retriesFailed_noPersonalData() {
+    void digest_queuedOncePerChat_viaOutbox_noPersonalData() {
         leadAt(LocalDateTime.of(2026, 10, 1, 10, 0));
         clock.setDateTime(LocalDateTime.of(2026, 10, 1, 20, 0));
         properties.getDigest().setEnabled(true);
-        properties.getDigest().setChatIds("111, 222");
+        properties.getDigest().setChatIds("111, 222, abc");
         properties.getDigest().setDashboardUrl("https://admin.adizone.uz/dashboard");
-        when(telegram.sendMessage(eq("111"), anyString())).thenReturn(true);
-        when(telegram.sendMessage(eq("222"), anyString())).thenReturn(false);
 
         DirectorDigestService.Result first = digest.send(d("01.10.2026"));
 
-        assertThat(first.sent()).isEqualTo(1);
-        assertThat(first.failed()).isEqualTo(1);
+        assertThat(first.sent()).isEqualTo(2);
+        assertThat(first.failed()).as("abc — chat id emas").isEqualTo(1);
         assertThat(first.text()).startsWith("📊 Adizone — 01.10.2026 (20:00 holati)")
             .contains("Lidlar: 1 lid → 0 tashrif → 0 birinchi to'lov")
             .contains("To'lovlar: 0 muddati kelgan → 0 undirildi")
@@ -134,12 +128,16 @@ class DirectorSnapshotDigestTest extends AbstractBillingIT {
             .contains("👉 https://admin.adizone.uz/dashboard")
             .doesNotContain("Ali").doesNotContain("+99890");
         assertThat(stat("01.10.2026", "funnel").isFinalized()).isFalse();
+        TelegramOutbox row = inTx(() -> outboxRepo.findByChatIdOrderByIdAsc(111L)).get(0);
+        assertThat(row.getEventCode()).isEqualTo("DIRECTOR_DIGEST");
+        assertThat(row.getDedupeKey()).isEqualTo("digest:2026-10-01:c111");
+        assertThat(row.getText()).isEqualTo(first.text());
 
-        when(telegram.sendMessage(eq("222"), anyString())).thenReturn(true);
         DirectorDigestService.Result second = digest.send(d("01.10.2026"));
-        assertThat(second.skipped()).isEqualTo(1);    // 111 — allaqachon yuborilgan
-        assertThat(second.sent()).isEqualTo(1);       // 222 — qayta urinish
-        assertThat(inTx(() -> logRepo.count())).isEqualTo(2);
-        verify(telegram, org.mockito.Mockito.times(1)).sendMessage(eq("111"), anyString());
+        assertThat(second.skipped()).as("111, 222 — allaqachon navbatda").isEqualTo(2);
+        assertThat(second.sent()).isZero();
+        assertThat(inTx(() -> outboxRepo.findByChatIdOrderByIdAsc(111L))).hasSize(1);
+        assertThat(inTx(() -> outboxRepo.findByChatIdOrderByIdAsc(222L))).hasSize(1);
+        assertThat(inTx(() -> logRepo.count())).isEqualTo(3);
     }
 }

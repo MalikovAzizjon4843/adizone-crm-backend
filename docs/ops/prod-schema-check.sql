@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V83 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V84 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V83 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V84 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
@@ -23,7 +23,7 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V83 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V84 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
@@ -369,7 +369,11 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V82', 'constraint', 'billing_periods', 'billing_periods_lesson_type_chk'),
     ('V82', 'constraint', 'salary_rules', 'salary_rules_employment_rate_chk'),
     ('V83', 'column', 'meta_lead_forms', 'format_online_keywords'),
-    ('V83', 'column', 'meta_lead_forms', 'format_offline_keywords')
+    ('V83', 'column', 'meta_lead_forms', 'format_offline_keywords'),
+    ('V84', 'column', 'user_notifications', 'dedupe_key'),
+    ('V84', 'index', 'user_notifications', 'ux_user_notifications_dedupe'),
+    ('V84', 'column', 'app_identities', 'language'),
+    ('V84', 'index', 'telegram_outbox', 'idx_telegram_outbox_chat_pending')
 ), checked AS (
     SELECT w.*,
            CASE w.kind

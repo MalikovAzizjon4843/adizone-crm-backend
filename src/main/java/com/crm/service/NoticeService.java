@@ -12,6 +12,9 @@ import com.crm.entity.User;
 import com.crm.entity.enums.UserRole;
 import com.crm.exception.CodedException;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.notification.NotificationRequest;
+import com.crm.notification.NotificationService;
+import com.crm.notification.NotificationType;
 import com.crm.repository.NoticeReadRepository;
 import com.crm.repository.NoticeRepository;
 import com.crm.repository.UserRepository;
@@ -40,6 +43,10 @@ public class NoticeService {
     private final Messages messages;
     private final UserRepository userRepository;
     private final TeacherAccessService teacherAccessService;
+    private final NotificationService notificationService;
+
+    /** Qo'ng'iroqcha matnidagi e'lon parchasi. */
+    private static final int NOTICE_PREVIEW = 200;
 
     /**
      * SA/ADMIN — boshqaruv ro'yxati: hamma e'lonlar (qoralama, nofaol, muddati o'tgan).
@@ -119,12 +126,15 @@ public class NoticeService {
             notice.setCreatedBy(teacherAccessService.getCurrentUserOrThrow());
         }
 
-        return toResponse(noticeRepository.save(notice), Set.of());
+        Notice saved = noticeRepository.save(notice);
+        notifyIfVisible(saved);
+        return toResponse(saved, Set.of());
     }
 
     @Transactional
     public NoticeResponse updateNotice(Long id, NoticeRequest request) {
         Notice notice = findById(id);
+        boolean wasVisible = isVisibleNow(notice);
         notice.setTitle(request.getTitle());
         notice.setContent(request.getContent());
         if (request.getNoticeDate() != null) {
@@ -149,7 +159,42 @@ public class NoticeService {
         }
         notice.setExpiresAt(resolveExpiresAt(request));
         Set<Long> readIds = currentUserReadIdsOrEmpty();
-        return toResponse(noticeRepository.save(notice), readIds);
+        Notice saved = noticeRepository.save(notice);
+        if (!wasVisible) {
+            // Qoralama chop etildi (yoki faollashtirildi) — endi ko'rinadi
+            notifyIfVisible(saved);
+        }
+        return toResponse(saved, readIds);
+    }
+
+    /**
+     * E'lon hozir ko'rinsa (faol, chop etilgan, vaqti kelgan, muddati o'tmagan) — auditoriya rollaridagi xodimlarga
+     * qo'ng'iroqcha (NOTICE_NEW; auditoriya bo'sh — hamma rol). Bir e'lon bir xodimga bir marta
+     * ({@code notice:{id}}), muallifning o'ziga emas. Kelajakdagi {@code publishedAt} li e'lon hozir yuborilmaydi.
+     */
+    private void notifyIfVisible(Notice n) {
+        if (!isVisibleNow(n)) {
+            return;
+        }
+        Set<UserRole> roles = effectiveAudience(n);
+        String content = n.getContent() == null ? "" : n.getContent().strip();
+        notificationService.dispatch(NotificationRequest.builder()
+            .type(NotificationType.NOTICE_NEW)
+            .staffRoles(roles.isEmpty() ? EnumSet.allOf(UserRole.class) : roles)
+            .excludeUserId(n.getCreatedBy() != null ? n.getCreatedBy().getId() : null)
+            .arg(n.getTitle())
+            .arg(content.length() > NOTICE_PREVIEW ? content.substring(0, NOTICE_PREVIEW) + "..." : content)
+            .link("/notices?notice=" + n.getId())
+            .entityType("Notice")
+            .entityId(n.getId())
+            .dedupeKey("notice:" + n.getId())
+            .build());
+    }
+
+    private static boolean isVisibleNow(Notice n) {
+        return Boolean.TRUE.equals(n.getIsActive()) && Boolean.TRUE.equals(n.getIsPublished())
+            && (n.getPublishedAt() == null || !n.getPublishedAt().isAfter(LocalDateTime.now()))
+            && !isExpired(n);
     }
 
     /**

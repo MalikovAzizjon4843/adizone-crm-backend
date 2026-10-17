@@ -3,7 +3,10 @@ package com.crm.dashboard;
 import com.crm.dashboard.DirectorDashboardService.Section;
 import com.crm.entity.DirectorDigestLog;
 import com.crm.repository.DirectorDigestLogRepository;
-import com.crm.service.TelegramService;
+import com.crm.notification.DispatchResult;
+import com.crm.notification.NotificationRequest;
+import com.crm.notification.NotificationService;
+import com.crm.notification.NotificationType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,7 +26,9 @@ import java.util.List;
  * dashboard sarlavhasi bilan AYNAN bir xil raqamlar. Default o'chiq
  * ({@code app.dashboard.digest.enabled}); chat id lar faqat env'dan. Shaxsiy ma'lumot
  * (ism, telefon) yuborilmaydi. Bir kunga bir chat'ga bitta muvaffaqiyatli xabar
- * ({@code director_digest_log}) — ilova qayta ishga tushsa ham takrorlanmaydi.
+ * ({@code director_digest_log}) — ilova qayta ishga tushsa ham takrorlanmaydi. Yuborish — bot outbox
+ * ({@code NotificationService.dispatch}, {@code DIRECTOR_DIGEST}): {@code sent} — navbatga qo'yilgan,
+ * haqiqiy yetkazish, qayta urinish va 403/429 — {@code TelegramOutboxWorker}.
  */
 @Service
 @RequiredArgsConstructor
@@ -36,7 +41,7 @@ public class DirectorDigestService {
     private final DashboardProperties properties;
     private final DirectorDashboardService dashboardService;
     private final DirectorSnapshotService snapshotService;
-    private final TelegramService telegramService;
+    private final NotificationService notificationService;
     private final DirectorDigestLogRepository logRepository;
     private final Clock billingClock;
 
@@ -73,10 +78,20 @@ public class DirectorDigestService {
             boolean ok;
             String error = null;
             try {
-                ok = telegramService.sendMessage(chatId, text);
+                // Bot outbox orqali (yuborish, qayta urinish, 403/429 — TelegramOutboxWorker); kun + chat bo'yicha bitta
+                DispatchResult r = notificationService.dispatch(NotificationRequest.builder()
+                    .type(NotificationType.DIRECTOR_DIGEST)
+                    .chatId(Long.parseLong(chatId))
+                    .arg(text)
+                    .dedupeKey("digest:" + day)
+                    .build());
+                ok = r.telegram() + r.duplicates() > 0;
                 if (!ok) {
-                    error = "TelegramService false qaytardi";
+                    error = "outbox'ga qo'yilmadi";
                 }
+            } catch (NumberFormatException e) {
+                ok = false;
+                error = "chat id noto'g'ri";
             } catch (RuntimeException e) {
                 ok = false;
                 error = e.getMessage();

@@ -70,6 +70,7 @@ abstract class MiniAppItBase extends AbstractBillingIT {
     @BeforeEach
     void resetBot() {
         botApi.reset();
+        outboxWorker.clearPause();
         // V63 qiymatlari (H2 da migratsiya yo'q; boshqa testlar o'zgartirgan bo'lishi mumkin)
         inTx(() -> Map.of("supportPhone", SUPPORT_PHONE, "address", ADDRESS).forEach((field, value) -> {
             String key = CenterSettingsService.PREFIX + field;

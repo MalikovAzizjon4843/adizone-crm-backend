@@ -12,6 +12,7 @@ import com.crm.repository.UserRepository;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.billing.BillingStatusService;
 import com.crm.exception.CodedException;
+import com.crm.notification.NotificationTemplates;
 import com.crm.repository.AppIdentityRepository;
 import com.crm.repository.AppIdentityStudentRepository;
 import com.crm.repository.StudentGroupRepository;
@@ -59,6 +60,15 @@ public class MiniAppAuthService {
     /** {@code noRollbackFor}: qayta tekshiruvda o'quvchi qolmasa uzish saqlanadi, keyin 403 qaytadi. */
     @Transactional(noRollbackFor = CodedException.class)
     public AppDtos.AuthResponse authenticate(String initData) {
+        return authenticate(initData, null);
+    }
+
+    /**
+     * {@code acceptLanguage} — Mini App tanlagan til (bot xabarlari shu tilda, {@code AppIdentity.language});
+     * yuborilmasa Telegram {@code language_code}.
+     */
+    @Transactional(noRollbackFor = CodedException.class)
+    public AppDtos.AuthResponse authenticate(String initData, String acceptLanguage) {
         if (!jwtService.isConfigured()) {
             throw new CodedException(HttpStatus.SERVICE_UNAVAILABLE, "app.auth.notConfigured");
         }
@@ -74,6 +84,11 @@ public class MiniAppAuthService {
         }
         if (user.username() != null) {
             identity.setTelegramUsername(user.username());
+        }
+        String language = NotificationTemplates.language(
+            acceptLanguage != null && !acceptLanguage.isBlank() ? acceptLanguage : user.languageCode());
+        if (language != null) {
+            identity.setLanguage(language);
         }
         AppDtos.Profile profile = profile(identity, links(identity.getId()));
         String token = jwtService.issue(identity, profile.roles());

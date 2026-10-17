@@ -10,6 +10,36 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-10-17, yagona bildirishnoma xizmati — V84)
+
+> **`NotificationService.dispatch`** ([notifications.md](../design/notifications.md)) — barcha ogohlantirishlar bitta yo'ldan: xodim → qo'ng'iroqcha (`user_notifications` + STOMP) va Telegram'ga ulangan bo'lsa bot; o'quvchi/ota-ona → bot (`telegram_outbox`, `AppIdentityStudent` orqali). Eski `service/TelegramService` va `Parent.telegramChatId` **olib tashlandi** (davomat va qarz xabarlari ilgari faqat logga tushardi). Shablonlar — `messages*.properties` `notify.*` (uz asosiy, ru; bot xabari `AppIdentity.language` tilida). Yangi endpoint YO'Q.
+> V84: `user_notifications.dedupe_key` (`UNIQUE (user_id, dedupe_key)` — takror himoyasi), `app_identities.language`, `telegram_outbox` holati `CANCELLED`.
+
+| O'zgarish | Tafsilot |
+|---|---|
+| `POST /api/app/auth` | `Accept-Language` sarlavhasi (ixtiyoriy) → `AppIdentity.language` (`ru*` → `ru`, boshqasi → `uz`); yo'q bo'lsa Telegram `language_code`. Javob o'zgarmagan |
+| `ParentRequest` | `telegramChatId` maydoni **olib tashlandi** (yuborilsa e'tiborsiz qoldiriladi) |
+| STOMP `/user/queue/notifications` | yangi kadr `{type: "NOTIFICATIONS_READ", unreadCount}` — server tomonda o'qilgan qilinganda (ichki/EXTERNAL suhbat oxirigacha o'qildi) |
+| `DirectorDigestService.Result.sent` | endi "outbox'ga qo'yilgan" (yetkazish — worker) |
+
+| `type` (yangi) | Qachon | Kimga | `entityType` / `link` |
+|---|---|---|---|
+| `CHAT_INTERNAL` | ichki suhbatda yangi xabar (`/app/chat.send`); shu suhbat bo'yicha **o'qilmagani yangilanadi**; suhbat oxirigacha o'qilsa — o'qilgan | suhbatning boshqa faol a'zolari (yuboruvchidan tashqari); ulangan o'qituvchi — bot ham (5 daqiqada bitta) | `Conversation` / `/chat?conversation={id}` |
+| `LEAD_ASSIGNED` | `PATCH /api/leads/{id}/assign` (mas'ul o'zgarganda); `POST /api/leads/bulk-assign` — **bitta** "Sizga N ta lid biriktirildi"; avto (Meta, sayt, standart mas'ul) — "Yangi lid biriktirildi" | yangi mas'ul (o'zini biriktirsa — yo'q) | `Lead` / `/leads?lead={id}`; ommaviy — `User` / `/leads?assignedUserId={id}` |
+| `NOTICE_NEW` | e'lon ko'rinadigan bo'ldi (chop etilgan holda yaratildi yoki qoralama chop etildi); bir e'lon — bir marta (`notice:{id}`) | auditoriya rollaridagi faol xodimlar (bo'sh — hamma), muallifdan tashqari; ulangan o'qituvchi — bot ham | `Notice` / `/notices?notice={id}` |
+| `TASK_DUE_SOON` | `TaskDeadlineReminderJob` (har 15 daqiqa, `app.tasks.reminder.enabled`): ochiq vazifa muddatiga ≤ 1 soat ("kun davomida"ga yo'q) | vazifa egasi (+ bot, ulangan bo'lsa) | `Task` / `/tasks?task={id}` |
+| `TASK_OVERDUE` | o'sha job: muddati o'tgan (oxirgi 24 soat) | vazifa egasi (+ bot) | `Task` / `/tasks?task={id}` |
+
+| Bot hodisasi (`event_code`) | Qachon | Kimga | Kalit |
+|---|---|---|---|
+| `STUDENT_ABSENT` | davomat ABSENT (bugun/kecha); ABSENT → boshqa holat — yuborilmagani `CANCELLED` | ulangan ota-ona va o'quvchining o'zi | `absent:{attendanceId}:i{identityId}` |
+| `PAYMENT_OVERDUE` | 10:00 (`app.billing.reminder-cron`): OVERDUE kuni va har 3 kunda | ulangan ota-ona va o'quvchi; ulanmagani sanaladi | `pay:{studentId}:{sana}:i{identityId}` |
+
+> `STUDENT_ABSENT` va `PAYMENT_OVERDUE` bot xabarlari flag bilan, **standart O'CHIQ**: `app.notify.student-absent.enabled` (`APP_NOTIFY_STUDENT_ABSENT_ENABLED`), `app.notify.payment-overdue.enabled` (`APP_NOTIFY_PAYMENT_OVERDUE_ENABLED`). O'chiq — outbox'ga yozilmaydi, faqat log; xodimlar qo'ng'iroqchasiga ta'sir yo'q.
+| `DIRECTOR_DIGEST` | 20:00, `app.dashboard.digest.enabled` | `app.dashboard.digest.chat-ids` | `digest:{sana}:c{chatId}` |
+
+> Telegram xatolari (`TelegramOutboxWorker`): `last_error` — haqiqiy javob (tokensiz); **403** → FAILED, qayta urinilmaydi, chatning qolgan xabarlari FAILED, identity `UNLINKED` (`BOT_BLOCKED`); **429** → `retry_after` hurmat qilinadi, urinish sanalmaydi, worker to'xtaydi; boshqa 4xx → darhol FAILED; 5xx/tarmoq → 1/5/30/120 daqiqa.
+
 ## Yangilanishlar (2026-10-02, phase 5)
 
 > Bu hujjatning qolgan qismi oldingi holatda (qator raqamlari eskirgan bo'lishi mumkin). Quyidagi o'zgarishlar tegishli jadvallarga kiritilgan; to'liq ro'yxat va sabablar — [phase5-audit.md §14](phase5-audit.md).
@@ -795,7 +825,7 @@ Javob shakli (`service/TeacherService.java:192-267`), DTO yo'q — Map:
 
 #### DTO tafsilotlari (Parents)
 
-- `ParentRequest` (`dto/request/ParentRequest.java:9-26`): `fullName: String` @NotBlank; `phone: String` @NotBlank + `PhoneDeserializer`; `address: String`; `telegramChatId: String`; `relation: String` (FATHER|MOTHER|OTHER, erkin matn); `studentId: Long`.
+- `ParentRequest` (`dto/request/ParentRequest.java:9-26`): `fullName: String` @NotBlank; `phone: String` @NotBlank + `PhoneDeserializer`; `address: String`; `relation: String` (FATHER|MOTHER|OTHER, erkin matn); `studentId: Long`.
 - `ParentResponse` (`dto/response/ParentResponse.java:12-36`): `id: Long`, `fullName`, `phone`, `address`, `relation: String`, `studentId: Long`, `studentName: String`, `isActive: Boolean`, `linkedStudents: List<LinkedStudentResponse>`, `createdAt: LocalDateTime`. (`telegramChatId` javobda YO'Q.)
   - `LinkedStudentResponse` (`:28-35`): `studentId: Long`, `firstName`, `lastName`, `phone`, `relation: String`, `isPrimary: Boolean`.
 

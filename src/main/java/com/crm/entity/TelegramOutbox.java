@@ -20,7 +20,11 @@ import java.time.LocalDateTime;
 @Builder
 public class TelegramOutbox {
 
-    public enum Status { PENDING, SENT, FAILED }
+    /**
+     * CANCELLED — yuborilmasdan bekor qilindi (masalan davomat ABSENT → PRESENT tuzatildi); bunday qatorning
+     * {@code dedupe_key} i bo'shatiladi ({@code <kalit>:x<id>}), qayta qo'yish mumkin.
+     */
+    public enum Status { PENDING, SENT, FAILED, CANCELLED }
 
     /** HIGH — darhol (sokin soatda ovozsiz); NORMAL — sokin soatda 08:00 gacha kutadi. */
     public enum Priority { HIGH, NORMAL }

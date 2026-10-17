@@ -26,7 +26,7 @@ import java.time.Duration;
 @Setter
 public class TelegramProperties {
 
-    /** Mavjud {@code TelegramService} bilan umumiy kalit. */
+    /** Bot tokeni — barcha yuborishlar faqat outbox orqali ({@code TelegramOutboxWorker}). */
     private String botToken;
 
     private boolean enabled = true;

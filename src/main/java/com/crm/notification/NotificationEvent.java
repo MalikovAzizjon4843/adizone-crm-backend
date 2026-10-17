@@ -13,13 +13,20 @@ import java.util.Set;
  * @param excludeUserId amalni bajargan xodim — o'ziga yuborilmaydi (null — hech kim chiqarilmaydi)
  * @param collapse      true — shu tur + obyekt bo'yicha o'qilmagan bildirishnoma bo'lsa yangilanadi
  *                      (yangi qator emas; chat xabarlari)
+ * @param dedupeKey     null bo'lmasa — shu xodimda shu kalitli qator bo'lsa yangisi yozilmaydi (V84)
  */
 public record NotificationEvent(NotificationType type, Set<Long> userIds, Set<UserRole> roles, Long excludeUserId,
                                 String title, String body, String link, String entityType, Long entityId,
-                                boolean collapse) {
+                                boolean collapse, String dedupeKey) {
 
     public NotificationEvent {
         userIds = userIds == null ? Set.of() : Set.copyOf(userIds);
         roles = roles == null ? Set.of() : Set.copyOf(roles);
+    }
+
+    public NotificationEvent(NotificationType type, Set<Long> userIds, Set<UserRole> roles, Long excludeUserId,
+                             String title, String body, String link, String entityType, Long entityId,
+                             boolean collapse) {
+        this(type, userIds, roles, excludeUserId, title, body, link, entityType, entityId, collapse, null);
     }
 }

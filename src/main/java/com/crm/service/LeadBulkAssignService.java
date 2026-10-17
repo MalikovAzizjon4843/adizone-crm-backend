@@ -6,6 +6,9 @@ import com.crm.dto.response.LeadBulkAssignResponse;
 import com.crm.entity.User;
 import com.crm.exception.CodedException;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.notification.NotificationRequest;
+import com.crm.notification.NotificationService;
+import com.crm.notification.NotificationType;
 import com.crm.repository.LeadRepository;
 import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +41,8 @@ public class LeadBulkAssignService {
     private final LeadService leadService;
     private final LeadRepository leadRepository;
     private final UserRepository userRepository;
+    private final LeadAccessService leadAccessService;
+    private final NotificationService notificationService;
 
     public LeadBulkAssignResponse bulkAssign(LeadBulkAssignRequest request) {
         List<Long> ids = request == null || request.getLeadIds() == null ? List.of()
@@ -59,6 +64,8 @@ public class LeadBulkAssignService {
         }
         LeadAssignRequest single = new LeadAssignRequest();
         single.setUserId(user.getId());
+        // Har lid uchun emas — oxirida bitta yig'ma bildirishnoma
+        single.setSuppressNotification(true);
 
         int assigned = 0;
         int skipped = 0;
@@ -80,7 +87,26 @@ public class LeadBulkAssignService {
                 failed.add(new LeadBulkAssignResponse.Failed(leadId, reason(e)));
             }
         }
+        if (assigned > 0) {
+            notifyBulk(user, assigned);
+        }
         return new LeadBulkAssignResponse(ids.size(), assigned, skipped, failed);
+    }
+
+    /** "Sizga N ta lid biriktirildi" — bitta qator (o'ziga biriktirsa yo'q). */
+    private void notifyBulk(User assignee, int count) {
+        User actor = leadAccessService.currentUserOrNull();
+        notificationService.dispatch(NotificationRequest.builder()
+            .type(NotificationType.LEAD_ASSIGNED)
+            .variant("bulk")
+            .staffUserId(assignee.getId())
+            .excludeUserId(actor != null ? actor.getId() : null)
+            .arg(String.valueOf(count))
+            .arg(actor != null ? (actor.getFirstName() + " " + actor.getLastName()).trim() : "tizim")
+            .link("/leads?assignedUserId=" + assignee.getId())
+            .entityType("User")
+            .entityId(assignee.getId())
+            .build());
     }
 
     private static String reason(RuntimeException e) {

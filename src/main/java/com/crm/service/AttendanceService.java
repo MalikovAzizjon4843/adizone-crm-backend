@@ -15,12 +15,16 @@ import com.crm.entity.enums.PaymentType;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
+import com.crm.notification.NotificationRequest;
+import com.crm.notification.NotificationService;
+import com.crm.notification.NotificationType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -32,14 +36,16 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AttendanceService {
 
+    /** "Kelmadi" xabari faqat shu kunlik davomatga (bugun va kecha); eski kunlar tuzatilsa yuborilmaydi. */
+    static final int ABSENT_NOTIFY_MAX_AGE_DAYS = 1;
+    private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("dd.MM.yyyy");
 
     private final AttendanceRepository attendanceRepository;
     private final StudentRepository studentRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final GroupRepository groupRepository;
     private final GroupScheduleService groupScheduleService;
-    private final TelegramService telegramService;
-    private final ParentRepository parentRepository;
+    private final NotificationService notificationService;
     private final StudentPaymentLifecycleService studentPaymentLifecycleService;
     private final AttendanceUnlockRequestService attendanceUnlockRequestService;
     private final TeacherAccessService teacherAccessService;
@@ -149,31 +155,23 @@ public class AttendanceService {
                     item.getStudentId(), request.getGroupId(), request.getDate());
             }
 
-            if (saved.getStatus() == AttendanceStatus.ABSENT) {
-                try {
-                    List<Parent> parents = parentRepository
-                        .findByStudentId(student.getId());
-
-                    String message = telegramService.buildAttendanceMessage(
-                        student.getFirstName() + " "
-                            + student.getLastName(),
-                        group.getGroupName(),
-                        request.getDate().toString()
-                    );
-
-                    for (Parent parent : parents) {
-                        if (parent.getTelegramChatId() != null
-                            && !parent.getTelegramChatId().isBlank()) {
-                            telegramService.sendMessage(
-                                parent.getTelegramChatId(), message);
-                        } else if (parent.getPhone() != null) {
-                            log.info("Davomat xabari: {} → {}",
-                                parent.getFullName(), message);
-                        }
-                    }
-                } catch (Exception e) {
-                    log.error("Davomat xabari yuborishda xatolik", e);
-                }
+            if (previousStatus == AttendanceStatus.ABSENT && saved.getStatus() != AttendanceStatus.ABSENT) {
+                // Tuzatildi (ABSENT → PRESENT/…): hali yuborilmagan "kelmadi" xabari bekor
+                notificationService.cancelTelegram(absentKey(saved) + ":");
+            } else if (saved.getStatus() == AttendanceStatus.ABSENT
+                    && !request.getDate().isBefore(today.minusDays(ABSENT_NOTIFY_MAX_AGE_DAYS))) {
+                // Ota-ona va o'quvchiga bot (ulangan bo'lsa); qayta saqlashda takrorlanmaydi (absent:{id})
+                notificationService.dispatch(NotificationRequest.builder()
+                    .type(NotificationType.STUDENT_ABSENT)
+                    .studentId(student.getId())
+                    .arg(student.getFirstName() + " " + student.getLastName())
+                    .arg(group.getGroupName())
+                    .arg(request.getDate().format(DAY))
+                    .arg("")
+                    .dedupeKey(absentKey(saved))
+                    .priority(TelegramOutbox.Priority.HIGH)
+                    .appPath("/#/attendance")
+                    .build());
             }
         }
 
@@ -294,6 +292,11 @@ public class AttendanceService {
         teacherAccessService.assertOwnsStudent(studentId);
         return attendanceRepository.findByStudentIdOrderByAttendanceDateDesc(studentId)
             .stream().map(this::toResponse).collect(Collectors.toList());
+    }
+
+    /** Bot xabari kaliti: har qabul qiluvchiga {@code :i<identityId>} qo'shiladi (NotificationService.dispatch). */
+    static String absentKey(Attendance a) {
+        return "absent:" + a.getId();
     }
 
     private AttendanceResponse toResponse(Attendance a) {

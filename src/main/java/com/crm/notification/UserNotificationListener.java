@@ -42,4 +42,18 @@ public class UserNotificationListener {
             }
         }
     }
+
+    /** Server tomonda o'qilgan qilindi — yangi son ({@code type: NOTIFICATIONS_READ}); frontend ro'yxatni qayta oladi. */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onRead(NotificationReadEvent event) {
+        try {
+            NotificationService.Delivered d = notificationService.unreadOf(event.userId());
+            if (d != null) {
+                messagingTemplate.convertAndSendToUser(d.username(), QUEUE,
+                    Map.of("type", "NOTIFICATIONS_READ", "unreadCount", d.unreadCount()));
+            }
+        } catch (RuntimeException e) {
+            log.warn("O'qilganlik push qilinmadi (user={}): {}", event.userId(), e.toString());
+        }
+    }
 }

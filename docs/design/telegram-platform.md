@@ -4,7 +4,7 @@
 > **Manba:**
 > - maket: [mockups/telegram-miniapp-mockup.html](mockups/telegram-miniapp-mockup.html) — ekranlar: hisobni ulash, bosh sahifa, jadval, davomat, to'lov, profil;
 > - [phase5-audit.md](../audit/phase5-audit.md) §9 (chat), §13 (Q1, Q11, Q13, Q16);
-> - mavjud `service/TelegramService.java`, `util/PhoneUtils.java`.
+> - mavjud `service/TelegramService.java` (2026-10-17 da olib tashlandi — [notifications.md](notifications.md)), `util/PhoneUtils.java`.
 >
 > **Bog'liq:** [billing-v2.md](billing-v2.md) (§4 holat, §8 snapshot), [leaves-exams-contracts.md](leaves-exams-contracts.md) (ta'til, o'rinbosar, sozlamalar).
 > **Yo'llar:** Java — `src/main/java/com/crm/` ga nisbatan. **TAXMIN** — kod yozilganda tasdiqlanadigan da'vo.
@@ -677,6 +677,8 @@ Bildirish davomatni **o'zgartirmaydi** — o'qituvchi o'zi belgilaydi (sababli /
 - "Bugun" — Asia/Tashkent, 23:59 gacha (mavjud qoida).
 
 ### 11.5 Outbox (minimal)
+
+> **2026-10-17 (V84):** outbox yagona bildirishnoma xizmatining bot kanali — [notifications.md](notifications.md). Qo'shildi: `CANCELLED` holati (yuborilmagan xabarni bekor qilish, kalit bo'shatiladi), Telegram javobi bo'yicha qaror (403 → FAILED + identity `BOT_BLOCKED` bilan uziladi; 429 → `retry_after`; boshqa 4xx → darhol FAILED), `last_error` — haqiqiy javob. Eski `service/TelegramService` olib tashlandi — barcha bot xabarlari shu navbatdan.
 
 `telegram_outbox (id, chat_id, text, reply_markup, silent, priority, status, attempts, not_before, dedupe_key UNIQUE, event_code, last_error, created_at, sent_at)`:
 - biznes amali bilan **bir tranzaksiyada** yoziladi (`INSERT … ON CONFLICT DO NOTHING` — dedupe);

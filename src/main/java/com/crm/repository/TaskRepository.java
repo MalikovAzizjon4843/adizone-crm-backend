@@ -123,4 +123,16 @@ public interface TaskRepository extends JpaRepository<Task, Long>, JpaSpecificat
     List<Object[]> countOpenGroupedByUser(
         @Param("now") LocalDateTime now,
         @Param("tomorrow") LocalDateTime tomorrow);
+
+    /**
+     * Muddat eslatmasi (TaskDeadlineReminderJob): mas'uli bor OCHIQ vazifalar, muddati {@code (from, to]} oralig'ida.
+     */
+    @Query(value = """
+        SELECT t FROM Task t JOIN FETCH t.assignedTo
+        WHERE t.status = :status AND t.dueAt > :from AND t.dueAt <= :to
+        ORDER BY t.dueAt ASC, t.id ASC
+        """)
+    List<Task> findOpenDueBetween(@Param(value = "status") TaskStatus status,
+                                  @Param(value = "from") LocalDateTime from,
+                                  @Param(value = "to") LocalDateTime to);
 }

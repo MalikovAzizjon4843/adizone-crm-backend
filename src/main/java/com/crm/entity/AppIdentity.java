@@ -87,9 +87,19 @@ public class AppIdentity {
     @Column(name = "unlinked_at")
     private LocalDateTime unlinkedAt;
 
-    /** APP (Mini App profili), BOT_STOP (/stop), NO_STUDENTS (qayta tekshiruvda o'quvchi qolmadi). */
+    /**
+     * APP (Mini App profili), BOT_STOP (/stop), NO_STUDENTS (qayta tekshiruvda o'quvchi qolmadi),
+     * BOT_BLOCKED (Telegram 403 — foydalanuvchi botni bloklagan, {@code TelegramOutboxWorker}).
+     */
     @Column(name = "unlink_reason", length = 30)
     private String unlinkReason;
+
+    /**
+     * Bot xabarlari tili (V84): {@code uz} | {@code ru}; null — {@code uz}. Mini App har autentifikatsiyada
+     * yangilaydi ({@code Accept-Language}, bo'lmasa Telegram {@code language_code}).
+     */
+    @Column(name = "language", length = 5)
+    private String language;
 
     @Column(name = "last_seen_at")
     private LocalDateTime lastSeenAt;

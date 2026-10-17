@@ -54,11 +54,11 @@ Default port: **8080**
 
 ## Default Credentials
 
-| Username    | Password   | Role        |
-|-------------|------------|-------------|
-| superadmin  | Admin@123  | SUPER_ADMIN |
+| Username    | Password                          | Role        |
+|-------------|-----------------------------------|-------------|
+| superadmin  | parol o'rnatishda beriladi        | SUPER_ADMIN |
 
-> Change the password immediately after first login!
+> Standart parol repoda saqlanmaydi — o'rnatishda (deploy) alohida beriladi va birinchi kirishda almashtiriladi.
 
 ---
 
@@ -153,7 +153,7 @@ Default port: **8080**
 
 ```
 POST /api/auth/login
-Body: { "username": "superadmin", "password": "Admin@123" }
+Body: { "username": "superadmin", "password": "<parol>" }
 
 Response:
 {

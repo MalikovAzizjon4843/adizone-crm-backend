@@ -12,12 +12,17 @@ sirsiz yoki eski sir bilan jimgina ishga tushib qolmasin.
 | `META_SYSTEM_USER_TOKEN` | `meta.system-user-token` | Graph API (lid ma'lumotini olish, formalar) | Faqat `meta.enabled: false` bo'lsa |
 | `META_APP_SECRET` | `meta.app-secret` | Webhook imzosi (`X-Hub-Signature-256`) | **Yo'q** — bo'sh bo'lsa webhook imzosiz qabul qilinadi |
 | `META_VERIFY_TOKEN` | `meta.verify-token` | Webhook obunasini tasdiqlash (GET qo'l berish) | Faqat `meta.enabled: false` bo'lsa |
-| `TELEGRAM_BOT_TOKEN` | `telegram.bot-token` | Ota-onalarga davomat/to'lov xabarlari, direktor digest | **Ha, default bo'sh** — berilmasa (yoki e'lon qilinmasa) Telegram o'chiq ishlaydi: xabar yuborilmaydi, startda bitta WARN |
+| `TELEGRAM_BOT_TOKEN` | `telegram.bot-token` | Barcha bot xabarlari (outbox): ota-ona/o'quvchiga davomat va qarz eslatmasi, xodim botiga bildirishnomalar, direktor digest (docs/design/notifications.md) | **Ha, default bo'sh** — berilmasa (yoki e'lon qilinmasa) Telegram o'chiq ishlaydi: xabar yuborilmaydi, startda bitta WARN |
 | `TELEGRAM_ENABLED` | `telegram.enabled` | Telegramni butunlay o'chirish | Ha, default `true` (token bo'lmasa baribir o'chiq) |
 | `TELEGRAM_WEBHOOK_SECRET` | `telegram.webhook-secret` | Bot webhook himoyasi: Telegram har so'rovda `X-Telegram-Bot-Api-Secret-Token` sarlavhasida qaytaradi. **≥ 32 belgi, faqat `A-Z a-z 0-9 _ -`** (`openssl rand -hex 32`) | Ha, default bo'sh — lekin unda `POST /api/telegram/webhook` **har doim 401** (bot javob bermaydi) |
 | `TELEGRAM_WEBHOOK_URL` | `telegram.webhook-url` | `POST /api/admin/telegram/set-webhook` Telegram'ga beradigan manzil (https) | Ha, default `https://api.adizone.uz/api/telegram/webhook` |
 | `TELEGRAM_WEBAPP_URL` | `telegram.webapp-url` | Mini App manzili — bot /start dagi "Ilovani ochish" tugmasi | Ha, default `https://webapp.adizone.uz` |
 | `TELEGRAM_APP_JWT_SECRET` | `telegram.app.jwt-secret` | O'quvchi/ota-ona Mini App tokenlarini imzolash (HS256). **`JWT_SECRET` dan boshqa qiymat**, kamida 32 bayt (`openssl rand -base64 48`) | Ha, default bo'sh — lekin unda `POST /api/app/auth` → 503 `app.auth.notConfigured` |
+| `APP_TASK_REMINDER_ENABLED` | `app.tasks.reminder.enabled` | Vazifa muddati eslatmasi (har 15 daqiqa, egasiga qo'ng'iroqcha; `TaskDeadlineReminderJob`) | Ha, default `true`; `false` — o'chiq |
+| `APP_NOTIFY_STUDENT_ABSENT_ENABLED` | `app.notify.student-absent.enabled` | Ota-ona va o'quvchiga "darsga kelmadi" bot xabari (`STUDENT_ABSENT`). O'chiq bo'lsa outbox'ga yozilmaydi, faqat log; xodimlar qo'ng'iroqchasiga ta'sir yo'q | Ha, **default `false`** — shablon va qabul qiluvchilar tekshirilgach yoqiladi |
+| `APP_NOTIFY_PAYMENT_OVERDUE_ENABLED` | `app.notify.payment-overdue.enabled` | Ota-ona va o'quvchiga qarz eslatmasi (`PAYMENT_OVERDUE`, 10:00, har 3 kunda). O'chiq bo'lsa outbox'ga yozilmaydi, faqat log | Ha, **default `false`** |
+| `DIRECTOR_DIGEST_ENABLED` | `app.dashboard.digest.enabled` | Direktor kunlik xulosasi (20:00, bot outbox orqali) | Ha, default `false` |
+| `DIRECTOR_DIGEST_CHAT_IDS` | `app.dashboard.digest.chat-ids` | Xulosa yuboriladigan chat id lar (vergul bilan, raqam) | Ha — bo'sh bo'lsa hech kimga |
 
 **Telegram Mini App** (docs/design/miniapp-api.md) uchun `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_APP_JWT_SECRET` uchalasi kerak: bot tokeni webhook javoblari va `initData` HMAC tekshiruvi uchun ham ishlatiladi. Qo'yilgandan va V66 bajarilgandan keyin SUPER_ADMIN bir marta `POST /api/admin/telegram/set-webhook` chaqiradi (tanasiz); BotFather'da Mini App domeni `webapp.adizone.uz`.
 

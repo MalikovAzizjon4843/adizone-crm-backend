@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.Optional;
 
 public interface UserNotificationRepository extends JpaRepository<UserNotification, Long> {
@@ -23,9 +24,23 @@ public interface UserNotificationRepository extends JpaRepository<UserNotificati
     Optional<UserNotification> findFirstByUserIdAndTypeAndEntityTypeAndEntityIdAndReadAtIsNullOrderByIdDesc(
         Long userId, String type, String entityType, Long entityId);
 
+    /** Takror himoyasi (V84): shu xodimda shu kalit allaqachon bormi. */
+    boolean existsByUserIdAndDedupeKey(Long userId, String dedupeKey);
+
     @Modifying
     @Query("UPDATE UserNotification n SET n.readAt = :at WHERE n.userId = :userId AND n.readAt IS NULL")
     int markAllRead(@Param("userId") Long userId, @Param("at") LocalDateTime at);
+
+    /** Obyekt bo'yicha o'qilmaganlarini o'qilgan qilish (masalan suhbat oxirigacha o'qilganda). */
+    @Modifying
+    @Query(value = """
+        UPDATE UserNotification n SET n.readAt = :at
+        WHERE n.userId = :userId AND n.type IN :types AND n.entityType = :entityType AND n.entityId = :entityId
+          AND n.readAt IS NULL
+        """)
+    int markEntityRead(@Param(value = "userId") Long userId, @Param(value = "types") Collection<String> types,
+                       @Param(value = "entityType") String entityType, @Param(value = "entityId") Long entityId,
+                       @Param(value = "at") LocalDateTime at);
 
     @Modifying
     @Query("DELETE FROM UserNotification n WHERE n.createdAt < :before")

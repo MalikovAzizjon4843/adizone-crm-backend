@@ -31,9 +31,6 @@ public class Parent extends BaseEntity {
     @Column(length = 20)
     private String phone;
 
-    @Column(name = "telegram_chat_id", length = 50)
-    private String telegramChatId;
-
     @Column(columnDefinition = "TEXT")
     private String address;
 

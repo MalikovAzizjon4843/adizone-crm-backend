@@ -45,6 +45,9 @@ import com.crm.repository.LeadCommentRepository;
 import com.crm.repository.LeadNoteRepository;
 import com.crm.repository.LeadRepository;
 import com.crm.repository.LeadStatusHistoryRepository;
+import com.crm.notification.NotificationRequest;
+import com.crm.notification.NotificationService;
+import com.crm.notification.NotificationType;
 import com.crm.repository.StudentRepository;
 import com.crm.repository.UserRepository;
 import com.crm.util.SourceCatalog;
@@ -117,6 +120,7 @@ public class LeadService {
     private final Messages messages;
     private final EntityManager entityManager;
     private final com.crm.dashboard.LeadFunnelTracker leadFunnelTracker;
+    private final NotificationService notificationService;
 
     @Transactional
     @Audited(action = AuditAction.CREATE, entity = "Lead",
@@ -321,6 +325,7 @@ public class LeadService {
         leadAccessService.assertCanAccessLead(lead);
         String previousOperator = lead.getAssignedUser() != null
                 ? formatUserName(lead.getAssignedUser()) : null;
+        Long previousAssigneeId = lead.getAssignedUser() != null ? lead.getAssignedUser().getId() : null;
 
         if (request.getUserId() == null) {
             lead.setAssignedUser(null);
@@ -345,6 +350,22 @@ public class LeadService {
         List<Long> movedTasks = taskService.reassignAutoTasks(lead, lead.getAssignedUser());
         if (!movedTasks.isEmpty()) {
             AuditContext.change("autoTasksReassigned", null, movedTasks);
+        }
+        User assignee = lead.getAssignedUser();
+        if (assignee != null && !request.isSuppressNotification()
+                && !assignee.getId().equals(previousAssigneeId)) {
+            // Yangi mas'ulga qo'ng'iroqcha; o'zini o'zi biriktirsa — yo'q
+            User actor = getCurrentUser();
+            notificationService.dispatch(NotificationRequest.builder()
+                .type(NotificationType.LEAD_ASSIGNED)
+                .staffUserId(assignee.getId())
+                .excludeUserId(actor != null ? actor.getId() : null)
+                .arg(lead.getFullName())
+                .arg(actor != null ? formatUserName(actor) : "tizim")
+                .link("/leads?lead=" + lead.getId())
+                .entityType("Lead")
+                .entityId(lead.getId())
+                .build());
         }
         return toResponse(leadRepository.save(lead));
     }

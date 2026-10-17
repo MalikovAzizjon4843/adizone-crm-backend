@@ -14,4 +14,7 @@ public interface AppIdentityRepository extends JpaRepository<AppIdentity, Long> 
 
     /** O'qituvchi rejimidagi faol identity (bot push uchun chat id). */
     Optional<AppIdentity> findFirstByStaffUserIdAndStatus(Long staffUserId, AppIdentity.Status status);
+
+    /** Telegram 403 (bot bloklangan): shu chatning faol identity'lari uziladi. */
+    List<AppIdentity> findByChatIdAndStatus(Long chatId, AppIdentity.Status status);
 }

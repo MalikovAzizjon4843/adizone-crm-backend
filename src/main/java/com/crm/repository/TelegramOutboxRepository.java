@@ -42,6 +42,27 @@ public interface TelegramOutboxRepository extends JpaRepository<TelegramOutbox, 
                        @Param("notBefore") LocalDateTime notBefore, @Param("dedupeKey") String dedupeKey,
                        @Param("eventCode") String eventCode, @Param("createdAt") LocalDateTime createdAt);
 
+    /**
+     * Yuborilmagan (PENDING) qatorlarni bekor qilish: kalit {@code prefix} bilan boshlanadi. Kalit
+     * {@code <kalit>:x<id>} ga almashadi — shu hodisa yana yuz bersa qayta qo'yish mumkin.
+     */
+    @Modifying
+    @Query(value = """
+        UPDATE telegram_outbox SET status = 'CANCELLED', dedupe_key = CONCAT(dedupe_key, ':x', id)
+        WHERE status = 'PENDING' AND dedupe_key LIKE CONCAT(:prefix, '%')
+        """, nativeQuery = true)
+    int cancelPendingByKeyPrefix(@Param(value = "prefix") String prefix);
+
+    /** Telegram 403: shu chatning qolgan PENDING qatorlari ham yuborilmaydi. */
+    @Modifying
+    @Query(value = """
+        UPDATE TelegramOutbox o SET o.status = :failed, o.lastError = :error
+        WHERE o.chatId = :chatId AND o.status = :pending
+        """)
+    int failPendingForChat(@Param(value = "chatId") Long chatId, @Param(value = "error") String error,
+                           @Param(value = "pending") TelegramOutbox.Status pending,
+                           @Param(value = "failed") TelegramOutbox.Status failed);
+
     @Modifying
     @Query("DELETE FROM TelegramOutbox o WHERE o.createdAt < :before AND o.status <> :pending")
     int deleteFinishedOlderThan(@Param("before") LocalDateTime before, @Param("pending") TelegramOutbox.Status pending);

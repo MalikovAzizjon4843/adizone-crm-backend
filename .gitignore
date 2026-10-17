@@ -14,11 +14,23 @@ buildNumber.properties
 /logs/
 *.log
 *.txt
-.env
-# Prod sirlari (docs/ops/env.md) — masalan crm.env
+# Sirlar (docs/ops/env.md): .env, .env.prod, crm.env …
+.env*
 *.env
-application.properties.example # if used to store sensitive info
+# Sezgir ma'lumot saqlansa
+application.properties.example
 config/application-local.yml
+# Baza nusxalari
+*.dump
+*.sql.gz
+*.backup
+# Kalit va sertifikatlar
+*.pem
+*.key
+*.p12
+*.jks
+# Yuklangan fayllar (prodda /opt/crm/uploads)
+uploads/
 
 # IDE specific files
 # Eslatma: gitignore qator oxiridagi izohni QO'LLAB-QUVVATLAMAYDI —

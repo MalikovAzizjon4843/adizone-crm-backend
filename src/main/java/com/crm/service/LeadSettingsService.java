@@ -8,7 +8,11 @@ import com.crm.entity.Lead;
 import com.crm.entity.Setting;
 import com.crm.entity.User;
 import com.crm.entity.enums.UserRole;
+import com.crm.config.Messages;
 import com.crm.exception.CodedException;
+import com.crm.notification.NotificationRequest;
+import com.crm.notification.NotificationService;
+import com.crm.notification.NotificationType;
 import com.crm.repository.SettingRepository;
 import com.crm.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +48,8 @@ public class LeadSettingsService {
     private final UserRepository userRepository;
     private final LeadAccessService leadAccessService;
     private final com.crm.dashboard.LeadFunnelTracker leadFunnelTracker;
+    private final NotificationService notificationService;
+    private final Messages messages;
 
     @Transactional(readOnly = true)
     public LeadDefaultAssigneeDto getDefaultAssignee() {
@@ -112,6 +118,19 @@ public class LeadSettingsService {
         lead.setAssignedUser(assignee);
         lead.setAssignedAt(at);
         leadFunnelTracker.onAssigned(lead, assignee, null, at);
+        // Avto biriktirish (Meta, sayt, standart mas'ul) — mas'ulga qo'ng'iroqcha; lidni o'zi yaratgan bo'lsa yo'q
+        String source = lead.getSource() == null ? "OTHER" : lead.getSource();
+        notificationService.dispatch(NotificationRequest.builder()
+            .type(NotificationType.LEAD_ASSIGNED)
+            .variant("auto")
+            .staffUserId(assignee.getId())
+            .excludeUserId(notificationService.currentUserIdOrNull())
+            .arg(lead.getFullName())
+            .arg(messages.getOrDefault("source." + source, source))
+            .link("/leads?lead=" + lead.getId())
+            .entityType("Lead")
+            .entityId(lead.getId())
+            .build());
         return assignee;
     }
 

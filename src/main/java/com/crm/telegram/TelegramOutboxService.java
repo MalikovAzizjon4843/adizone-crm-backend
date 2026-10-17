@@ -51,6 +51,18 @@ public class TelegramOutboxService {
     }
 
     /**
+     * Hali yuborilmagan xabarlarni bekor qilish (masalan davomat tuzatildi): kaliti {@code prefix} bilan
+     * boshlanadigan PENDING qatorlar. Yuborilganlariga tegilmaydi. Bekor qilinganlar soni.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int cancelPending(String prefix) {
+        if (prefix == null || prefix.isBlank()) {
+            return 0;
+        }
+        return repository.cancelPendingByKeyPrefix(prefix);
+    }
+
+    /**
      * Chat push'i uchun dedupe kaliti: oddiy vaqtda {@link #CHAT_WINDOW_MINUTES} daqiqalik oyna, sokin soatda
      * butun tun bitta (08:00 da bitta xabar).
      */

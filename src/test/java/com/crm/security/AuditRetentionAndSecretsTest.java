@@ -1,10 +1,11 @@
 package com.crm.security;
 
 import com.crm.audit.AuditRetentionJob;
-import com.crm.service.TelegramService;
+import com.crm.telegram.HttpTelegramBotApi;
+import com.crm.telegram.TelegramProperties;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -44,10 +45,11 @@ class AuditRetentionAndSecretsTest extends Phase5ItBase {
 
     @Test
     void blankTelegramToken_sendsNothing_noError() {
-        TelegramService telegram = new TelegramService();
-        ReflectionTestUtils.setField(telegram, "botToken", "");
-        ReflectionTestUtils.setField(telegram, "enabled", true);
-        ReflectionTestUtils.invokeMethod(telegram, "logState");
-        assertThat(telegram.sendMessage("12345", "salom")).isFalse();
+        TelegramProperties properties = new TelegramProperties();
+        properties.setEnabled(true);
+        properties.setBotToken("");
+        HttpTelegramBotApi telegram = new HttpTelegramBotApi(properties, new ObjectMapper());
+        assertThat(telegram.sendMessage(12345L, "salom", null)).isFalse();
+        assertThat(telegram.send(12345L, "salom", null, false).ok()).isFalse();
     }
 }

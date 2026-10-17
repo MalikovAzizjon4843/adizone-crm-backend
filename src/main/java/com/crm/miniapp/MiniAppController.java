@@ -33,8 +33,10 @@ public class MiniAppController {
     private final MiniAppAbsenceService absenceService;
 
     @PostMapping("/auth")
-    public ApiResponse<AppDtos.AuthResponse> auth(@Valid @RequestBody AppDtos.AuthRequest request) {
-        return ApiResponse.success(authService.authenticate(request.initData()));
+    public ApiResponse<AppDtos.AuthResponse> auth(@Valid @RequestBody AppDtos.AuthRequest request,
+                                                  @RequestHeader(name = "Accept-Language", required = false)
+                                                  String acceptLanguage) {
+        return ApiResponse.success(authService.authenticate(request.initData(), acceptLanguage));
     }
 
     /**

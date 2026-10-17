@@ -26,6 +26,10 @@ app:
   contracts:
     # Muzlatilgan shartnoma PDF lari (ContractPdfService) — test artefaktlari target/ ichida qoladi.
     pdf-dir: target/test-uploads/contracts
+  tasks:
+    reminder:
+      # Testlar TaskDeadlineReminderJob.run ni o'zi chaqiradi — fon aylanishi aralashmasin
+      enabled: false
 
 meta:
   enabled: false

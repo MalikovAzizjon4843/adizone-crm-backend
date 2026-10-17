@@ -29,6 +29,9 @@ import com.crm.exception.BadRequestException;
 import com.crm.exception.CodedException;
 import com.crm.exception.ForbiddenException;
 import com.crm.exception.ResourceNotFoundException;
+import com.crm.notification.NotificationRequest;
+import com.crm.notification.NotificationService;
+import com.crm.notification.NotificationType;
 import org.springframework.http.HttpStatus;
 import com.crm.repository.ConversationParticipantRepository;
 import com.crm.repository.ConversationRepository;
@@ -98,6 +101,12 @@ public class ChatService {
      */
     public static final Duration EDIT_WINDOW = Duration.ofMinutes(15);
 
+    /** Qo'ng'iroqcha matnidagi xabar parchasi. */
+    private static final int NOTIFY_PREVIEW = 100;
+    /** Suhbat o'qilganda o'qilgan bo'ladigan bildirishnoma turlari. */
+    private static final List<NotificationType> CHAT_NOTIFICATION_TYPES =
+        List.of(NotificationType.CHAT_INTERNAL, NotificationType.CHAT_EXTERNAL);
+
     /** O'zganikini ham o'chira oladigan rollar. */
     private static final Set<UserRole> DELETE_ANY_ROLES =
         EnumSet.of(UserRole.SUPER_ADMIN, UserRole.ADMIN);
@@ -113,6 +122,7 @@ public class ChatService {
     private final Messages messages;
     /** EXTERNAL suhbatda xodim yozganda (Mini App push) — ixtiyoriy bean (telegram-platform §11.3). */
     private final org.springframework.beans.factory.ObjectProvider<ExternalChatListener> externalChatListener;
+    private final NotificationService notificationService;
 
     // ── Xabar yuborish ─────────────────────────────────────────────────
 
@@ -176,6 +186,8 @@ public class ChatService {
         if (conversation.isExternal()) {
             // Mini App foydalanuvchisiga bot push — shu tranzaksiyada outbox'ga (telegram-platform §11.3)
             externalChatListener.ifAvailable(l -> l.onStaffMessage(conversation, sender, message));
+        } else {
+            notifyInternal(conversation, sender, message);
         }
 
         MessageContext context = new MessageContext(
@@ -332,12 +344,59 @@ public class ChatService {
         if (!advanceReadCursor(participant, request.getMessageId())) {
             return Optional.empty();
         }
+        markBellReadIfCaughtUp(user.getId(), request.getConversationId(), request.getMessageId());
 
         return Optional.of(ChatReadReceiptResponse.builder()
             .conversationId(request.getConversationId())
             .userId(user.getId())
             .messageId(request.getMessageId())
             .build());
+    }
+
+    /**
+     * Ichki suhbat — CRM qo'ng'iroqchasi (CHAT_INTERNAL): boshqa faol a'zolarga, yuboruvchining o'ziga emas;
+     * shu suhbat bo'yicha o'qilmagan bildirishnoma yangilanadi (har xabarga yangi qator emas). Telegram'ga ulangan
+     * o'qituvchi botda ham oladi — 5 daqiqalik oynada bitta ({@code windowKey}).
+     */
+    private void notifyInternal(Conversation conversation, User sender, Message message) {
+        Set<Long> members = participantRepository.findByConversationId(conversation.getId()).stream()
+            .filter(p -> p.getLeftAt() == null)
+            .map(p -> p.getUser().getId())
+            .filter(id -> !id.equals(sender.getId()))
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (members.isEmpty()) {
+            return;
+        }
+        String text = message.getText();
+        String preview = text == null || text.isBlank() ? "📎 Rasm"
+            : text.length() > NOTIFY_PREVIEW ? text.substring(0, NOTIFY_PREVIEW) + "..." : text;
+        String label = conversation.isDirect() || conversation.getTitle() == null || conversation.getTitle().isBlank()
+            ? fullName(sender) : conversation.getTitle();
+        notificationService.dispatch(NotificationRequest.builder()
+            .type(NotificationType.CHAT_INTERNAL)
+            .staffUserIds(members)
+            .excludeUserId(sender.getId())
+            .arg(fullName(sender))
+            .arg(label)
+            .arg(preview)
+            .link("/chat?conversation=" + conversation.getId())
+            .entityType("Conversation")
+            .entityId(conversation.getId())
+            .collapse(true)
+            // Mini App ichki suhbatlarni ko'rsatmaydi — bot xabari tugmasiz
+            .staffTelegramKey(notificationService.windowKey("chat:" + conversation.getId() + ":internal"))
+            .build());
+    }
+
+    /**
+     * Suhbat oxirigacha o'qildi — shu suhbat bo'yicha o'qilmagan bildirishnomalar (CHAT_INTERNAL, CHAT_EXTERNAL)
+     * o'qilgan bo'ladi: suhbat ochiq turgan xodimda qo'ng'iroqcha belgisi qolib ketmaydi.
+     */
+    private void markBellReadIfCaughtUp(Long userId, Long conversationId, Long messageId) {
+        List<Message> latest = messageRepository.findLatest(conversationId, PageRequest.of(0, 1));
+        if (latest.isEmpty() || latest.get(0).getId() <= messageId) {
+            notificationService.markEntityRead(userId, CHAT_NOTIFICATION_TYPES, "Conversation", conversationId);
+        }
     }
 
     /** Kursor haqiqatan siljigan bo'lsa true. */

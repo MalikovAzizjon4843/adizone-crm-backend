@@ -40,9 +40,18 @@ public class HttpTelegramBotApi implements TelegramBotApi {
 
     @Override
     public boolean sendMessage(long chatId, String html, Map<String, Object> replyMarkup, boolean silent) {
+        return send(chatId, html, replyMarkup, silent).ok();
+    }
+
+    /**
+     * Telegram javobi {@code {"ok":false,"error_code":403,"description":"...","parameters":{"retry_after":N}}} —
+     * 4xx/5xx tanasi ham shu shaklda ({@link #call}). Xato matnida token yo'q ({@link #safe}).
+     */
+    @Override
+    public SendResult send(long chatId, String html, Map<String, Object> replyMarkup, boolean silent) {
         if (!properties.isEnabled() || !properties.hasBotToken()) {
             log.debug("Telegram o'chiq — bot javobi yuborilmadi");
-            return false;
+            return SendResult.error(0, "Telegram o'chiq", null);
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("chat_id", chatId);
@@ -56,12 +65,25 @@ public class HttpTelegramBotApi implements TelegramBotApi {
             body.put("reply_markup", replyMarkup);
         }
         try {
-            JsonNode response = call("sendMessage", body);
-            return response.path("ok").asBoolean(false);
+            return result(call("sendMessage", body));
         } catch (RuntimeException e) {
-            log.warn("Telegram sendMessage xatosi: {}", safe(e));
-            return false;
+            String error = safe(e);
+            log.warn("Telegram sendMessage xatosi: {}", error);
+            return SendResult.error(0, error, null);
         }
+    }
+
+    /** Bot API javobi → {@link SendResult}; {@code description} da token bo'lsa yashiriladi. */
+    SendResult result(JsonNode response) {
+        if (response.path("ok").asBoolean(false)) {
+            return SendResult.OK;
+        }
+        int code = response.path("error_code").asInt(0);
+        String description = mask(response.path("description").asText(null));
+        JsonNode retry = response.path("parameters").path("retry_after");
+        Integer retryAfter = retry.isNumber() ? retry.asInt() : null;
+        log.warn("Telegram sendMessage rad etdi: HTTP {} {}", code, description);
+        return SendResult.error(code, description, retryAfter);
     }
 
     @Override
@@ -98,7 +120,13 @@ public class HttpTelegramBotApi implements TelegramBotApi {
 
     /** Xato matni tokensiz: RestTemplate xabarlari URL ni (ya'ni tokenni) o'z ichiga olishi mumkin. */
     private String safe(RuntimeException e) {
-        String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        return mask(e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+    }
+
+    private String mask(String msg) {
+        if (msg == null) {
+            return null;
+        }
         String token = properties.getBotToken();
         return token != null && !token.isBlank() ? msg.replace(token, "***") : msg;
     }

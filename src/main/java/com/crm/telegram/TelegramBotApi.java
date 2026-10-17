@@ -24,6 +24,14 @@ public interface TelegramBotApi {
     boolean sendMessage(long chatId, String html, Map<String, Object> replyMarkup, boolean silent);
 
     /**
+     * {@link #sendMessage(long, String, Map, boolean)} — Telegram xatosi tafsiloti bilan (outbox: 403 → chat uziladi,
+     * 429 → {@code retry_after}, javob {@code last_error} ga). Standart: faqat ok/xato, kodsiz.
+     */
+    default SendResult send(long chatId, String html, Map<String, Object> replyMarkup, boolean silent) {
+        return sendMessage(chatId, html, replyMarkup, silent) ? SendResult.OK : SendResult.error(0, null, null);
+    }
+
+    /**
      * {@code setWebhook}. Telegram javobi ({@code {"ok":..,"description":..}}) qaytadi; tarmoq xatosi —
      * {@link IllegalStateException}.
      */

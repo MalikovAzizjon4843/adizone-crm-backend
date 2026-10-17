@@ -43,6 +43,7 @@ Mini App ochiladi (bot /start dagi "Ilovani ochish" inline tugmasi yoki Menu but
      └─ 503 app.auth.notConfigured                 → "Xizmat vaqtincha ishlamayapti"
 
 Har so'rovda 401 (token eskirdi / uzildi) → bir marta qayta POST /api/app/auth (o'sha initData bilan), so'ng so'rovni takrorlash.
+`POST /api/app/auth` `Accept-Language` sarlavhasini (ilova tanlagan til: `uz` | `ru`) yuboradi — bot xabarlari (davomat, qarz eslatmasi) shu tilda keladi (`AppIdentity.language`, V84; sarlavha bo'lmasa Telegram `language_code`). Batafsil: [notifications.md](notifications.md).
 initData 1 soatdan eski bo'lsa auth ham 401 initDataExpired beradi → "Ilovani qayta oching".
 ```
 

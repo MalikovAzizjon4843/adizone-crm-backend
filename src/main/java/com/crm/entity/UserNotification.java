@@ -49,6 +49,13 @@ public class UserNotification {
     @Column(name = "entity_id")
     private Long entityId;
 
+    /**
+     * Takroriy yuborishdan himoya (V84, {@code NotificationService.dispatch}): bitta xodimga bitta kalit bilan
+     * bitta qator ({@code UNIQUE (user_id, dedupe_key)}, NULL — cheklovsiz). Masalan {@code task:12:overdue}.
+     */
+    @Column(name = "dedupe_key", length = 120)
+    private String dedupeKey;
+
     @Column(name = "read_at")
     private LocalDateTime readAt;
 
