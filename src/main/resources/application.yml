@@ -83,6 +83,9 @@ app:
       enabled: ${APP_NOTIFY_STUDENT_ABSENT_ENABLED:false}
     payment-overdue:
       enabled: ${APP_NOTIFY_PAYMENT_OVERDUE_ENABLED:false}
+      # Qayta yuborish oralig'i (kun): OVERDUE kuni va keyin har shuncha kunda; 1 — har kuni.
+      # Bir kunda bittadan ko'p emas (dedupe pay:{studentId}:{sana}).
+      repeat-days: ${APP_NOTIFY_PAYMENT_OVERDUE_REPEAT_DAYS:1}
     # "To'lov yaqinlashdi": keyingi to'lov sanasi = bugun + days-before (PaymentDueSoonJob)
     payment-due-soon:
       enabled: ${APP_NOTIFY_PAYMENT_DUE_SOON_ENABLED:false}

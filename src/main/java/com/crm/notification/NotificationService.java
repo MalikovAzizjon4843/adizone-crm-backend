@@ -252,7 +252,7 @@ public class NotificationService {
             : TelegramOutboxService.openAppButton(templates.text("notify.button.open", locale),
                 url + request.getAppPath());
         boolean queued = outboxService.enqueue(chatId, text, button, request.getPriority(), dedupeKey,
-            request.getType().name());
+            request.getType().name(), request.getOrigin());
         return queued ? new DispatchResult(0, 1, 0, 0) : new DispatchResult(0, 0, 1, 0);
     }
 

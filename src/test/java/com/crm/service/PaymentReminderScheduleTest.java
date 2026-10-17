@@ -5,7 +5,9 @@ import com.crm.billing.BillingSnapshotService;
 import com.crm.billing.support.AbstractBillingIT;
 import com.crm.dto.response.DebtorsListResponse;
 import com.crm.entity.StudentGroup;
+import com.crm.notification.NotifyProperties;
 import com.crm.repository.StudentGroupRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -13,11 +15,36 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** §13 #5, #26: eslatma OVERDUE kuni va har 3 kunda, summa = qarz, muzlatilganlarga yo'q. */
+/**
+ * §13 #5, #26: eslatma OVERDUE kuni va keyin har {@code app.notify.payment-overdue.repeat-days} kunda (standart 1 —
+ * har kuni, buyurtmachi 17.10.2026), summa = qarz, muzlatilganlarga yo'q.
+ */
 class PaymentReminderScheduleTest extends AbstractBillingIT {
 
     @Autowired
     PaymentReminderService reminders;
+    @Autowired
+    NotifyProperties notifyProperties;
+
+    @AfterEach
+    void defaultRepeat() {
+        notifyProperties.getPaymentOverdue().setRepeatDays(1);
+    }
+
+    @Test
+    void defaultRepeatDays_everyDayFromOverdueDay() {
+        Long sg = fixtures.enrollment(fixtures.student(), fixtures.group(fixtures.course(630_000)))
+            .start(d("15.10.2026")).save();
+        clock.setDate(d("15.10.2026"));
+        accrual.accrueUpTo(sg, d("15.10.2026"));
+
+        assertThat(reminders.repeatDays()).isEqualTo(1);
+        for (String day : List.of("15.10.2026", "16.10.2026", "17.10.2026", "18.10.2026")) {
+            clock.setDate(d(day));
+            snapshots.refreshAllDue(d(day));
+            assertThat(reminders.dueToday(d(day))).as(day).hasSize(1);
+        }
+    }
     @Autowired
     AccrualService accrual;
     @Autowired
@@ -26,7 +53,8 @@ class PaymentReminderScheduleTest extends AbstractBillingIT {
     StudentGroupRepository sgRepo;
 
     @Test
-    void sendsOnOverdueDayThenEveryThirdDay() {
+    void repeatDays3_sendsOnOverdueDayThenEveryThirdDay() {
+        notifyProperties.getPaymentOverdue().setRepeatDays(3);
         Long sg = fixtures.enrollment(fixtures.student(), fixtures.group(fixtures.course(630_000)))
             .start(d("15.10.2026")).save();
         clock.setDate(d("15.10.2026"));

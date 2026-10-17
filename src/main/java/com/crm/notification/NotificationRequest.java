@@ -3,6 +3,7 @@ package com.crm.notification;
 import com.crm.entity.AppIdentityStudent;
 import com.crm.entity.TelegramOutbox;
 import com.crm.entity.enums.UserRole;
+import com.crm.telegram.MessageOrigin;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.Singular;
@@ -66,6 +67,13 @@ public class NotificationRequest {
 
     @Builder.Default
     private final TelegramOutbox.Priority priority = TelegramOutbox.Priority.NORMAL;
+
+    /**
+     * Bot sokin soat qarori ({@link MessageOrigin}): AUTOMATIC (standart) — tunda 08:00 gacha kutadi; MANUAL —
+     * xodim qo'lda boshlagan (chat, qo'lda chop etilgan e'lon) — darhol, tunda ovozsiz. Qo'ng'iroqchaga ta'siri yo'q.
+     */
+    @Builder.Default
+    private final MessageOrigin origin = MessageOrigin.AUTOMATIC;
 
     /** Qo'ng'iroqcha: frontend yo'li va obyekt. */
     private final String link;

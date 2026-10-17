@@ -38,6 +38,7 @@ import com.crm.service.NoticeService;
 import com.crm.service.PaymentReminderService;
 import com.crm.service.TaskDeadlineReminderJob;
 import com.crm.telegram.SendResult;
+import com.crm.telegram.MessageOrigin;
 import com.crm.telegram.TelegramOutboxService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -340,6 +341,50 @@ class NotificationDispatchTest extends MiniAppItBase {
         assertThat(outboxFor(2603)).isEmpty();
     }
 
+    // ── Sokin soatlar: AUTOMATIC / MANUAL (buyurtmachi 17.10.2026) ────────
+
+    @Test
+    void quietHours_automaticAbsentWaitsUntil0800_evenHigh() {
+        Long ali = student("Ali", "Karimov", phone(), null);
+        identity(2701, AppIdentity.Kind.PARENT, null, null, AppIdentityStudent.Relation.PARENT, ali);
+        clock.setDateTime(LocalDateTime.of(2026, 9, 15, 22, 30));
+
+        DispatchResult r = dispatch(NotificationRequest.builder()
+            .type(NotificationType.STUDENT_ABSENT)
+            .studentId(ali)
+            .arg("Ali Karimov").arg("Ingliz tili").arg("15.09.2026").arg("")
+            .dedupeKey("absent:night")
+            .priority(TelegramOutbox.Priority.HIGH)
+            .build());
+
+        assertThat(r.telegram()).isEqualTo(1);
+        assertThat(outboxFor(2701)).singleElement().satisfies(o -> {
+            assertThat(o.getNotBefore()).as("tunda absent — 08:00 gacha kutadi")
+                .isEqualTo(LocalDateTime.of(2026, 9, 16, 8, 0));
+            assertThat(o.getSilent()).isFalse();
+            assertThat(o.getPriority()).isEqualTo(TelegramOutbox.Priority.HIGH);
+        });
+        assertThat(outboxWorker.runOnce()).isZero();
+    }
+
+    @Test
+    void quietHours_manualInternalChat_toLinkedTeacher_immediateSilent() {
+        User admin = staff(UserRole.ADMIN, null);
+        User teacher = staff(UserRole.TEACHER, null);
+        identity(2702, AppIdentity.Kind.TEACHER, teacher.getId(), null, AppIdentityStudent.Relation.SELF);
+        Long conversationId = inTx(() -> chatService.getOrCreateDirect(admin, teacher.getId()).getId());
+        clock.setDateTime(LocalDateTime.of(2026, 9, 15, 23, 10));
+
+        send(admin, conversationId, "Ertaga dars bormi?");
+
+        assertThat(outboxFor(2702)).singleElement().satisfies(o -> {
+            assertThat(o.getEventCode()).isEqualTo("CHAT_INTERNAL");
+            assertThat(o.getNotBefore()).as("tunda chat — darhol").isEqualTo(LocalDateTime.of(2026, 9, 15, 23, 10));
+            assertThat(o.getSilent()).isTrue();
+        });
+        assertThat(outboxWorker.runOnce()).isEqualTo(1);
+    }
+
     // ── TASK 2: Telegram xatolari ────────────────────────────────────────
 
     @Test
@@ -348,8 +393,10 @@ class NotificationDispatchTest extends MiniAppItBase {
         AppIdentity identity = identity(2501, AppIdentity.Kind.PARENT, null, null,
             AppIdentityStudent.Relation.PARENT, studentId);
         inTx(() -> {
-            outboxService.enqueue(2501, "bir", null, TelegramOutbox.Priority.HIGH, "t403:1", "TEST");
-            outboxService.enqueue(2501, "ikki", null, TelegramOutbox.Priority.HIGH, "t403:2", "TEST");
+            outboxService.enqueue(2501, "bir", null, TelegramOutbox.Priority.HIGH, "t403:1", "TEST",
+                MessageOrigin.AUTOMATIC);
+            outboxService.enqueue(2501, "ikki", null, TelegramOutbox.Priority.HIGH, "t403:2", "TEST",
+                MessageOrigin.AUTOMATIC);
         });
         botApi.nextResults.add(SendResult.error(403, "Forbidden: bot was blocked by the user", null));
 
@@ -368,8 +415,10 @@ class NotificationDispatchTest extends MiniAppItBase {
     @Test
     void telegram429_respectsRetryAfter_pausesWorker_attemptNotCounted() {
         inTx(() -> {
-            outboxService.enqueue(2502, "bir", null, TelegramOutbox.Priority.HIGH, "t429:1", "TEST");
-            outboxService.enqueue(2502, "ikki", null, TelegramOutbox.Priority.HIGH, "t429:2", "TEST");
+            outboxService.enqueue(2502, "bir", null, TelegramOutbox.Priority.HIGH, "t429:1", "TEST",
+                MessageOrigin.AUTOMATIC);
+            outboxService.enqueue(2502, "ikki", null, TelegramOutbox.Priority.HIGH, "t429:2", "TEST",
+                MessageOrigin.AUTOMATIC);
         });
         botApi.nextResults.add(SendResult.error(429, "Too Many Requests: retry after 7", 7));
         LocalDateTime now = LocalDateTime.now(clock);
@@ -392,7 +441,8 @@ class NotificationDispatchTest extends MiniAppItBase {
 
     @Test
     void telegram400_failsImmediately_noRetry() {
-        inTx(() -> outboxService.enqueue(2503, "bir", null, TelegramOutbox.Priority.HIGH, "t400:1", "TEST"));
+        inTx(() -> outboxService.enqueue(2503, "bir", null, TelegramOutbox.Priority.HIGH, "t400:1", "TEST",
+            MessageOrigin.AUTOMATIC));
         botApi.nextResults.add(SendResult.error(400, "Bad Request: chat not found", null));
         outboxWorker.runOnce();
         assertThat(outboxFor(2503)).singleElement().satisfies(o -> {

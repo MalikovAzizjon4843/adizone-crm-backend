@@ -8,6 +8,7 @@ import com.crm.notification.DispatchResult;
 import com.crm.notification.NotificationRequest;
 import com.crm.notification.NotificationService;
 import com.crm.notification.NotificationType;
+import com.crm.notification.NotifyProperties;
 import com.crm.repository.StudentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +27,8 @@ import java.util.Locale;
  * <ul>
  *   <li>Ro'yxat — yagona {@link DebtorService} dan (faqat OVERDUE).</li>
  *   <li>Summa — haqiqiy QARZ (avval oylik narx edi).</li>
- *   <li>OVERDUE bo'lgan kuni va keyin har 3 kunda (har kuni emas).</li>
+ *   <li>OVERDUE bo'lgan kuni va keyin har {@code app.notify.payment-overdue.repeat-days} kunda (standart 1 — har
+ *       kuni; buyurtmachi 17.10.2026, avval qattiq 3 edi).</li>
  *   <li>Muzlatilgan o'quvchilarga yuborilmaydi.</li>
  *   <li>Qabul qiluvchi — o'quvchiga ulangan ota-ona va o'quvchining o'zi ({@code AppIdentityStudent}); ulanmagan —
  *       jim o'tkaziladi va {@link Summary#unlinked()} da sanaladi.</li>
@@ -38,13 +40,11 @@ import java.util.Locale;
 @Slf4j
 public class PaymentReminderService {
 
-    /** OVERDUE boshlangan kundan keyin shuncha kunda bir marta. */
-    static final int REPEAT_EVERY_DAYS = 3;
-
     private final DebtorService debtorService;
     private final BillingStatusService billingStatusService;
     private final StudentRepository studentRepository;
     private final NotificationService notificationService;
+    private final NotifyProperties notifyProperties;
 
     /**
      * Bir aylanish natijasi: qarzdorlar, navbatga qo'yilgan xabarlar, takrorlar, ulanmagan o'quvchilar, flag o'chiq
@@ -89,14 +89,21 @@ public class PaymentReminderService {
 
     /** Bugun eslatma oladiganlar (testlanadi). */
     List<DebtorsListResponse.DebtorStudent> dueToday(LocalDate today) {
-        // Qarzdor bo'lgan kun (today − debtSince = grace, R1) va keyin har 3 kunda (§13 #26)
+        // Qarzdor bo'lgan kun (today − debtSince = grace, R1) va keyin har repeat-days kunda
+        // (§13 #26; 1 — har kuni)
         int firstOverdueDay = billingStatusService.graceDays();
+        int repeatDays = repeatDays();
         return debtorService.debtors(DebtorService.Filter.defaults(), today).getStudents().stream()
             .filter(d -> studentRepository.findById(d.getStudentId())
                 .map(s -> s.getStatus() != StudentStatus.FROZEN).orElse(false))
             .filter(d -> d.getDaysOverdue() >= firstOverdueDay
-                && (d.getDaysOverdue() - firstOverdueDay) % REPEAT_EVERY_DAYS == 0)
+                && (d.getDaysOverdue() - firstOverdueDay) % repeatDays == 0)
             .toList();
+    }
+
+    /** {@code app.notify.payment-overdue.repeat-days}; 1 dan kichik — 1 (har kuni). */
+    int repeatDays() {
+        return Math.max(1, notifyProperties.getPaymentOverdue().getRepeatDays());
     }
 
     private DispatchResult send(DebtorsListResponse.DebtorStudent d, LocalDate today) {

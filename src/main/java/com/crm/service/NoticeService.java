@@ -20,6 +20,7 @@ import com.crm.repository.AppNoticeReadRepository;
 import com.crm.repository.NoticeReadRepository;
 import com.crm.repository.NoticeRepository;
 import com.crm.repository.UserRepository;
+import com.crm.telegram.MessageOrigin;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
@@ -211,6 +212,7 @@ public class NoticeService {
                 .entityType("Notice")
                 .entityId(n.getId())
                 .dedupeKey("notice:" + n.getId())
+                .origin(MessageOrigin.MANUAL)       // xodim qo'lda chop etdi — tunda ham darhol (ovozsiz)
                 .build());
         }
         Set<AppIdentityStudent.Relation> relations = EnumSet.noneOf(AppIdentityStudent.Relation.class);
@@ -229,6 +231,7 @@ public class NoticeService {
                 .arg(appText)
                 .appPath("/#/notices")
                 .dedupeKey("notice-app:" + n.getId())
+                .origin(MessageOrigin.MANUAL)
                 .build());
         }
     }

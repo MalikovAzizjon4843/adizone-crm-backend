@@ -37,6 +37,7 @@ import com.crm.repository.ConversationParticipantRepository;
 import com.crm.repository.ConversationRepository;
 import com.crm.repository.MessageRepository;
 import com.crm.repository.UserRepository;
+import com.crm.telegram.MessageOrigin;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -385,6 +386,7 @@ public class ChatService {
             .collapse(true)
             // Mini App ichki suhbatlarni ko'rsatmaydi — bot xabari tugmasiz
             .staffTelegramKey(notificationService.windowKey("chat:" + conversation.getId() + ":internal"))
+            .origin(MessageOrigin.MANUAL)                   // chat — tunda ham darhol (ovozsiz)
             .build());
     }
 

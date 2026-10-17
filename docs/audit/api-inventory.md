@@ -52,7 +52,7 @@
 | Bot hodisasi (`event_code`) | Qachon | Kimga | Kalit |
 |---|---|---|---|
 | `STUDENT_ABSENT` | davomat ABSENT (bugun/kecha); ABSENT → boshqa holat — yuborilmagani `CANCELLED` | ulangan ota-ona va o'quvchining o'zi | `absent:{attendanceId}:i{identityId}` |
-| `PAYMENT_OVERDUE` | 10:00 (`app.billing.reminder-cron`): OVERDUE kuni va har 3 kunda | ulangan ota-ona va o'quvchi; ulanmagani sanaladi | `pay:{studentId}:{sana}:i{identityId}` |
+| `PAYMENT_OVERDUE` | 10:00 (`app.billing.reminder-cron`): OVERDUE kuni va keyin har `app.notify.payment-overdue.repeat-days` kunda (standart 1 — har kuni) | ulangan ota-ona va o'quvchi; ulanmagani sanaladi | `pay:{studentId}:{sana}:i{identityId}` |
 
 > `STUDENT_ABSENT` va `PAYMENT_OVERDUE` bot xabarlari flag bilan, **standart O'CHIQ**: `app.notify.student-absent.enabled` (`APP_NOTIFY_STUDENT_ABSENT_ENABLED`), `app.notify.payment-overdue.enabled` (`APP_NOTIFY_PAYMENT_OVERDUE_ENABLED`). O'chiq — outbox'ga yozilmaydi, faqat log; xodimlar qo'ng'iroqchasiga ta'sir yo'q.
 | `DIRECTOR_DIGEST` | 20:00, `app.dashboard.digest.enabled` | `app.dashboard.digest.chat-ids` | `digest:{sana}:c{chatId}` |

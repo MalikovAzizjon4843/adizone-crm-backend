@@ -20,6 +20,7 @@ import com.crm.repository.StudentRepository;
 import com.crm.repository.UserRepository;
 import com.crm.service.TeacherAccessService;
 import com.crm.telegram.TelegramInitDataValidator;
+import com.crm.telegram.MessageOrigin;
 import com.crm.telegram.TelegramOutboxService;
 import com.crm.telegram.TelegramProperties;
 import com.crm.telegram.TelegramUpdateHandler;
@@ -186,7 +187,8 @@ public class MiniAppLinkRequestService {
             outboxService.enqueue(request.getChatId(),
                 "✅ So'rovingiz tasdiqlandi, hisob ulandi.\n\n" + TelegramUpdateHandler.studentsLine(linked),
                 TelegramOutboxService.openAppButton(TelegramUpdateHandler.BTN_OPEN_APP, telegramProperties.getWebappUrl()),
-                TelegramOutbox.Priority.NORMAL, "linkreq:" + request.getId() + ":approved", "LINK_APPROVED");
+                TelegramOutbox.Priority.NORMAL, "linkreq:" + request.getId() + ":approved", "LINK_APPROVED",
+                MessageOrigin.MANUAL);
         }
         return row(request, actor);
     }
@@ -212,7 +214,8 @@ public class MiniAppLinkRequestService {
         if (request.getChatId() != null) {
             outboxService.enqueue(request.getChatId(),
                 "❌ Hisobni ulash so'rovi rad etildi.\nSabab: " + TelegramUpdateHandler.escape(text),
-                null, TelegramOutbox.Priority.NORMAL, "linkreq:" + request.getId() + ":rejected", "LINK_REJECTED");
+                null, TelegramOutbox.Priority.NORMAL, "linkreq:" + request.getId() + ":rejected", "LINK_REJECTED",
+                MessageOrigin.MANUAL);
         }
         return row(request, actor);
     }

@@ -20,8 +20,9 @@ import java.util.Map;
  * Bot xabarini navbatga qo'yish (docs/design/telegram-platform.md §11.5). Chaqiruvchining tranzaksiyasida
  * yoziladi — biznes amali rollback bo'lsa xabar ham yo'q.
  *
- * <p><b>Sokin soatlar</b> ({@link #QUIET_FROM}–{@link #QUIET_TO}, Asia/Tashkent): NORMAL — {@code not_before}
- * keyingi 08:00; HIGH — darhol, lekin ovozsiz.
+ * <p><b>Sokin soatlar</b> ({@link #QUIET_FROM}–{@link #QUIET_TO}, Asia/Tashkent) — {@link MessageOrigin} bo'yicha
+ * (buyurtmachi 17.10.2026): AUTOMATIC — priority'dan qat'i nazar {@code not_before} keyingi 08:00 (ovoz bilan);
+ * MANUAL — darhol, sokin soatda ovozsiz. Priority — faqat navbat tartibi.
  */
 @Service
 @RequiredArgsConstructor
@@ -40,11 +41,13 @@ public class TelegramOutboxService {
     /** @return true — yangi qator yozildi; false — {@code dedupeKey} band (takror). */
     @Transactional(propagation = Propagation.MANDATORY)
     public boolean enqueue(long chatId, String html, Map<String, Object> replyMarkup, TelegramOutbox.Priority priority,
-                           String dedupeKey, String eventCode) {
+                           String dedupeKey, String eventCode, MessageOrigin origin) {
         LocalDateTime now = LocalDateTime.now(billingClock);
         boolean quiet = isQuiet(now.toLocalTime());
-        LocalDateTime notBefore = priority == TelegramOutbox.Priority.NORMAL && quiet ? quietEnd(now) : now;
-        boolean silent = priority == TelegramOutbox.Priority.HIGH && quiet;
+        boolean manual = origin == MessageOrigin.MANUAL;
+        // AUTOMATIC: tunda hech qaysi priority bilan emas — 08:00 da (ovoz bilan); MANUAL: darhol, tunda ovozsiz
+        LocalDateTime notBefore = !manual && quiet ? quietEnd(now) : now;
+        boolean silent = manual && quiet;
         String text = html.length() > TEXT_MAX ? html.substring(0, TEXT_MAX - 3) + "..." : html;
         return repository.insertIfAbsent(chatId, text, json(replyMarkup), silent, priority.name(), notBefore,
             dedupeKey, eventCode, now) > 0;
@@ -63,14 +66,11 @@ public class TelegramOutboxService {
     }
 
     /**
-     * Chat push'i uchun dedupe kaliti: oddiy vaqtda {@link #CHAT_WINDOW_MINUTES} daqiqalik oyna, sokin soatda
-     * butun tun bitta (08:00 da bitta xabar).
+     * Chat push'i uchun dedupe kaliti: {@link #CHAT_WINDOW_MINUTES} daqiqalik oyna, kecha-kunduz bir xil (chat —
+     * MANUAL, tunda ham darhol, ovozsiz ketadi).
      */
     public String windowKey(String prefix) {
         LocalDateTime now = LocalDateTime.now(billingClock);
-        if (isQuiet(now.toLocalTime())) {
-            return prefix + ":q:" + quietEnd(now).toLocalDate();
-        }
         long minute = now.toEpochSecond(ZoneOffset.UTC) / 60;
         return prefix + ":" + (minute / CHAT_WINDOW_MINUTES);
     }

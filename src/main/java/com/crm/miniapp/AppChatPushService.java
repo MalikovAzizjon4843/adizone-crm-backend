@@ -8,6 +8,7 @@ import com.crm.entity.User;
 import com.crm.entity.enums.UserRole;
 import com.crm.repository.AppIdentityRepository;
 import com.crm.service.ExternalChatListener;
+import com.crm.telegram.MessageOrigin;
 import com.crm.telegram.TelegramOutboxService;
 import com.crm.telegram.TelegramProperties;
 import com.crm.telegram.TelegramUpdateHandler;
@@ -42,7 +43,8 @@ public class AppChatPushService implements ExternalChatListener {
                 "💬 <b>" + TelegramUpdateHandler.escape(fullName(sender)) + "</b> (" + staffLabel(sender.getRole())
                     + "):\n" + preview(message),
                 button(conversation.getId()), TelegramOutbox.Priority.NORMAL,
-                outboxService.windowKey("chat:" + conversation.getId() + ":app:" + i.getId()), "CHAT_MESSAGE_APP"));
+                outboxService.windowKey("chat:" + conversation.getId() + ":app:" + i.getId()), "CHAT_MESSAGE_APP",
+                MessageOrigin.MANUAL));
     }
 
     /** App foydalanuvchisi yozdi — faqat TEACHER suhbatida o'qituvchiga (SUPPORT/DIRECTOR CRM'da ko'radi). */
@@ -56,7 +58,8 @@ public class AppChatPushService implements ExternalChatListener {
             .ifPresent(i -> outboxService.enqueue(i.getChatId(),
                 "💬 <b>" + TelegramUpdateHandler.escape(conversation.getTitle()) + "</b>:\n" + preview(message),
                 button(conversation.getId()), TelegramOutbox.Priority.NORMAL,
-                outboxService.windowKey("chat:" + conversation.getId() + ":staff:" + userId), "CHAT_MESSAGE_STAFF"));
+                outboxService.windowKey("chat:" + conversation.getId() + ":staff:" + userId), "CHAT_MESSAGE_STAFF",
+                MessageOrigin.MANUAL));
     }
 
     /** Xodim yorlig'i app'da: "ustoz" / "direktor" / "menejer" — rol kodi ko'rsatilmaydi. */

@@ -29,7 +29,8 @@ NotificationRequest
   args            shablon argumentlari (tayyor satrlar)
   dedupeKey       takror himoyasi
   staffTelegramKey  xodim boti uchun alohida kalit (chat — 5 daqiqalik oyna)
-  priority        HIGH | NORMAL (outbox sokin soatlari)
+  priority        HIGH | NORMAL (faqat navbat tartibi)
+  origin          AUTOMATIC (standart) | MANUAL — sokin soat qarori (§2 "Sokin soatlar")
   link, entityType, entityId, collapse          → qo'ng'iroqcha
   appPath         bot tugmasi: Mini App ichidagi yo'l (/#/payments)
 ```
@@ -61,12 +62,20 @@ Natija — `DispatchResult(bell, telegram, duplicates, unlinked)` (statistika, t
 | Direktor xulosasi | `digest:{sana}` |
 | E'lon | `notice:{noticeId}` |
 | Vazifa | `task:{id}:soon:{muddat yyyyMMddHHmm}`, `task:{id}:overdue:{muddat}` — muddat surilsa yangi muddat uchun yana |
-| Ichki chat (bot) | `TelegramOutboxService.windowKey("chat:{id}:internal")` — 5 daqiqada bitta, tunda bitta |
+| Ichki chat (bot) | `TelegramOutboxService.windowKey("chat:{id}:internal")` — 5 daqiqada bitta (kecha-kunduz; chat MANUAL — tunda ham darhol) |
 
 ### Sokin soatlar
 
-Outbox'niki (21:00–08:00, Asia/Tashkent): NORMAL — 08:00 gacha kutadi; HIGH — darhol, ovozsiz. Qo'ng'iroqcha
-sokin soatni bilmaydi (CRM ichida).
+21:00–08:00 (Asia/Tashkent), qaror — `NotificationRequest.origin` (`MessageOrigin`, buyurtmachi 17.10.2026);
+priority endi faqat navbat tartibi (HIGH oldin):
+
+| `origin` | Hodisalar | Tunda |
+|---|---|---|
+| `AUTOMATIC` (standart) | `STUDENT_ABSENT`, `PAYMENT_OVERDUE`, `PAYMENT_DUE_SOON`, `DIRECTOR_DIGEST`, `TASK_*` (xodim boti) | **hech qaysi priority bilan ketmaydi** — `not_before` keyingi 08:00, ovoz bilan |
+| `AUTOMATIC` | `LESSON_REMINDER` | umuman yuborilmaydi (job tunda o'tkazib yuboradi — kechikkan eslatma ma'nosiz) |
+| `MANUAL` | chat (`CHAT_INTERNAL`, Mini App chat push'lari), qo'lda chop etilgan e'lon (`NOTICE_NEW`, `NOTICE_APP`), ota-ona bildirgan sabab (`ABSENCE_NOTICE`), ulash so'roviga javob | **darhol**, ovozsiz (`disable_notification`); kunduzi — ovoz bilan |
+
+Chat kaliti (`windowKey`) kecha-kunduz bir xil: 5 daqiqada bitta. Qo'ng'iroqcha sokin soatni bilmaydi (CRM ichida).
 
 ## 3. Shablonlar (uz asosiy, ru)
 
@@ -85,7 +94,7 @@ bo'lmasa Telegram `language_code`.
 | `type` | Kimga | Kanal | Trigger | Joyi |
 |---|---|---|---|---|
 | `STUDENT_ABSENT` | ulangan ota-ona + o'quvchining o'zi | bot, HIGH, tugma `/#/attendance` | davomat ABSENT (bugun/kecha uchun); ABSENT → boshqa holat — yuborilmagani bekor | `AttendanceService.markAttendance` |
-| `PAYMENT_OVERDUE` | ulangan ota-ona + o'quvchi | bot, NORMAL, `/#/payments` | cron `app.billing.reminder-cron` (10:00): OVERDUE kuni va har 3 kunda, muzlatilganga yo'q | `PaymentReminderService.run` |
+| `PAYMENT_OVERDUE` | ulangan ota-ona + o'quvchi | bot, NORMAL, `/#/payments` | cron `app.billing.reminder-cron` (10:00): OVERDUE kuni va keyin har `app.notify.payment-overdue.repeat-days` kunda (standart 1 — har kuni), muzlatilganga yo'q | `PaymentReminderService.run` |
 | `DIRECTOR_DIGEST` | `app.dashboard.digest.chat-ids` | bot | cron `app.dashboard.digest.cron` (20:00), flag `app.dashboard.digest.enabled` (o'zgarmagan) | `DirectorDigestService.send` |
 | `CHAT_INTERNAL` | ichki suhbatning boshqa faol a'zolari | qo'ng'iroqcha (yig'iladi) + ulangan o'qituvchi boti | xabar yuborildi; suhbat oxirigacha o'qilsa — o'qilgan (`NOTIFICATIONS_READ` push) | `ChatService.send` / `markRead` |
 | `LEAD_ASSIGNED` | yangi mas'ul (o'zini biriktirsa — yo'q) | qo'ng'iroqcha | qo'lda (`assignLead`), ommaviy — bitta yig'ma `bulk` ("N ta lid"), avto (Meta, sayt, standart mas'ul) — `auto` | `LeadService`, `LeadBulkAssignService`, `LeadSettingsService.assignIfUnassigned` |
@@ -103,7 +112,7 @@ Flag: `app.tasks.reminder.enabled` (env `APP_TASK_REMINDER_ENABLED`, standart `t
 | Kalit (env) | Tur |
 |---|---|
 | `app.notify.student-absent.enabled` (`APP_NOTIFY_STUDENT_ABSENT_ENABLED`, default `false`) | `STUDENT_ABSENT` |
-| `app.notify.payment-overdue.enabled` (`APP_NOTIFY_PAYMENT_OVERDUE_ENABLED`, default `false`) | `PAYMENT_OVERDUE` |
+| `app.notify.payment-overdue.enabled` (`APP_NOTIFY_PAYMENT_OVERDUE_ENABLED`, default `false`); `repeat-days` (`APP_NOTIFY_PAYMENT_OVERDUE_REPEAT_DAYS`, standart 1 — har kuni) | `PAYMENT_OVERDUE` |
 | `app.notify.payment-due-soon.enabled` (`APP_NOTIFY_PAYMENT_DUE_SOON_ENABLED`, default `false`); `days-before` (3), `cron` | `PAYMENT_DUE_SOON` |
 | `app.notify.lesson-reminder.enabled` (`APP_NOTIFY_LESSON_REMINDER_ENABLED`, default `false`); `minutes-before` (120), `cron` | `LESSON_REMINDER` |
 | `app.notify.notice-to-students.enabled` (`APP_NOTIFY_NOTICE_TO_STUDENTS_ENABLED`, default `false`) | `NOTICE_APP` |

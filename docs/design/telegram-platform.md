@@ -678,7 +678,7 @@ Bildirish davomatni **o'zgartirmaydi** — o'qituvchi o'zi belgilaydi (sababli /
 
 ### 11.5 Outbox (minimal)
 
-> **2026-10-17 (V84):** outbox yagona bildirishnoma xizmatining bot kanali — [notifications.md](notifications.md). Qo'shildi: `CANCELLED` holati (yuborilmagan xabarni bekor qilish, kalit bo'shatiladi), Telegram javobi bo'yicha qaror (403 → FAILED + identity `BOT_BLOCKED` bilan uziladi; 429 → `retry_after`; boshqa 4xx → darhol FAILED), `last_error` — haqiqiy javob. Eski `service/TelegramService` olib tashlandi — barcha bot xabarlari shu navbatdan.
+> **2026-10-17 (V84):** outbox yagona bildirishnoma xizmatining bot kanali — [notifications.md](notifications.md). Qo'shildi: `CANCELLED` holati (yuborilmagan xabarni bekor qilish, kalit bo'shatiladi), Telegram javobi bo'yicha qaror (403 → FAILED + identity `BOT_BLOCKED` bilan uziladi; 429 → `retry_after`; boshqa 4xx → darhol FAILED), `last_error` — haqiqiy javob. Eski `service/TelegramService` olib tashlandi — barcha bot xabarlari shu navbatdan. **2026-10-17 (buyurtmachi):** sokin soat qarori priority emas, `MessageOrigin` bo'yicha — AUTOMATIC tunda 08:00 gacha kutadi (HIGH ham), MANUAL (chat, qo'lda e'lon, ota-ona sababi) darhol, ovozsiz ([notifications.md](notifications.md) §2).
 
 `telegram_outbox (id, chat_id, text, reply_markup, silent, priority, status, attempts, not_before, dedupe_key UNIQUE, event_code, last_error, created_at, sent_at)`:
 - biznes amali bilan **bir tranzaksiyada** yoziladi (`INSERT … ON CONFLICT DO NOTHING` — dedupe);

@@ -169,21 +169,27 @@ class MiniAppChatTest extends MiniAppItBase {
             .andExpect(jsonPath("$.data[0].unread").value(0));
     }
 
+    /** Buyurtmachi 17.10.2026: chat — qo'lda boshlangan (MANUAL), tunda ham darhol ketadi (ovozsiz). */
     @Test
-    void quietHours_onePushAt0800() throws Exception {
+    void quietHours_chatImmediateSilent_fiveMinuteWindow() throws Exception {
         long id = openTeacherChat();
         clock.setDateTime(LocalDateTime.of(2026, 9, 15, 22, 0));
         staffReply(teacherUser, id, "Birinchi");
         staffReply(teacherUser, id, "Ikkinchi");
+
+        assertThat(outboxFor(PARENT_TG)).singleElement().satisfies(o -> {
+            assertThat(o.getNotBefore()).as("tunda — darhol").isEqualTo(LocalDateTime.of(2026, 9, 15, 22, 0));
+            assertThat(o.getSilent()).isTrue();
+        });
+        assertThat(outboxWorker.runOnce()).isEqualTo(1);
+        assertThat(botApi.sent).singleElement().satisfies(s -> {
+            assertThat(s.chatId()).isEqualTo(PARENT_TG);
+            assertThat(s.silent()).isTrue();
+        });
         clock.setDateTime(LocalDateTime.of(2026, 9, 16, 7, 30));
         staffReply(teacherUser, id, "Uchinchi");
-
-        assertThat(outboxFor(PARENT_TG)).singleElement()
-            .satisfies(o -> assertThat(o.getNotBefore()).isEqualTo(LocalDateTime.of(2026, 9, 16, 8, 0)));
-        assertThat(outboxWorker.runOnce()).isZero();
-        clock.setDateTime(LocalDateTime.of(2026, 9, 16, 8, 0));
-        assertThat(outboxWorker.runOnce()).isEqualTo(1);
-        assertThat(botApi.sent).singleElement().satisfies(s -> assertThat(s.chatId()).isEqualTo(PARENT_TG));
+        assertThat(outboxFor(PARENT_TG)).as("yangi oyna — yana bitta").hasSize(2);
+        assertThat(outboxFor(PARENT_TG).get(1).getNotBefore()).isEqualTo(LocalDateTime.of(2026, 9, 16, 7, 30));
 
         // Kunduzi 5 daqiqalik oyna: ikki xabar — bitta push, oynadan keyin — yana bitta
         clock.setDateTime(LocalDateTime.of(2026, 9, 16, 10, 0));
@@ -191,7 +197,7 @@ class MiniAppChatTest extends MiniAppItBase {
         staffReply(teacherUser, id, "B");
         clock.setDateTime(LocalDateTime.of(2026, 9, 16, 10, 6));
         staffReply(teacherUser, id, "C");
-        assertThat(outboxFor(PARENT_TG)).hasSize(3);
+        assertThat(outboxFor(PARENT_TG)).hasSize(4);
     }
 
     @Test

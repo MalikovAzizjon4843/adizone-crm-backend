@@ -12,7 +12,8 @@ import org.springframework.stereotype.Component;
  *
  * <ul>
  *   <li>{@code app.notify.student-absent.enabled} — {@code STUDENT_ABSENT};</li>
- *   <li>{@code app.notify.payment-overdue.enabled} — {@code PAYMENT_OVERDUE};</li>
+ *   <li>{@code app.notify.payment-overdue.enabled}, {@code .repeat-days} (1 — har kuni) —
+ *       {@code PAYMENT_OVERDUE};</li>
  *   <li>{@code app.notify.payment-due-soon.enabled}, {@code .days-before} (3), {@code .cron} — {@code PAYMENT_DUE_SOON};</li>
  *   <li>{@code app.notify.lesson-reminder.enabled}, {@code .minutes-before} (120), {@code .cron} — {@code LESSON_REMINDER};</li>
  *   <li>{@code app.notify.notice-to-students.enabled} — {@code NOTICE_APP}.</li>
@@ -25,7 +26,7 @@ import org.springframework.stereotype.Component;
 public class NotifyProperties {
 
     private Toggle studentAbsent = new Toggle();
-    private Toggle paymentOverdue = new Toggle();
+    private PaymentOverdue paymentOverdue = new PaymentOverdue();
     private PaymentDueSoon paymentDueSoon = new PaymentDueSoon();
     private LessonReminder lessonReminder = new LessonReminder();
     private Toggle noticeToStudents = new Toggle();
@@ -34,6 +35,13 @@ public class NotifyProperties {
     @Setter
     public static class Toggle {
         private boolean enabled = false;
+    }
+
+    @Getter
+    @Setter
+    public static class PaymentOverdue extends Toggle {
+        /** Qayta yuborish oralig'i (kun): OVERDUE bo'lgan kuni va keyin har shuncha kunda; 1 — har kuni. */
+        private int repeatDays = 1;
     }
 
     @Getter

@@ -16,6 +16,7 @@ import com.crm.repository.AppIdentityRepository;
 import com.crm.repository.GroupRepository;
 import com.crm.repository.LessonSubstitutionRepository;
 import com.crm.repository.StudentRepository;
+import com.crm.telegram.MessageOrigin;
 import com.crm.telegram.TelegramOutboxService;
 import com.crm.telegram.TelegramProperties;
 import com.crm.telegram.TelegramUpdateHandler;
@@ -193,7 +194,7 @@ public class MiniAppAbsenceService {
             identityRepository.findFirstByStaffUserIdAndStatus(userId, AppIdentity.Status.ACTIVE)
                 .filter(i -> i.getChatId() != null)
                 .ifPresent(i -> outboxService.enqueue(i.getChatId(), text, button, TelegramOutbox.Priority.HIGH,
-                    "absence:" + notice.getId() + ":" + userId, "ABSENCE_NOTICE"));
+                    "absence:" + notice.getId() + ":" + userId, "ABSENCE_NOTICE", MessageOrigin.MANUAL));
         }
         // CRM qo'ng'iroqchasi — app'da ulanmagan o'qituvchi ham ko'radi (commit'dan keyin)
         notificationService.toUsers(NotificationType.ABSENCE_NOTICE, userIds, null,
