@@ -56,7 +56,7 @@ public class BillingFixtures {
         "contract_number_counters", "notice_reads", "notice_target_roles", "notices",
         "lesson_substitutions", "leave_requests", "attendance_unlock_requests",
         "homework_submissions", "homeworks", "group_transfer_batches", "expenses",
-        "app_identity_students", "app_identities", "app_link_attempts", "telegram_updates",
+        "app_notification_prefs", "app_notice_reads", "app_identity_students", "app_identities", "app_link_attempts", "telegram_updates",
         "student_parents", "parents",
         "absence_notices", "app_link_requests", "telegram_outbox",
         "message_attachments", "messages", "conversation_participants", "conversations", "user_notifications");

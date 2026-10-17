@@ -8,6 +8,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 /**
  * O'quvchi / ota-ona Telegram Mini App API'si — shartnoma: docs/design/miniapp-api.md.
@@ -31,6 +33,7 @@ public class MiniAppController {
     private final MiniAppQueryService queryService;
     private final MiniAppLinkRequestService linkRequestService;
     private final MiniAppAbsenceService absenceService;
+    private final MiniAppNoticeService noticeService;
 
     @PostMapping("/auth")
     public ApiResponse<AppDtos.AuthResponse> auth(@Valid @RequestBody AppDtos.AuthRequest request,
@@ -118,6 +121,33 @@ public class MiniAppController {
     public ApiResponse<AppDtos.AbsenceNoticeItem> cancelAbsenceNotice(@AuthenticationPrincipal AppPrincipal principal,
                                                                      @PathVariable Long id) {
         return ApiResponse.success(absenceService.cancel(principal, id));
+    }
+
+    // ── E'lonlar va bildirishnoma sozlamalari (notifications.md §6–§7) ──
+
+    /** O'quvchi / ota-ona auditoriyasidagi faol e'lonlar (yangilari oldin) va o'qilmaganlar soni. */
+    @GetMapping(value = "/notices")
+    public ApiResponse<AppDtos.Notices> notices(@AuthenticationPrincipal AppPrincipal principal) {
+        return ApiResponse.success(noticeService.list(principal));
+    }
+
+    @PostMapping(value = "/notices/{id}/read")
+    public ApiResponse<AppDtos.Notices> readNotice(@AuthenticationPrincipal AppPrincipal principal,
+                                                   @PathVariable(name = "id") Long id) {
+        return ApiResponse.success(noticeService.markRead(principal, id));
+    }
+
+    @GetMapping(value = "/notification-settings")
+    public ApiResponse<List<AppDtos.NotifySetting>> notificationSettings(
+            @AuthenticationPrincipal AppPrincipal principal) {
+        return ApiResponse.success(noticeService.settings(principal));
+    }
+
+    /** Qisman: {@code {"lesson": false}} — berilmagan mavzular o'zgarmaydi. */
+    @PutMapping(value = "/notification-settings")
+    public ApiResponse<List<AppDtos.NotifySetting>> updateNotificationSettings(
+            @AuthenticationPrincipal AppPrincipal principal, @RequestBody Map<String, Boolean> changes) {
+        return ApiResponse.success(noticeService.update(principal, changes));
     }
 
     /** Bog'lanishni uzish — token darhol yaroqsiz; qayta ulash botda (/start). */

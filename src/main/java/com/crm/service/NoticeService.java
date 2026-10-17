@@ -6,6 +6,7 @@ import com.crm.config.Messages;
 import com.crm.dto.request.NoticeRequest;
 import com.crm.dto.response.NoticeResponse;
 import com.crm.dto.response.PageResponse;
+import com.crm.entity.AppIdentityStudent;
 import com.crm.entity.Notice;
 import com.crm.entity.NoticeRead;
 import com.crm.entity.User;
@@ -15,6 +16,7 @@ import com.crm.exception.ResourceNotFoundException;
 import com.crm.notification.NotificationRequest;
 import com.crm.notification.NotificationService;
 import com.crm.notification.NotificationType;
+import com.crm.repository.AppNoticeReadRepository;
 import com.crm.repository.NoticeReadRepository;
 import com.crm.repository.NoticeRepository;
 import com.crm.repository.UserRepository;
@@ -45,8 +47,12 @@ public class NoticeService {
     private final TeacherAccessService teacherAccessService;
     private final NotificationService notificationService;
 
+    private final AppNoticeReadRepository appNoticeReadRepository;
+
     /** Qo'ng'iroqcha matnidagi e'lon parchasi. */
     private static final int NOTICE_PREVIEW = 200;
+    /** Bot xabaridagi e'lon matni (Telegram 4096 belgigacha; outbox 4000 da kesadi). */
+    private static final int NOTICE_APP_TEXT = 1500;
 
     /**
      * SA/ADMIN — boshqaruv ro'yxati: hamma e'lonlar (qoralama, nofaol, muddati o'tgan).
@@ -167,10 +173,20 @@ public class NoticeService {
         return toResponse(saved, readIds);
     }
 
+    /** Mini App auditoriyasi — xodim emas: {@code STUDENT}, {@code PARENT}. */
+    private static final Set<UserRole> APP_ROLES = EnumSet.of(UserRole.STUDENT, UserRole.PARENT);
+
     /**
-     * E'lon hozir ko'rinsa (faol, chop etilgan, vaqti kelgan, muddati o'tmagan) — auditoriya rollaridagi xodimlarga
-     * qo'ng'iroqcha (NOTICE_NEW; auditoriya bo'sh — hamma rol). Bir e'lon bir xodimga bir marta
-     * ({@code notice:{id}}), muallifning o'ziga emas. Kelajakdagi {@code publishedAt} li e'lon hozir yuborilmaydi.
+     * E'lon hozir ko'rinsa (faol, chop etilgan, vaqti kelgan, muddati o'tmagan):
+     * <ul>
+     *   <li>auditoriyadagi xodim rollariga qo'ng'iroqcha (NOTICE_NEW; auditoriya bo'sh — barcha xodim rollari),
+     *       {@code notice:{id}} — bir marta, muallifning o'ziga emas;</li>
+     *   <li>auditoriyada {@code STUDENT} / {@code PARENT} bo'lsa — ulangan o'quvchi / ota-onaga bot (NOTICE_APP,
+     *       flag {@code app.notify.notice-to-students.enabled}; "Ilovani ochish" — Mini App e'lonlar ekrani
+     *       {@code /#/notices}), {@code notice-app:{id}} — bir marta. "Hamma"
+     *       (bo'sh) auditoriya o'quvchilarga yuborilmaydi.</li>
+     * </ul>
+     * Kelajakdagi {@code publishedAt} li e'lon hozir yuborilmaydi.
      */
     private void notifyIfVisible(Notice n) {
         if (!isVisibleNow(n)) {
@@ -178,17 +194,43 @@ public class NoticeService {
         }
         Set<UserRole> roles = effectiveAudience(n);
         String content = n.getContent() == null ? "" : n.getContent().strip();
-        notificationService.dispatch(NotificationRequest.builder()
-            .type(NotificationType.NOTICE_NEW)
-            .staffRoles(roles.isEmpty() ? EnumSet.allOf(UserRole.class) : roles)
-            .excludeUserId(n.getCreatedBy() != null ? n.getCreatedBy().getId() : null)
-            .arg(n.getTitle())
-            .arg(content.length() > NOTICE_PREVIEW ? content.substring(0, NOTICE_PREVIEW) + "..." : content)
-            .link("/notices?notice=" + n.getId())
-            .entityType("Notice")
-            .entityId(n.getId())
-            .dedupeKey("notice:" + n.getId())
-            .build());
+        String preview = content.length() > NOTICE_PREVIEW ? content.substring(0, NOTICE_PREVIEW) + "..." : content;
+        Set<UserRole> staffRoles = EnumSet.allOf(UserRole.class);
+        staffRoles.removeAll(APP_ROLES);
+        if (!roles.isEmpty()) {
+            staffRoles.retainAll(roles);
+        }
+        if (!staffRoles.isEmpty()) {
+            notificationService.dispatch(NotificationRequest.builder()
+                .type(NotificationType.NOTICE_NEW)
+                .staffRoles(staffRoles)
+                .excludeUserId(n.getCreatedBy() != null ? n.getCreatedBy().getId() : null)
+                .arg(n.getTitle())
+                .arg(preview)
+                .link("/notices?notice=" + n.getId())
+                .entityType("Notice")
+                .entityId(n.getId())
+                .dedupeKey("notice:" + n.getId())
+                .build());
+        }
+        Set<AppIdentityStudent.Relation> relations = EnumSet.noneOf(AppIdentityStudent.Relation.class);
+        if (roles.contains(UserRole.STUDENT)) {
+            relations.add(AppIdentityStudent.Relation.SELF);
+        }
+        if (roles.contains(UserRole.PARENT)) {
+            relations.add(AppIdentityStudent.Relation.PARENT);
+        }
+        if (!relations.isEmpty()) {
+            String appText = content.length() > NOTICE_APP_TEXT ? content.substring(0, NOTICE_APP_TEXT) + "..." : content;
+            notificationService.dispatch(NotificationRequest.builder()
+                .type(NotificationType.NOTICE_APP)
+                .audienceRelations(relations)
+                .arg(n.getTitle())
+                .arg(appText)
+                .appPath("/#/notices")
+                .dedupeKey("notice-app:" + n.getId())
+                .build());
+        }
     }
 
     private static boolean isVisibleNow(Notice n) {
@@ -209,6 +251,7 @@ public class NoticeService {
     public void deleteNotice(Long id) {
         Notice notice = findById(id);
         noticeReadRepository.deleteByNoticeId(id);
+        appNoticeReadRepository.deleteByNoticeId(id);    // Mini App o'qilganligi (V85; PG'da CASCADE ham bor)
         noticeRepository.delete(notice);
     }
 

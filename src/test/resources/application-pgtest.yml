@@ -65,6 +65,7 @@ spring:
         - classpath:db/migration/V82__payroll_lesson_type_rate_kpi_tiers.sql
         - classpath:db/migration/V83__meta_form_format_keywords.sql
         - classpath:db/migration/V84__notification_dispatch.sql
+        - classpath:db/migration/V85__app_notices_and_notify_prefs.sql
         - classpath:pgtest-schema.sql
 
 app:

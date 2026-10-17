@@ -387,6 +387,20 @@ Chatlar — §6 (`side: STAFF`).
 
 ---
 
+## 7a. E'lonlar va bildirishnoma sozlamalari (V85, [notifications.md](notifications.md) §6–§7)
+
+| Endpoint | Javob | Izoh |
+|---|---|---|
+| `GET /api/app/notices` | `{items: [{id, title, content, noticeType, publishedAt, expiresAt, read}], unread}` | Faqat o'quvchi (SELF → `STUDENT`) / ota-ona (PARENT → `PARENT`) auditoriyasiga **aniq** qaratilgan, faol, chop etilgan, muddati o'tmagan e'lonlar, yangilari oldin. "Hamma" (bo'sh auditoriya) e'lon ko'rinmaydi |
+| `POST /api/app/notices/{id}/read` | yangilangan ro'yxat (`Notices`) | Idempotent. Ko'rinmaydigan / yo'q — **404** `app.notice.notFound` |
+| `GET /api/app/notification-settings` | `[{topic, enabled, available}]` | Mavzular: `absent`, `payment_overdue`, `payment_due_soon`, `lesson`, `notice`. `enabled` — foydalanuvchi tanlovi (standart `true`), `available` — markaz shu xabarni yuboradimi (server flag'i; `false` bo'lsa tugmani nofaol ko'rsating) |
+| `PUT /api/app/notification-settings` | o'sha ro'yxat | Tana: `{"lesson": false, "notice": true}` — qisman. Noma'lum mavzu — **400** `app.notifySettings.unknownTopic`; qiymat `null` — **400** `app.notifySettings.valueRequired` |
+
+Bot xabarlari (hammasi server flag'i bilan, standart o'chiq; foydalanuvchi sozlamasi ham hurmat qilinadi):
+"darsga kelmadi" (`absent`), qarz eslatmasi (`payment_overdue`), "to'lov yaqinlashdi" — bugun + 3 kun, summa
+"kutilayotgan to'lovlar" bilan bir xil (`payment_due_soon`), dars eslatmasi — 2 soat oldin, tunda yuborilmaydi
+(`lesson`), e'lon (`notice`). Tugmalar: `/#/payments`, `/#/schedule`, `/#/attendance`, e'lon — `/#/notices`.
+
 ## 8. CRM endpointlari (xodim JWT, admin panel uchun)
 
 | Endpoint | Rollar | Izoh |
@@ -412,4 +426,4 @@ Env'lar — [../ops/env.md](../ops/env.md). Ishga tushirish: env'larni qo'yish �
 
 **Bot xabarlari navbati** (`telegram_outbox`, §11.5): 5 soniyada yuboriladi (`telegram.outbox.enabled`, default `true`; bot tokeni bo'lmasa ishlamaydi). Xato — 1 / 5 / 30 / 120 daqiqadan keyin qayta, 5-urinishda `FAILED`. Yuborilgan/xato qatorlar 30 kundan keyin o'chiriladi.
 
-**Hali yo'q (keyingi bosqichlar):** uy vazifasi, e'lonlar, bildirishnoma sozlamalari, dars/to'lov eslatmasi push'lari, app uchun STOMP (real vaqt), suhbatni yopish endpointi, onlayn to'lov, CRM'dagi "Telegram ulangan / uzish" (xodim tomoni), rate limit (IP bo'yicha).
+**Hali yo'q (keyingi bosqichlar):** uy vazifasi, app uchun STOMP (real vaqt), suhbatni yopish endpointi, onlayn to'lov, CRM'dagi "Telegram ulangan / uzish" (xodim tomoni), rate limit (IP bo'yicha).

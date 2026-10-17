@@ -10,6 +10,25 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-10-17, o'quvchi kanali: to'lov yaqinlashdi, dars eslatmasi, Mini App e'lonlari va sozlamalari — V85)
+
+> Hammasi `NotificationService.dispatch` orqali ([notifications.md](../design/notifications.md) §4, §6–§7). O'quvchi / ota-ona bot flag'lari **standart O'CHIQ** (`app.notify.*`, [env.md](../ops/env.md)). V85: `app_notice_reads`, `app_notification_prefs`. E'lon auditoriyasi o'zgarmadi (`notice_target_roles` da `STUDENT` / `PARENT` allaqachon bor).
+
+| Endpoint (Mini App, `ROLE_APP`) | Javob | Izoh |
+|---|---|---|
+| `GET /api/app/notices` | `ApiResponse<{items: [{id, title, content, noticeType, publishedAt, expiresAt, read}], unread}>` | Faqat `STUDENT` (identity SELF) / `PARENT` (identity PARENT) ga **aniq** qaratilgan faol e'lonlar; bo'sh ("hamma") auditoriya — yo'q |
+| `POST /api/app/notices/{id}/read` | yangilangan ro'yxat | Idempotent; ko'rinmaydigan — **404** `app.notice.notFound` |
+| `GET /api/app/notification-settings` | `ApiResponse<[{topic, enabled, available}]>` | `topic`: `absent`, `payment_overdue`, `payment_due_soon`, `lesson`, `notice`; `available` — server flag'i |
+| `PUT /api/app/notification-settings` | o'sha | `{"lesson": false}` — qisman; noma'lum — **400** `app.notifySettings.unknownTopic`, `null` — **400** `app.notifySettings.valueRequired` |
+
+| Bot hodisasi (`event_code`) | Qachon | Kimga | Kalit | Flag |
+|---|---|---|---|---|
+| `PAYMENT_DUE_SOON` | har kuni `app.notify.payment-due-soon.cron` (10:00): keyingi to'lov = bugun + `days-before` (3); ro'yxat/summa — `GET /api/payments/expected` bilan bir xil | ulangan ota-ona + o'quvchi | `due:{studentId}:{sana}:i{identityId}` | `app.notify.payment-due-soon.enabled` |
+| `LESSON_REMINDER` | har 15 daqiqa: boshlanishiga `minutes-before` (120) qolgan dars; bayram / bekor — yo'q; sokin soatda — yuborilmaydi | shu kuni faol yozilmalar (sinov ham) | `lesson:{groupId}:{sana}:{studentId}:i{identityId}` | `app.notify.lesson-reminder.enabled` |
+| `NOTICE_APP` | e'lon ko'rinadigan bo'ldi, auditoriyada `STUDENT` / `PARENT` | mos munosabatdagi ulangan identity'lar | `notice-app:{id}:i{identityId}` | `app.notify.notice-to-students.enabled` |
+
+> E'lon chop etilganda xodimlarga `NOTICE_NEW` endi faqat auditoriyadagi **xodim** rollariga (`STUDENT` / `PARENT` chiqariladi; bo'sh auditoriya — barcha xodim rollari). `dispatch`: server flag o'chiq → `disabled`; foydalanuvchi o'chirgan → `optedOut` (`DispatchResult`).
+
 ## Yangilanishlar (2026-10-17, yagona bildirishnoma xizmati — V84)
 
 > **`NotificationService.dispatch`** ([notifications.md](../design/notifications.md)) — barcha ogohlantirishlar bitta yo'ldan: xodim → qo'ng'iroqcha (`user_notifications` + STOMP) va Telegram'ga ulangan bo'lsa bot; o'quvchi/ota-ona → bot (`telegram_outbox`, `AppIdentityStudent` orqali). Eski `service/TelegramService` va `Parent.telegramChatId` **olib tashlandi** (davomat va qarz xabarlari ilgari faqat logga tushardi). Shablonlar — `messages*.properties` `notify.*` (uz asosiy, ru; bot xabari `AppIdentity.language` tilida). Yangi endpoint YO'Q.

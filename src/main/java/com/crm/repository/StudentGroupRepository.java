@@ -75,6 +75,11 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
            + "AND sg.isActive = true AND sg.leaveDate IS NULL")
     List<StudentGroup> findActiveByGroupId(@Param("groupId") Long groupId);
 
+    /** Dars eslatmasi (LessonReminderJob): o'quvchisi bilan, tranzaksiyasiz o'qish uchun. */
+    @Query(value = "SELECT sg FROM StudentGroup sg JOIN FETCH sg.student WHERE sg.group.id = :groupId "
+           + "AND sg.isActive = true AND sg.leaveDate IS NULL")
+    List<StudentGroup> findActiveWithStudentByGroupId(@Param(value = "groupId") Long groupId);
+
     @Query("SELECT sg FROM StudentGroup sg WHERE sg.group.id = :groupId "
            + "AND sg.isActive = true AND sg.leaveDate IS NULL")
     List<StudentGroup> findByGroup_IdAndIsActiveTrue(@Param("groupId") Long groupId);

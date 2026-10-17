@@ -99,4 +99,22 @@ public interface NoticeRepository extends JpaRepository<Notice, Long> {
                             @Param("role") UserRole role,
                             @Param("roleName") String roleName,
                             @Param("legacyAudience") String legacyAudience);
+
+    // ── Mini App (o'quvchi / ota-ona) — faqat AYNAN shu rolga qaratilgan e'lonlar ──────────────────
+    // Xodimlardan farqi: auditoriyasi bo'sh ("hamma") yoki publishedTo = ALL e'lon o'quvchiga ko'rinmaydi —
+    // "hamma" xodimlar uchun yozilgan. Rol targetRoles da yoki eski targetRole / publishedTo (STUDENTS, PARENTS).
+
+    String APP_VISIBLE = """
+        (:role MEMBER OF n.targetRoles
+         OR (n.targetRoles IS EMPTY AND (n.targetRole = :roleName OR n.publishedTo = :legacyAudience)))
+        """;
+
+    @Query(value = "SELECT n FROM Notice n WHERE " + ACTIVE + " AND " + APP_VISIBLE
+        + " AND (n.publishedAt IS NULL OR n.publishedAt <= :now)"
+        + " ORDER BY COALESCE(n.publishedAt, n.createdAt) DESC")
+    List<Notice> findAppVisible(@Param(value = "dayStart") LocalDateTime dayStart,
+                                @Param(value = "now") LocalDateTime now,
+                                @Param(value = "role") UserRole role,
+                                @Param(value = "roleName") String roleName,
+                                @Param(value = "legacyAudience") String legacyAudience);
 }

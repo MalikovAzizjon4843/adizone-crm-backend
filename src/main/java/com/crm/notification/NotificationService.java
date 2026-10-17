@@ -6,6 +6,7 @@ import com.crm.entity.UserNotification;
 import com.crm.entity.enums.UserRole;
 import com.crm.exception.CodedException;
 import com.crm.repository.AppIdentityRepository;
+import com.crm.repository.AppNotificationPrefRepository;
 import com.crm.repository.AppIdentityStudentRepository;
 import com.crm.repository.UserNotificationRepository;
 import com.crm.repository.UserRepository;
@@ -60,6 +61,7 @@ public class NotificationService {
     private final TelegramOutboxService outboxService;
     private final TelegramProperties telegramProperties;
     private final NotifyProperties notifyProperties;
+    private final AppNotificationPrefRepository prefRepository;
 
     /** Yozilgan bildirishnoma va qabul qiluvchining push uchun ma'lumotlari. */
     public record Delivered(String username, UserNotificationResponse notification, long unreadCount) {
@@ -127,17 +129,22 @@ public class NotificationService {
             }
         }
 
-        if (!request.getStudentIds().isEmpty() && !notifyProperties.studentChannelEnabled(type)) {
+        boolean studentChannel = !request.getStudentIds().isEmpty() || !request.getAudienceRelations().isEmpty();
+        if (studentChannel && !notifyProperties.studentChannelEnabled(type)) {
             // O'quvchi/ota-ona boti flag bilan o'chiq (NotifyProperties) — outbox'ga yozilmaydi; xodimlarga ta'sir yo'q
-            log.info("{} o'chiq (app.notify.*): {} o'quvchiga bot xabari yozilmadi", type,
-                request.getStudentIds().size());
-            result = result.plus(new DispatchResult(0, 0, 0, 0, request.getStudentIds().size()));
+            int skipped = !request.getStudentIds().isEmpty() ? request.getStudentIds().size()
+                : identityStudentRepository.findIdentitiesByRelations(request.getAudienceRelations(),
+                    AppIdentity.Status.ACTIVE).size();
+            log.debug("{} o'chiq (app.notify.*): {} qabul qiluvchiga bot xabari yozilmadi", type, skipped);
+            result = result.plus(new DispatchResult(0, 0, 0, 0, skipped));
         } else if (!request.getStudentIds().isEmpty()) {
             Map<Long, List<AppIdentity>> linked = new LinkedHashMap<>();
             for (Object[] row : identityStudentRepository.findLinkedIdentities(request.getStudentIds(),
                     request.getRelations(), AppIdentity.Status.ACTIVE)) {
                 linked.computeIfAbsent((Long) row[0], k -> new ArrayList<>()).add((AppIdentity) row[1]);
             }
+            Set<Long> optedOut = optedOut(type, linked.values().stream().flatMap(List::stream)
+                .map(AppIdentity::getId).toList());
             Set<Long> sentIdentities = new LinkedHashSet<>();
             for (Long studentId : request.getStudentIds()) {
                 List<AppIdentity> identities = linked.getOrDefault(studentId, List.of());
@@ -148,10 +155,16 @@ public class NotificationService {
                 for (AppIdentity identity : identities) {
                     // Bir ota-onaga bir hodisa — bitta xabar (farzandlari ko'p bo'lsa ham, kalit identity bo'yicha)
                     if (sentIdentities.add(identity.getId())) {
-                        result = result.plus(enqueue(request, identity.getChatId(), identity.getLanguage(), args,
-                            key(request.getDedupeKey(), "i" + identity.getId())));
+                        result = result.plus(toIdentity(request, identity, args, optedOut));
                     }
                 }
+            }
+        } else if (!request.getAudienceRelations().isEmpty()) {
+            List<AppIdentity> audience = identityStudentRepository.findIdentitiesByRelations(
+                request.getAudienceRelations(), AppIdentity.Status.ACTIVE);
+            Set<Long> optedOut = optedOut(type, audience.stream().map(AppIdentity::getId).toList());
+            for (AppIdentity identity : audience) {
+                result = result.plus(toIdentity(request, identity, args, optedOut));
             }
         }
 
@@ -204,6 +217,27 @@ public class NotificationService {
             .forEach(u -> active.add(u.getId()));
         ids.retainAll(active);
         return ids;
+    }
+
+    /** O'quvchi kanali: foydalanuvchi mavzuni o'chirgan bo'lsa — o'tkaziladi ({@code optedOut}). */
+    private DispatchResult toIdentity(NotificationRequest request, AppIdentity identity, Object[] args,
+                                      Set<Long> optedOut) {
+        if (optedOut.contains(identity.getId())) {
+            return new DispatchResult(0, 0, 0, 0, 0, 1);
+        }
+        return enqueue(request, identity.getChatId(), identity.getLanguage(), args,
+            key(request.getDedupeKey(), "i" + identity.getId()));
+    }
+
+    /** Shu tur mavzusini o'chirgan identity'lar (Mini App sozlamalari, {@link AppNotifyTopic}); mavzusiz tur — yo'q. */
+    private Set<Long> optedOut(NotificationType type, Collection<Long> identityIds) {
+        if (identityIds.isEmpty()) {
+            return Set.of();
+        }
+        return AppNotifyTopic.of(type)
+            .map(topic -> (Set<Long>) new LinkedHashSet<>(
+                prefRepository.findDisabledIdentityIds(identityIds, topic.code())))
+            .orElse(Set.of());
     }
 
     private DispatchResult enqueue(NotificationRequest request, long chatId, String language, Object[] args,

@@ -83,6 +83,19 @@ app:
       enabled: ${APP_NOTIFY_STUDENT_ABSENT_ENABLED:false}
     payment-overdue:
       enabled: ${APP_NOTIFY_PAYMENT_OVERDUE_ENABLED:false}
+    # "To'lov yaqinlashdi": keyingi to'lov sanasi = bugun + days-before (PaymentDueSoonJob)
+    payment-due-soon:
+      enabled: ${APP_NOTIFY_PAYMENT_DUE_SOON_ENABLED:false}
+      days-before: ${APP_NOTIFY_PAYMENT_DUE_SOON_DAYS_BEFORE:3}
+      cron: "0 0 10 * * *"
+    # Dars eslatmasi: boshlanishidan minutes-before daqiqa oldin, har 15 daqiqa (LessonReminderJob)
+    lesson-reminder:
+      enabled: ${APP_NOTIFY_LESSON_REMINDER_ENABLED:false}
+      minutes-before: ${APP_NOTIFY_LESSON_REMINDER_MINUTES_BEFORE:120}
+      cron: "0 */15 * * * *"
+    # E'lon auditoriyasida STUDENT / PARENT bo'lsa — ulangan o'quvchi / ota-onaga bot
+    notice-to-students:
+      enabled: ${APP_NOTIFY_NOTICE_TO_STUDENTS_ENABLED:false}
   # Direktor dashboardi (docs/design/director-dashboard.md). Qolgan sozlamalar — DashboardProperties default'lari.
   dashboard:
     digest:

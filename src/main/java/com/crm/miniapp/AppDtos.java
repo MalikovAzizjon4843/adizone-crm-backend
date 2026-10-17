@@ -282,4 +282,21 @@ public final class AppDtos {
                                @NotNull(message = "{attendanceUnlock.attendanceDate.required}") LocalDate date,
                                String note) {
     }
+
+    // ── E'lonlar va bildirishnoma sozlamalari (notifications.md §6–§7) ──
+
+    /** E'lon (o'quvchi / ota-ona auditoriyasi). */
+    public record NoticeItem(Long id, String title, String content, String noticeType, LocalDateTime publishedAt,
+                             LocalDateTime expiresAt, boolean read) {
+    }
+
+    public record Notices(List<NoticeItem> items, long unread) {
+    }
+
+    /**
+     * Bitta mavzu: {@code topic} — absent | payment_overdue | payment_due_soon | lesson | notice; {@code enabled} —
+     * foydalanuvchi tanlovi; {@code available} — markaz shu xabarni yuboradimi (server flag'i).
+     */
+    public record NotifySetting(String topic, boolean enabled, boolean available) {
+    }
 }

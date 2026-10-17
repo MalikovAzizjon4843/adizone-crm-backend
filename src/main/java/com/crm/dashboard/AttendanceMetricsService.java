@@ -205,21 +205,28 @@ public class AttendanceMetricsService {
     static int activeOn(List<StudentGroup> sgs, LocalDate d) {
         int n = 0;
         for (StudentGroup sg : sgs) {
-            if (sg.getJoinDate() != null && sg.getJoinDate().isAfter(d)) {
-                continue;
+            if (isActiveOn(sg, d)) {
+                n++;
             }
-            if (sg.getLeaveDate() != null && d.isAfter(sg.getLeaveDate()) && sg.getFrozenFrom() == null) {
-                continue;
-            }
-            if (sg.getLeaveDate() == null && !Boolean.TRUE.equals(sg.getIsActive()) && sg.getFrozenFrom() == null) {
-                continue;
-            }
-            if (sg.getFrozenFrom() != null && !d.isBefore(sg.getFrozenFrom())) {
-                continue;
-            }
-            n++;
         }
         return n;
+    }
+
+    /**
+     * Yozilma D kuni faolmi (§1.4): qo'shilgan, chiqmagan, muzlatilmagan; sinov ham faol. Dars eslatmasi
+     * ({@code LessonReminderJob}) ham shu qoida bilan.
+     */
+    public static boolean isActiveOn(StudentGroup sg, LocalDate d) {
+        if (sg.getJoinDate() != null && sg.getJoinDate().isAfter(d)) {
+            return false;
+        }
+        if (sg.getLeaveDate() != null && d.isAfter(sg.getLeaveDate()) && sg.getFrozenFrom() == null) {
+            return false;
+        }
+        if (sg.getLeaveDate() == null && !Boolean.TRUE.equals(sg.getIsActive()) && sg.getFrozenFrom() == null) {
+            return false;
+        }
+        return sg.getFrozenFrom() == null || d.isBefore(sg.getFrozenFrom());
     }
 
     private static boolean ended(GroupScheduleService.LessonSlot slot, LocalDate d, LocalDateTime now) {

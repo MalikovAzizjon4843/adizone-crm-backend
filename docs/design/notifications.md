@@ -92,6 +92,9 @@ bo'lmasa Telegram `language_code`.
 | `NOTICE_NEW` | e'lon auditoriyasi rollari (bo'sh — hamma), muallifdan tashqari | qo'ng'iroqcha + ulangan o'qituvchi boti | e'lon ko'rinadigan bo'lganda (yaratildi chop etilgan holda yoki qoralama chop etildi); bir marta | `NoticeService` |
 | `TASK_DUE_SOON` | vazifa egasi | qo'ng'iroqcha + ulangan bo'lsa bot | `TaskDeadlineReminderJob` har 15 daqiqa: ochiq, muddatiga ≤ 1 soat ("kun davomida"ga yo'q) | `service/TaskDeadlineReminderJob` |
 | `TASK_OVERDUE` | vazifa egasi | qo'ng'iroqcha + bot | o'sha job: muddati o'tgan (oxirgi 24 soat ichida) | o'sha |
+| `PAYMENT_DUE_SOON` | ulangan ota-ona + o'quvchi | bot, `/#/payments` | `PaymentDueSoonJob`, cron `app.notify.payment-due-soon.cron` (10:00): keyingi to'lov = bugun + `days-before` (3). Ro'yxat va summa — `DebtorService.expected` (kutilayotgan to'lovlar, R2) bilan AYNAN bir xil: oldindan to'langan davr sanani suradi, oxirgi davr darslar bo'yicha bo'lsa — o'sha summa (+ dars soni, variant `lessons`); summa 0 — yo'q; bir o'quvchi — bitta xabar (guruhlar yig'indisi). Kalit `due:{studentId}:{sana}` | `service/PaymentDueSoonJob` |
+| `LESSON_REMINDER` | shu kuni faol yozilmalar (sinov ham; muzlatilgan / chiqqan — yo'q) | bot, `/#/schedule` | `LessonReminderJob` har 15 daqiqa: boshlanishiga `minutes-before` (120) qolgan darslar, oyna `(now+M−15, now+M]`; ACTIVE guruh, bayram va CANCELLED / MOVED (asl kun) — yo'q, EXTRA / ko'chirilgan kun — bor (`GroupScheduleService.hasLessonOn`). Yuborish payti sokin soatga (21:00–08:00) to'g'ri kelsa — **umuman yuborilmaydi**. Kalit `lesson:{groupId}:{sana}:{studentId}` | `service/LessonReminderJob` |
+| `NOTICE_APP` | e'lon auditoriyasida `STUDENT` → o'quvchilar (SELF), `PARENT` → ota-onalar | bot | e'lon ko'rinadigan bo'lganda (NOTICE_NEW bilan bir paytda); "hamma" (bo'sh) auditoriya — o'quvchilarga yo'q. Kalit `notice-app:{id}` | `NoticeService` |
 
 Flag: `app.tasks.reminder.enabled` (env `APP_TASK_REMINDER_ENABLED`, standart `true`), cron `app.tasks.reminder.cron`.
 
@@ -101,9 +104,12 @@ Flag: `app.tasks.reminder.enabled` (env `APP_TASK_REMINDER_ENABLED`, standart `t
 |---|---|
 | `app.notify.student-absent.enabled` (`APP_NOTIFY_STUDENT_ABSENT_ENABLED`, default `false`) | `STUDENT_ABSENT` |
 | `app.notify.payment-overdue.enabled` (`APP_NOTIFY_PAYMENT_OVERDUE_ENABLED`, default `false`) | `PAYMENT_OVERDUE` |
+| `app.notify.payment-due-soon.enabled` (`APP_NOTIFY_PAYMENT_DUE_SOON_ENABLED`, default `false`); `days-before` (3), `cron` | `PAYMENT_DUE_SOON` |
+| `app.notify.lesson-reminder.enabled` (`APP_NOTIFY_LESSON_REMINDER_ENABLED`, default `false`); `minutes-before` (120), `cron` | `LESSON_REMINDER` |
+| `app.notify.notice-to-students.enabled` (`APP_NOTIFY_NOTICE_TO_STUDENTS_ENABLED`, default `false`) | `NOTICE_APP` |
 
 Bitta joyda tekshiriladi — `dispatch` ning o'quvchi kanali (`NotifyProperties.studentChannelEnabled(type)`). O'chiq
-bo'lsa outbox'ga yozilmaydi, `log.info` va `DispatchResult.disabled` (o'quvchilar soni; qarz eslatmasida
+bo'lsa outbox'ga yozilmaydi, `log.debug` (job'lar aylanish xulosasini `info` da yozadi) va `DispatchResult.disabled` (o'quvchilar soni; qarz eslatmasida
 `PaymentReminderService.Summary.disabled`). Xodimlar qo'ng'iroqchasi va xodim boti flag'ga bog'liq emas. Flag
 yoqilganda eski hodisalar qayta yuborilmaydi — faqat yoqilgandan keyingilari.
 Avvalgi turlar (`APP_LINK_REQUEST`, `CHAT_EXTERNAL`, `ABSENCE_NOTICE`, `ATTENDANCE_UNLOCK_*`, `LEAVE_*`) o'zgarmagan.
@@ -121,10 +127,31 @@ Avvalgi turlar (`APP_LINK_REQUEST`, `CHAT_EXTERNAL`, `ABSENCE_NOTICE`, `ATTENDAN
 | boshqa 4xx | FAILED, qayta urinilmaydi |
 | 5xx / tarmoq | 1 / 5 / 30 / 120 daqiqa backoff, 5-urinishda FAILED |
 
-## 6. Hali yo'q (keyingi bosqichlar)
+## 6. Mini App e'lonlari (V85)
 
-* Dars eslatmasi va "to'lov muddati yaqin" — shu `dispatch` ustiga (o'quvchi kanali tayyor).
-* Mini App ichida bildirishnomalar/e'lonlar ekrani va sozlamalari (`/api/app/notices`, `notification-settings`).
-* Bir foydalanuvchiga kunlik limit, foydalanuvchi bo'yicha turini o'chirish.
+* `GET /api/app/notices` — identity munosabatlaridan auditoriya: SELF → `STUDENT`, PARENT → `PARENT`. Faqat **aynan
+  shu rolga** qaratilgan (targetRoles, yoki eski `targetRole` / `publishedTo` = STUDENTS | PARENTS), faol, chop
+  etilgan, vaqti kelgan, muddati o'tmagan e'lonlar (`NoticeRepository.findAppVisible`). "Hamma" (bo'sh auditoriya)
+  e'lon — xodimlar uchun, ilovada ko'rinmaydi. Javob: `{items: [{id, title, content, noticeType, publishedAt,
+  expiresAt, read}], unread}`.
+* `POST /api/app/notices/{id}/read` — idempotent, `app_notice_reads`; ko'rinmaydigan e'lon — 404 `app.notice.notFound`.
+* Auditoriya modeli o'zgarmadi: `notice_target_roles.role` allaqachon `STUDENT` / `PARENT` ni qabul qiladi.
+* E'lon chop etilganda: xodim rollari → `NOTICE_NEW` (qo'ng'iroqcha), `STUDENT` / `PARENT` → `NOTICE_APP` (bot,
+  flag `notice-to-students`). E'lon o'chirilsa `app_notice_reads` ham tozalanadi.
+
+## 7. Bildirishnoma sozlamalari (Mini App, V85)
+
+* `GET /api/app/notification-settings` → `[{topic, enabled, available}]`, mavzular: `absent` (STUDENT_ABSENT),
+  `payment_overdue`, `payment_due_soon`, `lesson` (LESSON_REMINDER), `notice` (NOTICE_APP). `enabled` — foydalanuvchi
+  tanlovi (qator yo'q — `true`), `available` — server flag'i.
+* `PUT /api/app/notification-settings` `{"lesson": false}` — qisman; noma'lum mavzu — 400
+  `app.notifySettings.unknownTopic`, `null` — 400 `app.notifySettings.valueRequired`.
+* `dispatch` o'quvchi kanalida hurmat qiladi: o'chirgan identity'ga yozilmaydi, `DispatchResult.optedOut` da sanaladi.
+  Tartib: server flag (o'chiq — `disabled`) → foydalanuvchi sozlamasi (`optedOut`) → dedupe.
+
+## 8. Hali yo'q (keyingi bosqichlar)
+
+* Mini App frontend: e'lonlar ekrani va sozlamalar sahifasi (backend tayyor).
+* Bir foydalanuvchiga kunlik limit.
 * adizone-admin: yangi turlar uchun ikonka/yo'l (`modules/notifications/types.ts`, `lib/ui.ts`, `lib/links.ts`),
   `NOTIFICATIONS_READ` push'ini qabul qilish. Hozir noma'lum tur umumiy ikonka bilan, havolasiz ko'rinadi.

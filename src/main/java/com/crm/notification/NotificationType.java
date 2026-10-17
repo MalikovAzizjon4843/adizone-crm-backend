@@ -40,6 +40,12 @@ public enum NotificationType {
     STUDENT_ABSENT(false),
     /** To'lov muddati o'tdi (qarz) → ulangan ota-ona va o'quvchining o'zi (bot). */
     PAYMENT_OVERDUE(false),
+    /** To'lov yaqinlashdi (bugun + N kun) → ulangan ota-ona va o'quvchi (bot). */
+    PAYMENT_DUE_SOON(false),
+    /** Dars eslatmasi (boshlanishidan N daqiqa oldin) → ulangan ota-ona va o'quvchi (bot). */
+    LESSON_REMINDER(false),
+    /** E'lon o'quvchi / ota-ona auditoriyasiga chop etildi → ulangan identity'lar (bot). */
+    NOTICE_APP(false),
     /** Direktor kunlik xulosasi → {@code app.dashboard.digest.chat-ids} (bot). */
     DIRECTOR_DIGEST(false);
 

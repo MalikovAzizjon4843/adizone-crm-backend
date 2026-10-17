@@ -21,6 +21,11 @@ sirsiz yoki eski sir bilan jimgina ishga tushib qolmasin.
 | `APP_TASK_REMINDER_ENABLED` | `app.tasks.reminder.enabled` | Vazifa muddati eslatmasi (har 15 daqiqa, egasiga qo'ng'iroqcha; `TaskDeadlineReminderJob`) | Ha, default `true`; `false` — o'chiq |
 | `APP_NOTIFY_STUDENT_ABSENT_ENABLED` | `app.notify.student-absent.enabled` | Ota-ona va o'quvchiga "darsga kelmadi" bot xabari (`STUDENT_ABSENT`). O'chiq bo'lsa outbox'ga yozilmaydi, faqat log; xodimlar qo'ng'iroqchasiga ta'sir yo'q | Ha, **default `false`** — shablon va qabul qiluvchilar tekshirilgach yoqiladi |
 | `APP_NOTIFY_PAYMENT_OVERDUE_ENABLED` | `app.notify.payment-overdue.enabled` | Ota-ona va o'quvchiga qarz eslatmasi (`PAYMENT_OVERDUE`, 10:00, har 3 kunda). O'chiq bo'lsa outbox'ga yozilmaydi, faqat log | Ha, **default `false`** |
+| `APP_NOTIFY_PAYMENT_DUE_SOON_ENABLED` | `app.notify.payment-due-soon.enabled` | "To'lov yaqinlashdi" bot xabari (`PAYMENT_DUE_SOON`, `app.notify.payment-due-soon.cron` — standart 10:00) | Ha, **default `false`** |
+| `APP_NOTIFY_PAYMENT_DUE_SOON_DAYS_BEFORE` | `app.notify.payment-due-soon.days-before` | Keyingi to'lov sanasi = bugun + shuncha kun | Ha, default `3` |
+| `APP_NOTIFY_LESSON_REMINDER_ENABLED` | `app.notify.lesson-reminder.enabled` | Dars eslatmasi (`LESSON_REMINDER`, har 15 daqiqa; sokin soatda yuborilmaydi) | Ha, **default `false`** |
+| `APP_NOTIFY_LESSON_REMINDER_MINUTES_BEFORE` | `app.notify.lesson-reminder.minutes-before` | Dars boshlanishidan shuncha daqiqa oldin | Ha, default `120` |
+| `APP_NOTIFY_NOTICE_TO_STUDENTS_ENABLED` | `app.notify.notice-to-students.enabled` | E'lon auditoriyasida STUDENT / PARENT bo'lsa — ulangan o'quvchi / ota-onaga bot (`NOTICE_APP`). Mini App ro'yxatiga ta'sir qilmaydi | Ha, **default `false`** |
 | `DIRECTOR_DIGEST_ENABLED` | `app.dashboard.digest.enabled` | Direktor kunlik xulosasi (20:00, bot outbox orqali) | Ha, default `false` |
 | `DIRECTOR_DIGEST_CHAT_IDS` | `app.dashboard.digest.chat-ids` | Xulosa yuboriladigan chat id lar (vergul bilan, raqam) | Ha — bo'sh bo'lsa hech kimga |
 

@@ -44,6 +44,13 @@ public class NotificationRequest {
     private final Set<AppIdentityStudent.Relation> relations =
         Set.of(AppIdentityStudent.Relation.SELF, AppIdentityStudent.Relation.PARENT);
 
+    /**
+     * Auditoriya bo'yicha (o'quvchi idsiz): shu munosabatda kamida bitta o'quvchiga ulangan barcha faol identity'lar
+     * (masalan e'lon — SELF va/yoki PARENT). Kalit qo'shimchasi — {@code :i<identityId>}.
+     */
+    @Singular
+    private final Set<AppIdentityStudent.Relation> audienceRelations;
+
     @Singular
     private final List<Long> chatIds;
 
