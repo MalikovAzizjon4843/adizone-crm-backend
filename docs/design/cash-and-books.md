@@ -243,7 +243,14 @@ CASH_AND_CARD qatorlari CASH va CARD ga bo'linadi (`cash_part` / `card_part`).
 **Ishga tushirish (cut-over)** — bir martalik amal:
 - har ADMIN_DESK kassa uchun `legacy=true` ACCEPTED handover yaratiladi;
 - shu paytgacha bo'lgan barcha yozuvlar unga bog'lanadi, aks holda birinchi topshirish butun tarixni ko'rsatardi;
-- shu kuni SA kassalardagi haqiqiy naqdni sanab, birinchi haqiqiy topshirishni qabul qiladi.
+- **eski qoldiq** (tizim boshidan yig'ilgan; pul real hayotda allaqachon Direktorga topshirilgan — prod preview
+  2026-10-18) Direktor kassasiga legacy TRANSFER juftliklari bilan usul bo'yicha ko'chiriladi: admin kassasi naqd =
+  razmen, plastik = 0. Moliya hisobotiga ta'sir yo'q. Kassa bo'yicha bir marta (kalit `cutover-v86-<id>`).
+  Skript: docs/ops/cash-cutover.sql.
+
+**Eski to'lov kirimi (standart, 2026-10-18 prod preview):** `payment_id` siz, nomi "O'quvchi to'lovi" bo'lgan INCOME —
+STUDENT_PAYMENT (billing v2 dan oldingi to'lov, `payments` da bor — hisobotda `totalIncome` orqali, "boshqa kirim" emas).
+Qoida bir joyda: `CashCategoryTotals` (hisobot, kassa ko'rinishi, topshirish preview'i) va backfill skripti — aynan bir xil.
 
 `cash_handovers` ga `legacy BOOLEAN NOT NULL DEFAULT FALSE` ustuni qo'shiladi.
 

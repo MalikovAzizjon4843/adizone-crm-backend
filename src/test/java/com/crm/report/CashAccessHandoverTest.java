@@ -458,6 +458,41 @@ class CashAccessHandoverTest extends AbstractBillingIT {
             .andExpect(status().isBadRequest());
     }
 
+    /**
+     * Billing v2 dan oldingi to'lov kirimi: payment_id yo'q, nomi "O'quvchi to'lovi" — STUDENT_PAYMENT (to'lov
+     * payments da, totalIncome ga kiradi — boshqa kirim EMAS). Nomsiz kirim — OTHER_INCOME.
+     */
+    @Test
+    void legacyStudentPaymentIncome_isStudentPayment_notOtherIncome_namelessIsOther() {
+        fixtures.loginAs("kassa-adm1", UserRole.ADMIN);
+        IncomeCreateDto legacy = new IncomeCreateDto();
+        legacy.setAmount(BigDecimal.valueOf(500_000));
+        legacy.setPaymentMethod(PaymentMethod.CLICK);
+        legacy.setTransactionType("O'quvchi to'lovi");
+        cash.addIncome(reg1, legacy);
+        IncomeCreateDto nameless = new IncomeCreateDto();
+        nameless.setAmount(BigDecimal.valueOf(70_000));
+        nameless.setPaymentMethod(PaymentMethod.CASH);
+        cash.addIncome(reg1, nameless);
+        // Eski yozuvga aylantiramiz: kategoriyasiz, payment_id siz
+        jdbc.update("UPDATE cash_transactions SET category = NULL, payment_id = NULL WHERE cash_register_id = ?", reg1);
+
+        fixtures.loginAs(UserRole.SUPER_ADMIN);
+        FinanceReportResponse r = finance.getFinanceReport(WIDE_FROM, WIDE_TO);
+        assertThat(r.getOtherIncome()).isEqualByComparingTo("70000");
+        assertThat(r.getIncomeByCategory()).doesNotContainKey("STUDENT_PAYMENT");
+        assertThat(r.getIncomeByCategory().get("OTHER_INCOME")).isEqualByComparingTo("70000");
+
+        // Kassa ko'rinishi va topshirish preview'i — bir xil qoida (CashCategoryTotals)
+        assertThat(cash.getCategoryReport(reg1, null, null))
+            .extracting(c -> c.getCategory() + "=" + c.getAmount().stripTrailingZeros().toPlainString())
+            .containsExactly("STUDENT_PAYMENT=500000", "OTHER_INCOME=70000");
+        fixtures.loginAs("kassa-adm1", UserRole.ADMIN);
+        assertThat(handovers.preview(reg1).getByCategory())
+            .extracting(c -> c.getCategory() + "=" + c.getAmount().stripTrailingZeros().toPlainString())
+            .containsExactly("STUDENT_PAYMENT=500000", "OTHER_INCOME=70000");
+    }
+
     // ── 4. Moliya hisoboti to'liqligi ───────────────────────────────────
 
     @Test

@@ -6,9 +6,11 @@
 --     payment_id NOT NULL                                   → STUDENT_PAYMENT
 --     exam_registration_id NOT NULL                         → EXAM
 --     payroll_id NOT NULL                                   → SALARY
+--     INCOME, nomi 'O''quvchi to''lovi' (payment_id siz — billing v2 dan oldingi to'lov; to'lovga izoh
+--       "To'lov #RCP-…" orqali bog'langan, to'lov payments da bor)  → STUDENT_PAYMENT
 --     EXPENSE, nomi 'O''quvchiga pul qaytarildi'            → REFUND
 --     EXPENSE, nomi 'Xarajat: X' va X cash_categories da   → X   (eski FinanceService.createExpense)
---     INCOME, qolgani                                       → OTHER_INCOME
+--     INCOME, qolgani (nomsiz ham)                          → OTHER_INCOME
 --     EXPENSE, qolgani (kassadan to'g'ridan chiqim)        → OTHER (strategik — tarix Direktorga)
 --   REVERSAL: asl yozuvniki (related_tx_id); asl topilmasa — payment/exam/payroll bog'lanishidan.
 --   TRANSFER: NULL qoladi.
@@ -38,6 +40,7 @@ WITH pick AS (
                WHEN t.payment_id IS NOT NULL THEN 'STUDENT_PAYMENT'
                WHEN t.exam_registration_id IS NOT NULL THEN 'EXAM'
                WHEN t.payroll_id IS NOT NULL THEN 'SALARY'
+               WHEN t.type = 'INCOME' AND t.transaction_name = 'O''quvchi to''lovi' THEN 'STUDENT_PAYMENT'
                WHEN t.type = 'EXPENSE' AND t.transaction_name = 'O''quvchiga pul qaytarildi' THEN 'REFUND'
                WHEN t.type = 'EXPENSE' AND t.transaction_name LIKE 'Xarajat: %'
                     AND EXISTS (SELECT 1 FROM cash_categories c WHERE c.code = SUBSTRING(t.transaction_name FROM 10))
@@ -73,6 +76,27 @@ SELECT COALESCE(o.category, '(asl hali kategoriyasiz)') AS asl_kategoriya, COUNT
  GROUP BY 1
  ORDER BY 2 DESC;
 
+-- 1e. payment_id siz "O'quvchi to'lovi" kirimlari: to'lovga izoh ("To'lov #RCP-…", shu kassa) orqali topiladimi.
+--     Moliya hisoboti o'quvchi to'lovini payments dan oladi (kassa yozuvi ikki marta sanalmaydi) — topilmaganlari
+--     ("to'lovsiz") hisobotda ko'rinmaydi: SA ko'rib chiqsin (payments da bormi, boshqa izoh bilanmi).
+SELECT CASE WHEN p.id IS NULL THEN 'TO''LOVSIZ' WHEN p.status = 'PAID' THEN 'PAID' ELSE p.status END AS tolov,
+       t.payment_method, COUNT(*) AS soni, SUM(t.amount) AS summa
+  FROM cash_transactions t
+  LEFT JOIN payments p ON p.cash_register_id = t.cash_register_id
+                      AND t.note = 'To''lov #' || p.receipt_number
+ WHERE t.category IS NULL AND t.type = 'INCOME' AND t.payment_id IS NULL
+   AND t.transaction_name = 'O''quvchi to''lovi'
+ GROUP BY 1, 2
+ ORDER BY 1, 2;
+
+-- 1f. Nomsiz kirimlar (OTHER_INCOME ga tushadi) — ro'yxat
+SELECT t.id, t.transaction_date, r.name AS kassa, t.payment_method, t.amount, t.note
+  FROM cash_transactions t
+  JOIN cash_registers r ON r.id = t.cash_register_id
+ WHERE t.category IS NULL AND t.type = 'INCOME' AND t.payment_id IS NULL
+   AND t.exam_registration_id IS NULL AND COALESCE(t.transaction_name, '') = ''
+ ORDER BY t.id;
+
 -- ── 2. QO'LLASH ─────────────────────────────────────────────────────────────────────
 BEGIN;
 
@@ -81,6 +105,7 @@ UPDATE cash_transactions t
            WHEN t.payment_id IS NOT NULL THEN 'STUDENT_PAYMENT'
            WHEN t.exam_registration_id IS NOT NULL THEN 'EXAM'
            WHEN t.payroll_id IS NOT NULL THEN 'SALARY'
+           WHEN t.type = 'INCOME' AND t.transaction_name = 'O''quvchi to''lovi' THEN 'STUDENT_PAYMENT'
            WHEN t.type = 'EXPENSE' AND t.transaction_name = 'O''quvchiga pul qaytarildi' THEN 'REFUND'
            WHEN t.type = 'EXPENSE' AND t.transaction_name LIKE 'Xarajat: %'
                 AND EXISTS (SELECT 1 FROM cash_categories c WHERE c.code = SUBSTRING(t.transaction_name FROM 10))

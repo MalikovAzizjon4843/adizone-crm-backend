@@ -16,7 +16,6 @@ import com.crm.entity.enums.CashDirection;
 import com.crm.entity.enums.CashHandoverStatus;
 import com.crm.entity.enums.CashRegisterKind;
 import com.crm.entity.enums.CashRegisterStatus;
-import com.crm.entity.enums.CashTransactionType;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.exception.CodedException;
 import com.crm.exception.ConflictException;
@@ -74,6 +73,7 @@ public class CashHandoverService {
     private final CashRegisterService cashRegisterService;
     private final CashAccessService access;
     private final CashCategoryService categoryService;
+    private final CashCategoryTotals categoryTotals;
     private final BillingLocks locks;
     private final Clock billingClock;
 
@@ -100,7 +100,7 @@ public class CashHandoverService {
             .previewHash(s.hash())
             .pendingHandoverId(pending)
             .lines(s.lines())
-            .byCategory(byCategory(s.transactions()))
+            .byCategory(byCategory(register.getId()))
             .build();
     }
 
@@ -382,21 +382,16 @@ public class CashHandoverService {
         return out;
     }
 
-    /** Topshirilmagan yozuvlar kategoriya bo'yicha (kategoriyaning o'z yo'nalishida; o'tkazmalar kirmaydi). */
-    private List<CashCategoryTotalDto> byCategory(List<CashTransaction> txs) {
+    /**
+     * Topshirilmagan yozuvlar kategoriya bo'yicha (kategoriyaning o'z yo'nalishida; o'tkazmalar kirmaydi) —
+     * {@link CashCategoryTotals} bilan bir xil qoida (kategoriyasiz eski yozuv ham).
+     */
+    private List<CashCategoryTotalDto> byCategory(Long registerId) {
         Map<String, CashCategory> categories = categoryService.all();
         Map<String, BigDecimal> sums = new LinkedHashMap<>();
-        for (CashTransaction t : txs) {
-            if (t.getType() == CashTransactionType.TRANSFER) {
-                continue;
-            }
-            String code = t.getCategory() != null ? t.getCategory()
-                : (t.getType() == CashTransactionType.INCOME ? CashCategories.OTHER_INCOME : CashCategories.OTHER);
-            if (!categories.containsKey(code)) {
-                code = CashCategories.OTHER;
-            }
-            BigDecimal v = t.getType() == CashTransactionType.REVERSAL ? nz(t.getAmount()).negate() : nz(t.getAmount());
-            sums.merge(code, v, BigDecimal::add);
+        for (CashCategoryTotals.Total t : categoryTotals.unhandedTotals(registerId)) {
+            String code = categories.containsKey(t.category()) ? t.category() : CashCategories.OTHER;
+            sums.merge(code, t.amount(), BigDecimal::add);
         }
         List<CashCategoryTotalDto> out = new ArrayList<>();
         sums.forEach((code, v) -> {
