@@ -4,6 +4,7 @@ import com.crm.entity.Group;
 import com.crm.entity.Holiday;
 import com.crm.entity.LessonException;
 import com.crm.entity.StudentGroup;
+import com.crm.entity.enums.GroupStatus;
 import com.crm.repository.AttendanceRepository;
 import com.crm.repository.HolidayRepository;
 import com.crm.repository.LessonExceptionRepository;
@@ -16,6 +17,7 @@ import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,10 +28,14 @@ import java.util.stream.Collectors;
 /**
  * Davomat qaysi darslarga MAJBURIY — "belgilanmagan" hisoblarining YAGONA manbasi:
  * {@code GET /api/attendance/missing}, {@code /missing/my} (o'qituvchi bosh sahifasi),
- * {@code GET /api/teacher/dashboard} bugungi darslari, Mini App {@code GET /api/app/teacher/today}.
+ * {@code GET /api/teacher/dashboard} bugungi darslari, Mini App {@code GET /api/app/teacher/today}, direktor
+ * dashboard'idagi "davomat intizomi" ({@code AttendanceMetricsService} — {@link #isDueOn} orqali).
  *
  * <p>Sana {@code d} da dars davomati kerak, agar:
  * <ol>
+ *   <li>guruh holati ACTIVE yoki FORMING — COMPLETED/CANCELLED guruh umuman chiqmaydi (ilgari yopilgan
+ *       guruhning eski kunlari o'qituvchiga "belgilanmagan" bo'lib qolib ketardi);</li>
+ *   <li>{@code d ≤ group.end_date} (bo'lsa);</li>
  *   <li>dars kuni — {@link GroupScheduleService#isLessonDay}: jadval, bayram yo'q, CANCELLED/MOVED (asl kun)
  *       emas; EXTRA va MOVED (yangi kun) — bor;</li>
  *   <li>{@code d ≥ max(group.start_date, guruhdagi eng erta join_date, oraliq boshi)} — guruh boshlanmagan
@@ -45,6 +51,9 @@ public class AttendanceDueService {
 
     /** Oraliq berilmasa — bugundan necha kun orqaga qaraladi. */
     public static final int DEFAULT_LOOKBACK_DAYS = 30;
+
+    /** Davomat kutiladigan guruh holatlari. */
+    public static final Set<GroupStatus> OPEN_STATUSES = EnumSet.of(GroupStatus.ACTIVE, GroupStatus.FORMING);
 
     private final GroupScheduleService groupScheduleService;
     private final HolidayRepository holidayRepository;
@@ -88,8 +97,11 @@ public class AttendanceDueService {
     /** Davomati kerak bo'lgan darslar {@code [from, to]} (sana tartibida). */
     @Transactional(readOnly = true)
     public List<DueLesson> dueLessons(Group group, LocalDate from, LocalDate to) {
-        if (group == null || from == null || to == null) {
+        if (group == null || from == null || to == null || !isOpen(group)) {
             return List.of();
+        }
+        if (group.getEndDate() != null && group.getEndDate().isBefore(to)) {
+            to = group.getEndDate();
         }
         List<StudentGroup> enrollments = studentGroupRepository.findByGroupId(group.getId());
         LocalDate start = effectiveStart(group, enrollments, from);
@@ -115,16 +127,36 @@ public class AttendanceDueService {
 
         List<DueLesson> out = new ArrayList<>();
         for (LocalDate d = start; !d.isAfter(to); d = d.plusDays(1)) {
-            if (!GroupScheduleService.isLessonDay(d, startTimes.keySet(), holidays.contains(d), exceptions)) {
-                continue;
-            }
-            if (!hasActiveStudent(enrollments, d)) {
+            if (!isDueOn(group, enrollments, d,
+                    GroupScheduleService.isLessonDay(d, startTimes.keySet(), holidays.contains(d), exceptions))) {
                 continue;
             }
             String time = startTimes.containsKey(d.getDayOfWeek()) ? startTimes.get(d.getDayOfWeek()) : firstStart;
             out.add(new DueLesson(d, d.getDayOfWeek().name(), time));
         }
         return out;
+    }
+
+    /** Guruh davomat kutadimi: ACTIVE yoki FORMING (holat null — standart ACTIVE). */
+    public static boolean isOpen(Group group) {
+        return group.getStatus() == null || OPEN_STATUSES.contains(group.getStatus());
+    }
+
+    /**
+     * Sof qoida — bitta (guruh, kun) uchun: guruh ochiq, {@code start_date ≤ d ≤ end_date}, dars kuni
+     * ({@code lessonDay} — jadval/bayram/istisno, chaqiruvchi hisoblaydi) va faol yozilma bor.
+     */
+    public static boolean isDueOn(Group group, List<StudentGroup> enrollments, LocalDate d, boolean lessonDay) {
+        if (!lessonDay || !isOpen(group)) {
+            return false;
+        }
+        if (group.getStartDate() != null && d.isBefore(group.getStartDate())) {
+            return false;
+        }
+        if (group.getEndDate() != null && d.isAfter(group.getEndDate())) {
+            return false;
+        }
+        return hasActiveStudent(enrollments, d);
     }
 
     /** {@code max(group.start_date, eng erta join_date, from)}; guruhda yozilma yo'q — null. */
@@ -145,7 +177,7 @@ public class AttendanceDueService {
     }
 
     /** Shu kuni faol yozilma: qo'shilgan, chiqmagan, muzlatilmagan (sinov ham). */
-    static boolean hasActiveStudent(List<StudentGroup> enrollments, LocalDate d) {
+    public static boolean hasActiveStudent(List<StudentGroup> enrollments, LocalDate d) {
         for (StudentGroup sg : enrollments) {
             if (sg.getJoinDate() == null || sg.getJoinDate().isAfter(d)) {
                 continue;

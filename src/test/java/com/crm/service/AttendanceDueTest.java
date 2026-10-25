@@ -1,6 +1,9 @@
 package com.crm.service;
 
 import com.crm.billing.support.AbstractBillingIT;
+import com.crm.dashboard.AttendanceMetricsService;
+import com.crm.dashboard.DashboardPeriod;
+import com.crm.dashboard.DirectorDtos.LessonRow;
 import com.crm.dto.response.MissingAttendanceResponse;
 import com.crm.dto.response.TeacherMissingAttendanceResponse;
 import com.crm.entity.Attendance;
@@ -51,6 +54,7 @@ class AttendanceDueTest extends AbstractBillingIT {
     @Autowired TeacherRepository teacherRepo;
     @Autowired UserRepository userRepo;
     @Autowired GroupScheduleService schedule;
+    @Autowired AttendanceMetricsService metrics;
 
     private Long teacher;
 
@@ -178,6 +182,84 @@ class AttendanceDueTest extends AbstractBillingIT {
         List<Map<String, Object>> todayLessons = (List<Map<String, Object>>)
             teachers.getTeacherDashboard("test-teacher").get("todayLessons");
         assertThat(todayLessons).extracting(m -> m.get("groupId")).containsExactly(started);
+    }
+
+    private List<LocalDate> dashboardPlanned(Long group) {
+        DashboardPeriod p = DashboardPeriod.of("CUSTOM", null, d("10.09.2026"), d("10.10.2026"),
+            LocalDateTime.now(clock));
+        return inTx(() -> metrics.rows(p, teacher, "PLANNED")).stream()
+            .filter(r -> group.equals(r.groupId())).map(LessonRow::date).toList();
+    }
+
+    private void status(Long group, GroupStatus status) {
+        inTx(() -> {
+            Group g = groupRepo.findById(group).orElseThrow();
+            g.setStatus(status);
+            groupRepo.save(g);
+        });
+    }
+
+    /** IND/LAYLO holati: guruh yakunlangan, yagona o'quvchi chiqqan — ogohlantirish yo'qolishi kerak. */
+    @Test
+    void completedOrCancelledGroup_neverDue_everywhere() {
+        fixtures.loginAs(UserRole.TEACHER);
+        inTx(() -> {
+            var t = teacherRepo.findById(teacher).orElseThrow();
+            t.setUser(userRepo.findByUsername("test-teacher").orElseThrow());
+            teacherRepo.save(t);
+        });
+        Long g = group("21.09.2026");
+        Long sg = join(g, "21.09.2026");
+        inTx(() -> {
+            StudentGroup e = sgRepo.findById(sg).orElseThrow();
+            e.setIsActive(false);
+            e.setLeaveDate(d("08.10.2026"));
+            sgRepo.save(e);
+        });
+        // ACTIVE: chiqishdan oldingi darslar sanaladi
+        List<LocalDate> expected = List.of(d("21.09.2026"), d("23.09.2026"), d("25.09.2026"), d("28.09.2026"),
+            d("30.09.2026"), d("02.10.2026"), d("05.10.2026"), d("07.10.2026"));
+        assertThat(missing(g)).containsExactlyElementsOf(expected);
+        assertThat(dashboardPlanned(g)).containsExactlyElementsOf(expected);
+
+        for (GroupStatus closed : List.of(GroupStatus.COMPLETED, GroupStatus.CANCELLED)) {
+            status(g, closed);
+            assertThat(missing(g)).as(closed.name()).isEmpty();
+            assertThat(attendance.getMyMissingAttendance(null, null).getGroups()).as(closed.name()).isEmpty();
+            assertThat(dashboardPlanned(g)).as(closed.name()).isEmpty();
+            assertThat(inTx(() -> due.isDue(groupRepo.findById(g).orElseThrow(), d("07.10.2026")))).isFalse();
+        }
+
+        // FORMING — davomat kutiladi
+        status(g, GroupStatus.FORMING);
+        assertThat(missing(g)).containsExactlyElementsOf(expected);
+        assertThat(dashboardPlanned(g)).containsExactlyElementsOf(expected);
+    }
+
+    @Test
+    void endDate_beforeJoin_allLeft_frozen_notDue_normalDue_sameInDashboard() {
+        Long g = group("21.09.2026");
+        inTx(() -> {
+            Group group = groupRepo.findById(g).orElseThrow();
+            group.setEndDate(d("07.10.2026"));    // 09.10 — guruh tugagan
+            groupRepo.save(group);
+        });
+        Long a = join(g, "25.09.2026");           // 21.09, 23.09 — hali hech kim qo'shilmagan
+        inTx(() -> {
+            StudentGroup e = sgRepo.findById(a).orElseThrow();
+            e.setIsActive(false);
+            e.setLeaveDate(d("29.09.2026"));      // 30.09, 02.10 — hamma chiqqan
+            sgRepo.save(e);
+        });
+        Long b = join(g, "05.10.2026");
+        inTx(() -> {
+            StudentGroup e = sgRepo.findById(b).orElseThrow();
+            e.setFrozenFrom(d("07.10.2026"));     // 07.10 — muzlatilgan
+            sgRepo.save(e);
+        });
+        List<LocalDate> expected = List.of(d("25.09.2026"), d("28.09.2026"), d("05.10.2026"));
+        assertThat(missing(g)).containsExactlyElementsOf(expected);
+        assertThat(dashboardPlanned(g)).containsExactlyElementsOf(expected);
     }
 
     @Test

@@ -9,9 +9,9 @@ import com.crm.entity.enums.SubstitutionStatus;
 import com.crm.repository.LessonSubstitutionRepository;
 import com.crm.entity.LessonException;
 import com.crm.entity.StudentGroup;
-import com.crm.entity.enums.GroupStatus;
 import com.crm.repository.HolidayRepository;
 import com.crm.repository.LessonExceptionRepository;
+import com.crm.service.AttendanceDueService;
 import com.crm.service.GroupScheduleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -31,8 +31,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Davomat intizomi (director-dashboard §1.4, §7 #7/#8 qarorlari). Rejadagi dars — ACTIVE guruh,
- * jadval kuni, faol (muzlatilmagan) yozilma bor, bayram/bekor emas; bir kunda bitta dars.
+ * Davomat intizomi (director-dashboard §1.4, §7 #7/#8 qarorlari). Rejadagi dars — "belgilanmagan" bilan
+ * bir xil qoida ({@link AttendanceDueService#isDueOn}): ACTIVE/FORMING guruh, start..end oralig'i, dars kuni
+ * (jadval, bayram/bekor emas), faol (muzlatilmagan) yozilma bor; bir kunda bitta dars.
  * O'z vaqtida — o'sha kun 23:59 gacha birinchi belgi.
  */
 @Service
@@ -83,8 +84,8 @@ public class AttendanceMetricsService {
             }
         }
         List<Group> groups = queries.em().createQuery("""
-                SELECT g FROM Group g LEFT JOIN FETCH g.teacher WHERE g.status = :active
-                """, Group.class).setParameter("active", GroupStatus.ACTIVE).getResultList().stream()
+                SELECT g FROM Group g LEFT JOIN FETCH g.teacher WHERE g.status IN :open
+                """, Group.class).setParameter("open", AttendanceDueService.OPEN_STATUSES).getResultList().stream()
             .filter(g -> teacherId == null || (g.getTeacher() != null && teacherId.equals(g.getTeacher().getId()))
                 || substitutedGroups.contains(g.getId()))
             .toList();
@@ -141,17 +142,12 @@ public class AttendanceMetricsService {
             for (LocalDate d = from; !d.isAfter(to); d = d.plusDays(1)) {
                 String k = key(g.getId(), d);
                 boolean scheduled = slotByDay.containsKey(d.getDayOfWeek()) && !removed.contains(k);
-                boolean planned = (scheduled || added.contains(k))
-                    && !holidays.contains(d)
-                    && (g.getStartDate() == null || !d.isBefore(g.getStartDate()))
-                    && (g.getEndDate() == null || !d.isAfter(g.getEndDate()));
-                if (!planned) {
+                boolean lessonDay = (scheduled || added.contains(k)) && !holidays.contains(d);
+                List<StudentGroup> sgs = enrollments.getOrDefault(g.getId(), List.of());
+                if (!AttendanceDueService.isDueOn(g, sgs, d, lessonDay)) {
                     continue;
                 }
-                int active = activeOn(enrollments.getOrDefault(g.getId(), List.of()), d);
-                if (active == 0) {
-                    continue;
-                }
+                int active = activeOn(sgs, d);
                 plannedKeys.add(k);
                 Teacher lessonTeacher = substitutes.getOrDefault(k, g.getTeacher());
                 if (teacherId != null && (lessonTeacher == null || !teacherId.equals(lessonTeacher.getId()))) {
