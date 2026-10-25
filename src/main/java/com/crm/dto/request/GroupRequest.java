@@ -35,6 +35,11 @@ public class GroupRequest {
      * tahrirlashda berilmasa o'zgarmaydi. Noto'g'ri qiymat — 400 {@code group.lessonType.invalid}.
      */
     private String lessonType;
+    /**
+     * O'quv darajasi ({@code study_levels.id}, V87). Yaratishda berilmasa — kursniki; tahrirlashda null — o'zgarmaydi,
+     * 0 — olib tashlash. Yo'q daraja — 404 {@code book.level.notFound}.
+     */
+    private Long levelId;
     /** Legacy: frontend JSON "schedules" — {@link #scheduleDays} bo‘sh bo‘lsa shu yerga map qilinadi */
     private List<ScheduleRequest> schedules;
     private List<ScheduleDayRequest> scheduleDays;

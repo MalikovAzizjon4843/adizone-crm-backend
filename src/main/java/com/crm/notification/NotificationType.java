@@ -46,6 +46,8 @@ public enum NotificationType {
     LESSON_REMINDER(false),
     /** E'lon o'quvchi / ota-ona auditoriyasiga chop etildi → ulangan identity'lar (bot). */
     NOTICE_APP(false),
+    /** Kitob qoldig'i kam qolgan chegarasiga tushdi (V87) → SA va ADMIN qo'ng'iroqchasi (kalit lowstock:{kitob}:{kun}). */
+    BOOK_LOW_STOCK(false),
     /** Direktor kunlik xulosasi → {@code app.dashboard.digest.chat-ids} (bot). */
     DIRECTOR_DIGEST(false);
 

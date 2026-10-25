@@ -117,6 +117,93 @@ public class CashCategoryTotals {
             Map.of("reg", registerId)));
     }
 
+    /** Kassa ko'rinishida kitob sotuvi tur bo'yicha (V87, buyurtmachi: "O'quv kitob", "Badiiy kitob"). */
+    public static final String BOOK_SALE_STUDY = "BOOK_SALE_STUDY";
+    public static final String BOOK_SALE_FICTION = "BOOK_SALE_FICTION";
+
+    /**
+     * Kitob sotuvi tushumi tur bo'yicha — sotuv qatorlaridan, kassa yozuvi sanasi bo'yicha ({@code registerId} null —
+     * hamma kassa). {@code unhandedOnly} — kunlik topshirish preview'i uchun (topshirilmagan yozuvlar).
+     */
+    @Transactional(readOnly = true)
+    public Map<String, BigDecimal> bookSaleKinds(Long registerId, LocalDate from, LocalDate to, boolean unhandedOnly) {
+        StringBuilder sql = new StringBuilder("""
+            SELECT l.kind, SUM(l.line_total) FROM book_sale_lines l
+            JOIN book_sales s ON s.id = l.sale_id
+            JOIN cash_transactions t ON t.id = s.cash_transaction_id
+            WHERE 1 = 1""");
+        Map<String, Object> params = new HashMap<>();
+        if (registerId != null) {
+            sql.append(" AND t.cash_register_id = :reg");
+            params.put("reg", registerId);
+        }
+        if (from != null) {
+            sql.append(" AND t.transaction_date >= :f");
+            params.put("f", Date.valueOf(from));
+        }
+        if (to != null) {
+            sql.append(" AND t.transaction_date <= :t");
+            params.put("t", Date.valueOf(to));
+        }
+        if (unhandedOnly) {
+            sql.append(" AND t.handover_id IS NULL AND t.status = 'COMPLETED'");
+        }
+        sql.append(" GROUP BY l.kind");
+        Query q = em.createNativeQuery(sql.toString());
+        params.forEach(q::setParameter);
+        Map<String, BigDecimal> out = new HashMap<>();
+        for (Object o : q.getResultList()) {
+            Object[] r = (Object[]) o;
+            out.put(String.valueOf(r[0]), dec(r[1]));
+        }
+        return out;
+    }
+
+    /**
+     * Kassa ko'rinishi (kassa sahifasi va topshirish preview'i — YAGONA qurilish): kategoriya bo'yicha, kategoriyaning
+     * o'z yo'nalishida; noma'lum kod — OTHER; BOOK_SALE — "O'quv kitob" / "Badiiy kitob" qatorlariga bo'linadi.
+     */
+    public List<com.crm.dto.response.CashCategoryTotalDto> view(List<Total> totals, Map<String, BigDecimal> bookKinds,
+                                                                Map<String, com.crm.entity.CashCategory> categories) {
+        Map<String, BigDecimal> sums = new java.util.LinkedHashMap<>();
+        for (Total t : totals) {
+            String code = categories.containsKey(t.category()) ? t.category() : CashCategories.OTHER;
+            sums.merge(code, t.amount(), BigDecimal::add);
+        }
+        List<com.crm.dto.response.CashCategoryTotalDto> out = new ArrayList<>();
+        Map<String, Integer> order = new HashMap<>();
+        BigDecimal books = sums.remove(CashCategories.BOOK_SALE);
+        if (books != null && books.signum() != 0) {
+            com.crm.entity.CashCategory c = categories.get(CashCategories.BOOK_SALE);
+            BigDecimal study = bookKinds.getOrDefault("STUDY", BigDecimal.ZERO);
+            BigDecimal fiction = bookKinds.getOrDefault("FICTION", BigDecimal.ZERO);
+            int base = c != null ? c.getSortOrder() * 10 : 0;
+            addRow(out, order, BOOK_SALE_STUDY, "O'quv kitob", c, study, base + 1);
+            addRow(out, order, BOOK_SALE_FICTION, "Badiiy kitob", c, fiction, base + 2);
+            addRow(out, order, CashCategories.BOOK_SALE, c != null ? c.getName() : CashCategories.BOOK_SALE, c,
+                books.subtract(study).subtract(fiction), base + 3);
+        }
+        sums.forEach((code, v) -> {
+            com.crm.entity.CashCategory c = categories.get(code);
+            if (c != null) {
+                addRow(out, order, code, c.getName(), c, v, c.getSortOrder() * 10);
+            }
+        });
+        out.sort(java.util.Comparator.comparing(com.crm.dto.response.CashCategoryTotalDto::getDirection)
+            .thenComparing(d -> order.get(d.getCategory())));
+        return out;
+    }
+
+    private static void addRow(List<com.crm.dto.response.CashCategoryTotalDto> out, Map<String, Integer> order,
+                               String code, String name, com.crm.entity.CashCategory c, BigDecimal amount, int sort) {
+        if (amount == null || amount.signum() == 0 || c == null) {
+            return;
+        }
+        order.put(code, sort);
+        out.add(com.crm.dto.response.CashCategoryTotalDto.builder()
+            .category(code).name(name).direction(c.getDirection()).scope(c.getScope()).amount(amount).build());
+    }
+
     private List<Row> query(String where, Map<String, Object> params) {
         Query q = em.createNativeQuery(SQL.formatted(where));
         params.forEach(q::setParameter);

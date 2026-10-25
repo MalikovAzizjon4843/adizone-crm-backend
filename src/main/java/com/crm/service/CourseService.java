@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 public class CourseService {
 
     private final CourseRepository courseRepository;
+    private final com.crm.repository.StudyLevelRepository studyLevelRepository;
 
     @Transactional(readOnly = true)
     public List<CourseResponse> getAllCourses(boolean activeOnly) {
@@ -45,6 +46,7 @@ public class CourseService {
             .monthlyPrice(request.getMonthlyPrice())
             .lessonPrice(request.getLessonPrice())
             .lessonType(lessonType(request.getLessonType()))
+            .levelId(level(request.getLevelId()))
             .isActive(true)
             .build();
         return toResponse(courseRepository.save(course));
@@ -65,7 +67,19 @@ public class CourseService {
         course.setMonthlyPrice(request.getMonthlyPrice());
         course.setLessonPrice(request.getLessonPrice());
         course.setLessonType(lessonType(request.getLessonType()));
+        course.setLevelId(level(request.getLevelId()));
         return toResponse(courseRepository.save(course));
+    }
+
+    /** Daraja (V87): null — yo'q; mavjud bo'lmasa — 404 {@code book.level.notFound}. */
+    private Long level(Long levelId) {
+        if (levelId == null || levelId == 0) {
+            return null;
+        }
+        if (!studyLevelRepository.existsById(levelId)) {
+            throw com.crm.exception.CodedException.notFound("book.level.notFound", levelId);
+        }
+        return levelId;
     }
 
     /** Bo'sh — null (guruh yaratishda GROUP); noto'g'ri — 400 {@code course.lessonType.invalid}. */
@@ -103,6 +117,7 @@ public class CourseService {
             .monthlyPrice(c.getMonthlyPrice())
             .lessonPrice(c.getLessonPrice())
             .lessonType(c.getLessonType())
+            .levelId(c.getLevelId())
             .isActive(c.getIsActive())
             .createdAt(c.getCreatedAt())
             .build();

@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Map;
 /**
  * {@code GET /api/finance/report} — faqat SUPER_ADMIN (V86).
- * {@code netProfit = totalIncome + examFees + otherIncome − totalExpenses − payrollPaid − refunds}
+ * {@code netProfit = totalIncome + examFees + otherIncome + bookSales − totalExpenses − payrollPaid − refunds − bookPurchases}
  * (docs/design/cash-and-books.md §1.3). Oylikning kassa chiqimi {@code totalExpenses} ga kirmaydi —
  * {@code payrollPaid} dan, ikki marta ayirilmaydi.
  */
@@ -27,6 +27,12 @@ public class FinanceReportResponse {
     private BigDecimal cashShortage;
     /** Xarajatlar guruh bo'yicha: DAILY / STRATEGIC / SYSTEM (kamomad). */
     private Map<String, BigDecimal> expenseByScope;
+    /** Kitob sotuvi tushumi (BOOK_SALE, V87) — {@code otherIncome} ga kirmaydi. */
+    private BigDecimal bookSales;
+    /** Kitob sotuvi tur bo'yicha: STUDY (o'quv), FICTION (badiiy). */
+    private Map<String, BigDecimal> bookSalesByKind;
+    /** Yetkazib beruvchilarga to'langan (BOOK_PURCHASE, V87) — {@code totalExpenses} ga kirmaydi. */
+    private BigDecimal bookPurchases;
     /** Σ PAID oylik {@code netSalary}, {@code paidAt} davr ichida; CANCELLED kirmaydi. */
     private BigDecimal payrollPaid;
     /** Rol bo'yicha: TEACHER / ADMIN / SALES_MANAGER (xodimi aniqlanmagan eski yozuv — OTHER). */

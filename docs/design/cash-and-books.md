@@ -1,6 +1,6 @@
 # Kassa, ruxsatlar va kitoblar ombori — dizayn
 
-Holat: **1-bosqich amalga oshirildi** (V86, 2026-10-18; deploy — docs/ops/cash-and-books-deploy.md), 2-bosqich — dizayn. Manba: buyurtmachi talablari (2026-10-17) va F-javoblari (2026-10-18).
+Holat: **1-bosqich** (V86, 2026-10-18) va **2-bosqich** (V87, 2026-10-24) amalga oshirildi; deploy — docs/ops/cash-and-books-deploy.md. Manba: buyurtmachi talablari (2026-10-17) va F-javoblari (2026-10-18).
 Ikki bosqich: **1 — kassa va ruxsatlar** (kitoblarsiz ham kerak), **2 — kitoblar** (1-bosqichga tayanadi).
 
 Rollar: SA = SUPER_ADMIN (Direktor), A = ADMIN, ACC = ACCOUNTANT, SH = SALES_HEAD, T = TEACHER.
@@ -604,3 +604,46 @@ V87 tarkibi:
 4. Kitob narxi va kam qolgan chegarasini faqat Direktor o'zgartiradimi?
 5. Kirimda yetkazib beruvchini admin tanlaydimi yoki Direktor tannarx bilan birga?
 6. Sovg'a kitobi omborda tugagan bo'lsa — keyin berish yo'q ("ertasidan bosilmaydi") deb faraz qilindi. To'g'rimi?
+
+## 2.7 Amalga oshirildi (V87, 2026-10-24)
+
+**Kod:** `com.crm.books` — `BookStockService` (ombor qoldig'ining yagona o'zgartirish nuqtasi), `BookCatalogService`
+(darajalar, katalog, tuzatish), `BookReceiptService` (yetkazib beruvchi, kirim, tannarx, to'lov), `BookSaleService`,
+`BookGiftService`, `BookReportService`; controller'lar `StudyLevelController` (`/api/study-levels`), `BookController`,
+`BookReceiptController`, `BookSaleController` (`/api/books/**`). API — docs/audit/api-inventory.md "2026-10-24".
+
+**Model (2.1 dan farqi):**
+- FK lar oddiy `Long` id ustunlar (entity'da `@ManyToOne` yo'q); bazada FK — V87 da.
+- `book_sales.cash_transaction_id` ga FK yo'q (aylanma bog'lanish bo'lmasin); bog'lanish `cash_transactions.book_sale_id` (FK).
+- `book_supplier_payments.status` yo'q — to'lovni bekor qilish ushbu bosqichda yo'q.
+- Harakat turi `OPENING` yo'q — boshlang'ich qoldiq `ADJUSTMENT` (sabab majburiy, buyurtmachi talabi).
+
+**Qoidalar (standart, amalga oshirishda aniqlangan):**
+- "Kam qolgan" = `stock_qty ≤ min_stock` (chegarada — buyurtma vaqti). Bildirishnoma faqat kamayishda (sotuv, sovg'a,
+  manfiy tuzatish), SA va ADMIN qo'ng'iroqchasiga, kalit `lowstock:{bookId}:{kun}` — kuniga bitta.
+- O'rtacha tannarx — tortilgan o'rtacha. Tannarx kirimdan keyin to'ldirilsa yoki o'zgartirilsa (to'lovgacha mumkin) —
+  joriy qoldiq bo'yicha taxminiy tuzatish; sotuv/sovg'a qatoridagi `unit_cost` — o'sha paytdagi o'rtacha (tannarx hali
+  to'ldirilmagan bo'lsa null; hisobotda `costIncomplete`).
+- Kirimni admin faqat o'zi kiritganlarini ko'radi (tannarxsiz); kirim sanasi — `PaymentDatePolicy` (kelajak — 400,
+  o'tgan — faqat SA).
+- Sotuvda savatdagi takror qatorlar birlashtiriladi; sotuv summasi > 0 bo'lishi shart.
+- Bepul kitob, birinchi kelgan kun: eng erta PRESENT/LATE davomat = bugun; davomat yo'q bo'lsa — guruhida bugun dars bor.
+  Qo'shimcha himoya: bugundan oldingi to'langan to'lovi bo'lgan o'quvchi — "yangi emas" (`NOT_FIRST_VISIT_DAY`).
+  "Oylik to'liq": yozilma bo'yicha bugungi to'lovlar brutto (chegirma bilan) ≥ `EnrollmentPricing.effectiveMonthlyFee`
+  (PER_LESSON — guruhning oylik narxi) va yozilma ledger balansi ≥ 0. Bir nechta mos yozilma — so'ralgani, keyin darajasi
+  borligi. Qulf: o'quvchi → kitob; `book_gifts.student_id` UNIQUE — oxirgi himoya.
+- Qulf tartibi: o'quvchi → kitoblar (id o'sish tartibida) → kirim → kassa. Kitob qatori qulfi — `BillingLocks.lock`
+  (5 s, 409 `concurrency.busy`).
+- Moliya hisoboti: kitob sotuvi (`bookSales`, tur bo'yicha) va xaridi (`bookPurchases`) alohida qatorlar,
+  `netProfit = … + bookSales − bookPurchases`. Analitikada sotuv — `otherIncome` da, xarid — `expenses` da (net bir xil).
+- Kassa ko'rinishi va topshirish preview'i: `BOOK_SALE` → "O'quv kitob" (`BOOK_SALE_STUDY`) va "Badiiy kitob"
+  (`BOOK_SALE_FICTION`) — sotuv qatorlaridan (`CashCategoryTotals.view` — yagona qurilish).
+
+**Testlar:** `BookInventoryTest` (H2 va pgtest): minus himoyasi va oxirgi nusxaning parallel sotuvi, admin kirimi
+(faqat son) va SA tannarxi, boshlang'ich qoldiq, tannarx API da yashirilishi, Direktor kassasidan qisman to'lov va
+idempotentlik, savat + o'z kassasi + hisobot + moliya, kam qolgan bildirishnomasi (kuniga bitta), sovg'a: birinchi kun /
+ertasi / takror / to'liq to'lanmagan / daraja yo'q / bepul kitob yo'q / omborda yo'q / davomatsiz birinchi kun.
+
+**Qolgani:** frontend (adizone-admin) — `/books` sahifalari, "Kitob berish" tugmasi, kassa ko'rinishida kitob qatorlari.
+Deploy: V87 — yangi jar'dan OLDIN, qo'lda (V86 kabi); keyin SA darajalar, katalog, bepul kitob va boshlang'ich qoldiqni
+(`POST /api/books/adjustments`) kiritadi.

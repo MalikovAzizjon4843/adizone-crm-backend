@@ -172,6 +172,10 @@ public class FinanceService {
         public BigDecimal expenses = BigDecimal.ZERO;
         public BigDecimal refunds = BigDecimal.ZERO;
         public BigDecimal cashShortage = BigDecimal.ZERO;
+        /** Kitob sotuvi (BOOK_SALE, V87) — alohida qator, "boshqa kirim" emas. */
+        public BigDecimal bookSales = BigDecimal.ZERO;
+        /** Yetkazib beruvchiga to'lov (BOOK_PURCHASE, V87) — alohida qator, xarajatlar yig'indisida emas. */
+        public BigDecimal bookPurchases = BigDecimal.ZERO;
 
         void add(String rawCategory, String link, BigDecimal amount, Map<String, CashCategory> categories) {
             if (link != null || amount == null || amount.signum() == 0) {
@@ -182,6 +186,14 @@ public class FinanceService {
                 c = categories.get(CashCategories.OTHER);
             }
             String code = c != null ? c.getCode() : CashCategories.OTHER;
+            if (CashCategories.BOOK_SALE.equals(code)) {
+                bookSales = bookSales.add(amount);
+                return;
+            }
+            if (CashCategories.BOOK_PURCHASE.equals(code)) {
+                bookPurchases = bookPurchases.add(amount);
+                return;
+            }
             if (c != null && c.getDirection() == CashDirection.IN) {
                 incomeByCategory.merge(code, amount, BigDecimal::add);
                 otherIncome = otherIncome.add(amount);
@@ -246,7 +258,8 @@ public class FinanceService {
     }
 
     /**
-     * {@code netProfit = totalIncome + examFees + otherIncome − totalExpenses − payrollPaid − refunds}
+     * {@code netProfit = totalIncome + examFees + otherIncome + bookSales − totalExpenses − payrollPaid − refunds
+     * − bookPurchases}
      * (cash-and-books §1.3). Kassaga bog'liq oqim — {@code cash_transactions.category} dan; o'quvchi to'lovi
      * — payments, imtihon — examFees, oylik — payroll (ularning kassa yozuvi ikki marta sanalmaydi).
      */
@@ -301,8 +314,11 @@ public class FinanceService {
             .cashShortage(cash.cashShortage)
             .payrollPaid(payrollPaid)
             .payrollByRole(payrollByRole)
-            .netProfit(totalIncome.add(examFees).add(cash.otherIncome)
-                .subtract(cash.expenses).subtract(payrollPaid).subtract(cash.refunds))
+            .bookSales(cash.bookSales)
+            .bookSalesByKind(categoryTotals.bookSaleKinds(null, start, end, false))
+            .bookPurchases(cash.bookPurchases)
+            .netProfit(totalIncome.add(examFees).add(cash.otherIncome).add(cash.bookSales)
+                .subtract(cash.expenses).subtract(payrollPaid).subtract(cash.refunds).subtract(cash.bookPurchases))
             .incomeByCategory(incomeByCategory)
             .expenseByCategory(cash.expenseByCategory)
             .expenseByScope(cash.expenseByScope)

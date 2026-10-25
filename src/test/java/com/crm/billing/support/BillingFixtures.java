@@ -49,6 +49,8 @@ public class BillingFixtures {
     /** Testlar tozalaydigan jadvallar (FK tekshiruvi vaqtincha o'chiriladi). */
     private static final List<String> TABLES = List.of(
         "balance_transactions", "billing_periods", "income", "payments", "cash_transactions",
+        "book_stock_movements", "book_gifts", "book_sale_lines", "book_sales", "book_supplier_payments",
+        "book_receipt_lines", "book_receipts", "book_suppliers", "book_items", "study_levels",
         "cash_handover_lines", "cash_handovers", "cash_register_members", "cash_registers", "bonus_penalties", "attendance", "student_status_history",
         "student_groups", "students", "group_schedule_days", "groups", "courses", "teachers",
         "billing_held_applications", "billing_job_runs", "billing_migration_runs", "audit_logs",

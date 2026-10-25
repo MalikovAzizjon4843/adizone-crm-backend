@@ -387,23 +387,8 @@ public class CashHandoverService {
      * {@link CashCategoryTotals} bilan bir xil qoida (kategoriyasiz eski yozuv ham).
      */
     private List<CashCategoryTotalDto> byCategory(Long registerId) {
-        Map<String, CashCategory> categories = categoryService.all();
-        Map<String, BigDecimal> sums = new LinkedHashMap<>();
-        for (CashCategoryTotals.Total t : categoryTotals.unhandedTotals(registerId)) {
-            String code = categories.containsKey(t.category()) ? t.category() : CashCategories.OTHER;
-            sums.merge(code, t.amount(), BigDecimal::add);
-        }
-        List<CashCategoryTotalDto> out = new ArrayList<>();
-        sums.forEach((code, v) -> {
-            CashCategory c = categories.get(code);
-            if (c != null && v.signum() != 0) {
-                out.add(CashCategoryTotalDto.builder().category(code).name(c.getName())
-                    .direction(c.getDirection()).scope(c.getScope()).amount(v).build());
-            }
-        });
-        out.sort(Comparator.comparing(CashCategoryTotalDto::getDirection)
-            .thenComparing(d -> categories.get(d.getCategory()).getSortOrder()));
-        return out;
+        return categoryTotals.view(categoryTotals.unhandedTotals(registerId),
+            categoryTotals.bookSaleKinds(registerId, null, null, true), categoryService.all());
     }
 
     private CashRegister resolveTarget(Long targetId) {

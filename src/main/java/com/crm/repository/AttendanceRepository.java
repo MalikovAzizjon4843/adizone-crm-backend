@@ -14,6 +14,11 @@ import java.util.Optional;
 @Repository
 public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
 
+    /** Kitob sovg'asi (V87): o'quvchining birinchi kelgan kuni — eng erta PRESENT / LATE davomat (yo'q bo'lsa null). */
+    @Query(value = "SELECT MIN(a.attendanceDate) FROM Attendance a WHERE a.student.id = :studentId AND a.status IN :statuses")
+    LocalDate findFirstAttendedDate(@Param(value = "studentId") Long studentId,
+                                    @Param(value = "statuses") java.util.Collection<AttendanceStatus> statuses);
+
     List<Attendance> findByGroupIdAndAttendanceDateOrderByStudentLastName(
             Long groupId, LocalDate date);
 

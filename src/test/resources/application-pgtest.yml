@@ -67,6 +67,7 @@ spring:
         - classpath:db/migration/V84__notification_dispatch.sql
         - classpath:db/migration/V85__app_notices_and_notify_prefs.sql
         - classpath:db/migration/V86__cash_registers_access_categories_handover.sql
+        - classpath:db/migration/V87__books_inventory.sql
         - classpath:pgtest-schema.sql
 
 app:

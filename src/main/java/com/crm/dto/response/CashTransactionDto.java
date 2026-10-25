@@ -54,4 +54,8 @@ public class CashTransactionDto {
     private String category;
     /** Kunlik topshirish (null — hali topshirilmagan). */
     private Long handoverId;
+    /** Kitob sotuvi (V87). */
+    private Long bookSaleId;
+    /** Yetkazib beruvchiga to'lov (V87). */
+    private Long bookSupplierPaymentId;
 }

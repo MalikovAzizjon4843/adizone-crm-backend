@@ -68,6 +68,7 @@ public class GroupService {
     private final com.crm.billing.EnrollmentLifecycleService enrollmentLifecycleService;
     private final com.crm.billing.StudentStatusService studentStatusService;
     private final GroupEndDateService groupEndDateService;
+    private final com.crm.repository.StudyLevelRepository studyLevelRepository;
 
     @Transactional(readOnly = true)
     public List<GroupResponse> getAllGroups(GroupStatus status) {
@@ -204,6 +205,7 @@ public class GroupService {
             .lessonType(isBlank(request.getLessonType())
                 ? (course.getLessonType() != null ? course.getLessonType() : com.crm.entity.enums.LessonType.GROUP)
                 : parseLessonType(request.getLessonType()))
+            .levelId(request.getLevelId() != null ? levelOrNull(request.getLevelId()) : course.getLevelId())
             .notes(request.getNotes())
             .build();
 
@@ -249,6 +251,10 @@ public class GroupService {
         // Berilmasa — joriy dars turi saqlanadi
         if (!isBlank(request.getLessonType())) {
             group.setLessonType(parseLessonType(request.getLessonType()));
+        }
+        // Daraja (V87): null — o'zgarmaydi, 0 — olib tashlash
+        if (request.getLevelId() != null) {
+            group.setLevelId(levelOrNull(request.getLevelId()));
         }
 
         if (request.getTeacherId() != null) {
@@ -658,6 +664,17 @@ public class GroupService {
         studentStatusHistoryRepository.save(history);
     }
 
+    /** Daraja (V87): 0 — yo'q (olib tashlash); mavjud bo'lmasa — 404 {@code book.level.notFound}. */
+    private Long levelOrNull(Long levelId) {
+        if (levelId == null || levelId == 0) {
+            return null;
+        }
+        if (!studyLevelRepository.existsById(levelId)) {
+            throw com.crm.exception.CodedException.notFound("book.level.notFound", levelId);
+        }
+        return levelId;
+    }
+
     /** POST, PUT va PATCH /status uchun yagona tahlil; noto'g'ri qiymat — 400. */
     private static com.crm.entity.enums.LessonType parseLessonType(String raw) {
         com.crm.entity.enums.LessonType type = com.crm.entity.enums.LessonType.parseOrNull(raw);
@@ -830,6 +847,9 @@ public class GroupService {
             .notes(g.getNotes())
             .status(g.getStatus())
             .lessonType(g.getLessonType())
+            .levelId(g.getLevelId())
+            .levelName(g.getLevelId() != null
+                ? studyLevelRepository.findById(g.getLevelId()).map(com.crm.entity.StudyLevel::getName).orElse(null) : null)
             .schedules(schedules)
             .scheduleDays(scheduleDays)
             .studentGroups(members)

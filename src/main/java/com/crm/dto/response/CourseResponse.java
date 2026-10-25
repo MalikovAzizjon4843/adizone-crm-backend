@@ -14,6 +14,8 @@ public class CourseResponse {
     private BigDecimal monthlyPrice;
     private BigDecimal lessonPrice;
     private com.crm.entity.enums.LessonType lessonType;
+    /** Yangi guruh uchun standart daraja (V87). */
+    private Long levelId;
     private Boolean isActive;
     private LocalDateTime createdAt;
 }

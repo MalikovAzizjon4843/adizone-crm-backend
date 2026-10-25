@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V86 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V87 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V86 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V87 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
@@ -23,7 +23,7 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V86 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V87 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
@@ -405,7 +405,33 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V86', 'index', 'cash_transactions', 'idx_cash_transactions_unhanded'),
     ('V86', 'constraint', 'cash_transactions', 'fk_cash_transactions_category'),
     ('V86', 'constraint', 'cash_transactions', 'fk_cash_transactions_handover'),
-    ('V86', 'constraint', 'expenses', 'fk_expenses_category')
+    ('V86', 'constraint', 'expenses', 'fk_expenses_category'),
+    ('V87', 'table', 'study_levels', NULL),
+    ('V87', 'index', 'study_levels', 'ux_study_levels_language_code'),
+    ('V87', 'column', 'groups', 'level_id'),
+    ('V87', 'column', 'courses', 'level_id'),
+    ('V87', 'constraint', 'groups', 'fk_groups_level'),
+    ('V87', 'table', 'book_items', NULL),
+    ('V87', 'index', 'book_items', 'ux_book_items_title_kind_level'),
+    ('V87', 'constraint', 'book_items', 'ck_book_items_stock_nonneg'),
+    ('V87', 'constraint', 'book_items', 'ck_book_items_level_by_kind'),
+    ('V87', 'constraint', 'study_levels', 'fk_study_levels_gift_book'),
+    ('V87', 'table', 'book_suppliers', NULL),
+    ('V87', 'table', 'book_receipts', NULL),
+    ('V87', 'table', 'book_receipt_lines', NULL),
+    ('V87', 'table', 'book_supplier_payments', NULL),
+    ('V87', 'index', 'book_supplier_payments', 'ux_book_supplier_payments_idempotency_key'),
+    ('V87', 'table', 'book_sales', NULL),
+    ('V87', 'index', 'book_sales', 'ux_book_sales_idempotency_key'),
+    ('V87', 'constraint', 'book_sales', 'ck_book_sales_buyer'),
+    ('V87', 'table', 'book_sale_lines', NULL),
+    ('V87', 'table', 'book_gifts', NULL),
+    ('V87', 'index', 'book_gifts', 'ux_book_gifts_student'),
+    ('V87', 'table', 'book_stock_movements', NULL),
+    ('V87', 'constraint', 'book_stock_movements', 'ck_book_stock_movements_qty'),
+    ('V87', 'column', 'cash_transactions', 'book_sale_id'),
+    ('V87', 'column', 'cash_transactions', 'book_supplier_payment_id'),
+    ('V87', 'constraint', 'cash_transactions', 'fk_cash_transactions_book_sale')
 ), checked AS (
     SELECT w.*,
            CASE w.kind

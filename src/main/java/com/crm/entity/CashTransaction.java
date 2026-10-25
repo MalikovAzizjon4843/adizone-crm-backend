@@ -97,6 +97,14 @@ public class CashTransaction {
     @Column(name = "exam_registration_id")
     private Long examRegistrationId;
 
+    /** Kitob sotuvi kirimi (V87, {@code book_sales.id}). */
+    @Column(name = "book_sale_id")
+    private Long bookSaleId;
+
+    /** Yetkazib beruvchiga to'lov chiqimi (V87, {@code book_supplier_payments.id}). */
+    @Column(name = "book_supplier_payment_id")
+    private Long bookSupplierPaymentId;
+
     /**
      * Kassa kategoriyasi — {@code cash_categories.code} (V86). TRANSFER — null; REVERSAL — asl yozuvniki.
      * Eski yozuvlar: docs/ops/cash-category-backfill.sql.

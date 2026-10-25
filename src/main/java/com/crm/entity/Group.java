@@ -74,6 +74,10 @@ public class Group extends BaseEntity {
     @Builder.Default
     private com.crm.entity.enums.LessonType lessonType = com.crm.entity.enums.LessonType.GROUP;
 
+    /** O'quv darajasi ({@code study_levels.id}, V87) — bepul kitob shu darajadan; yangi guruhda kursdan. */
+    @Column(name = "level_id")
+    private Long levelId;
+
     @Column(columnDefinition = "TEXT")
     private String notes;
 

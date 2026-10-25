@@ -72,3 +72,21 @@ ACC — admin bilan bir xil. To'lov / imtihon / xarajat dialoglaridagi kassa tan
 (bitta bo'lsa avtomatik). Kassadan chiqimda kategoriya (`GET /api/cash-categories?direction=OUT`). Kassa sahifasida
 "Kassani topshirish" (preview + submit), SA uchun "Topshirishlar" (qabul / rad etish). Analitikada
 `finance == null` — blok yashiriladi. Batafsil: cash-and-books.md §1.6.
+
+## 2-bosqich — kitoblar ombori (V87)
+
+1. Zaxira nusxa (`pg_dump`).
+2. **V87 — yangi jar ishga tushishidan OLDIN**, qo'lda (idempotent):
+   ```bash
+   psql -h <host> -U crm_user -d adizone -X -v ON_ERROR_STOP=1 \
+     -f src/main/resources/db/migration/V87__books_inventory.sql
+   ```
+   Tekshirish: `docs/ops/prod-schema-check.sql` — V87 bo'lagi "TO'LIQ". Ma'lumotga tegmaydi; kategoriyalar
+   `BOOK_SALE` / `BOOK_PURCHASE` V86 seed'ida bor.
+3. Jar deploy. Yangi muhit o'zgaruvchisi yo'q; ixtiyoriy: `app.books.low-stock.study` (30), `app.books.low-stock.fiction` (3) —
+   yangi kitob uchun standart chegara.
+4. **SA sozlaydi:** darajalar (`POST /api/study-levels` — "Turk A1" …), guruhlarga daraja (`PUT /api/groups/{id}` `levelId`),
+   katalog (`POST /api/books`), har darajaga bepul kitob (`PUT /api/study-levels/{id}` `giftBookItemId`), yetkazib
+   beruvchilar, **boshlang'ich qoldiq** — har kitob uchun bir marta `POST /api/books/adjustments`
+   `{bookItemId, qtyDelta, unitCost, reason: "Boshlang'ich qoldiq"}`.
+5. Orqaga qaytarish: V87 faqat qo'shadi; eski jar yangi jadval/ustunlarni e'tiborsiz qoldiradi.

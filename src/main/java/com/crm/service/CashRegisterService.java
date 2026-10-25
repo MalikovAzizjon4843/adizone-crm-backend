@@ -265,27 +265,8 @@ public class CashRegisterService {
     @Transactional(readOnly = true)
     public List<CashCategoryTotalDto> getCategoryReport(Long id, LocalDate from, LocalDate to) {
         access.requireAccessible(id);
-        Map<String, CashCategory> categories = categoryService.all();
-        Map<String, BigDecimal> sums = new LinkedHashMap<>();
-        for (CashCategoryTotals.Total t : categoryTotals.totals(id, from, to)) {
-            String code = categories.containsKey(t.category()) ? t.category() : CashCategories.OTHER;
-            sums.merge(code, t.amount(), BigDecimal::add);
-        }
-        return sums.entrySet().stream()
-            .filter(e -> e.getValue().signum() != 0)
-            .map(e -> {
-                CashCategory c = categories.get(e.getKey());
-                return CashCategoryTotalDto.builder()
-                    .category(e.getKey())
-                    .name(c.getName())
-                    .direction(c.getDirection())
-                    .scope(c.getScope())
-                    .amount(e.getValue())
-                    .build();
-            })
-            .sorted(java.util.Comparator.comparing(CashCategoryTotalDto::getDirection)
-                .thenComparing(d -> categories.get(d.getCategory()).getSortOrder()))
-            .toList();
+        return categoryTotals.view(categoryTotals.totals(id, from, to),
+            categoryTotals.bookSaleKinds(id, from, to, false), categoryService.all());
     }
 
     /**
@@ -1403,6 +1384,8 @@ public class CashRegisterService {
         dto.setTotalAmount(t.getTotalAmount());
         dto.setCategory(t.getCategory());
         dto.setHandoverId(t.getHandoverId());
+        dto.setBookSaleId(t.getBookSaleId());
+        dto.setBookSupplierPaymentId(t.getBookSupplierPaymentId());
         dto.setTransactionDate(t.getTransactionDate());
         dto.setCreatedAt(t.getCreatedAt());
         if (t.getCreatedBy() != null) {

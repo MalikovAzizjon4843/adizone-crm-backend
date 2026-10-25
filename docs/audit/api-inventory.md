@@ -10,6 +10,44 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-10-24, kitoblar ombori — 2-bosqich, V87)
+
+> Dizayn: [cash-and-books.md](../design/cash-and-books.md) §2, §2.7. **Tannarx** (`avgCost`, `stockValue`, `unitCost`, `lineCost`,
+> `totalCost`, `paidAmount`, `remaining`, `payments`, `cost`, `margin`, `giftsCost`) faqat SUPER_ADMIN javobida — boshqalarda
+> maydon JSON da umuman yo'q (`@JsonInclude(NON_NULL)`, servisda rol tekshiruvi). Sotuv kassasi — sotuvchining o'z kassasi
+> (1-bosqich a'zolik qoidasi: boshqa kassa — 404, biriktirilmagan — 400 `cash.noRegisterAssigned`).
+
+| Endpoint | Rol | Izoh |
+|---|---|---|
+| `GET /api/study-levels` | SA, A, ACC, T | `[{id, language, code, name, sortOrder, active, giftBookItemId, giftBookTitle}]` |
+| `POST /api/study-levels`, `PUT /{id}` | SA | `{language, code, name?, sortOrder, active, giftBookItemId}` — nom berilmasa `"<til> <KOD>"`; (til, kod) katta-kichik harfsiz UNIQUE (409 `book.level.duplicate`); `giftBookItemId` — shu darajadagi STUDY kitob (400 `book.level.giftBookInvalid`), `0` — olib tashlash |
+| `GroupRequest.levelId`, `GroupResponse.levelId/levelName` | — | Yaratishda berilmasa — kursniki; tahrirlashda null — o'zgarmaydi, `0` — olib tashlash; yo'q daraja — 404 `book.level.notFound`. `CourseRequest/CourseResponse.levelId` — yangi guruh uchun standart |
+| `GET /api/books?kind&levelId&active&lowStock` | SA, A, ACC | `[{id, kind (STUDY/FICTION), title, author, levelId, levelName, salePrice, stockQty, minStock, low, active, avgCost*, stockValue*}]`; `low` = `stockQty ≤ minStock` |
+| `GET /api/books/{id}`, `/{id}/movements?page&size` | SA, A, ACC | Harakatlar: `{type (RECEIPT/SALE/GIFT/ADJUSTMENT), qtyDelta, qtyAfter, unitCost*, refType, refId, reason, createdByName, createdAt}` |
+| `POST /api/books`, `PUT /api/books/{id}` | SA | `{kind, title, author, levelId, salePrice, minStock?, active}`; STUDY — daraja majburiy, FICTION — darajasiz; `minStock` standart: STUDY 30, FICTION 3 (`app.books.low-stock.study/fiction`); tur o'zgarmaydi |
+| `POST /api/books/adjustments` | SA | `{bookItemId, qtyDelta, unitCost?, reason}` — boshlang'ich qoldiq (musbat + tannarx) yoki hisobdan chiqarish (manfiy); sabab majburiy; minus — 409 `book.stock.insufficient` |
+| `GET /api/books/suppliers` | SA, A | Nomlar (kirim formasi) |
+| `POST /api/books/suppliers`, `PUT /{id}` | SA | `{name, phone, note, active}` |
+| `POST /api/books/receipts` | SA, A | `{supplierId, receiptDate?, note, lines:[{bookItemId, qty, unitCost?}]}` — ombor DARHOL ko'payadi. Admin `unitCost` yuborsa — 403 `book.cost.directorOnly`; tannarxsiz — `COST_PENDING` |
+| `GET /api/books/receipts?supplierId&status`, `/{id}` | SA hammasi; A — o'zi kiritganlari | `ReceiptDto` (tannarx maydonlari — faqat SA) |
+| `PUT /api/books/receipts/{id}/costs` | SA | `{lines:[{lineId, unitCost}]}` — hammasi to'ldiriladi → `UNPAID`; to'lov bo'lgan kirimda — 409 `book.receipt.costLocked` |
+| `POST /api/books/receipts/{id}/payments` | SA | `{amount, cashRegisterId, paymentMethod, cashPart, cardPart, note}`, `Idempotency-Key`. Faqat DIRECTOR kassa (400 `cash.directorRegisterRequired`); `COST_PENDING` — 409 `book.receipt.costPending`; qarzdan ko'p — 400 `book.payment.exceedsDebt`; qisman — `PARTIAL`. Kassa EXPENSE `BOOK_PURCHASE` |
+| `GET /api/books/reports/supplier-debts` | SA | `[{supplierId, supplierName, totalCost, paid, debt, costPendingReceipts}]` |
+| `POST /api/books/sales` | SA, A, ACC | `{studentId? \| buyerName + buyerPhone, cashRegisterId, paymentMethod, cashPart, cardPart, lines:[{bookItemId, qty}], expectedTotal?}`, `Idempotency-Key` (takror — 200 + `idempotentReplay`). Narx serverdan, chegirma yo'q; o'quv + badiiy bitta chekda; `expectedTotal` mos kelmasa — 409 `book.sale.priceChanged`; ombor yetmasa — 409 `book.stock.insufficient`. Kassa INCOME `BOOK_SALE` (`cash_transactions.book_sale_id`) |
+| `GET /api/books/sales?from&to&studentId`, `/{id}` | SA hammasi; A, ACC — o'z kassasidagilar | `SaleDto {receiptNumber, totalAmount, lines:[{bookTitle, kind, qty, unitPrice, lineTotal, unitCost*}], …}` |
+| `GET /api/books/gifts/eligibility?studentId&studentGroupId` | SA, A, ACC | `{eligible, reason, firstVisitDate, firstVisitAssumed, studentGroupId, groupName, levelId, levelName, bookItemId, bookTitle, stockQty}`; `reason`: `ALREADY_GIVEN`, `NOT_FIRST_VISIT_DAY`, `NOT_FULLY_PAID`, `NO_LEVEL`, `NO_GIFT_BOOK`, `OUT_OF_STOCK` |
+| `POST /api/books/gifts` | SA, A, ACC | `{studentId, studentGroupId?}` — shart qulf ostida qayta tekshiriladi; bajarilmasa — 409 `book.gift.notEligible` (`data.reason`). Ombor −1, kassaga yozilmaydi |
+| `GET /api/books/gifts?from&to` | SA, A, ACC | `unitCost` — faqat SA |
+| `GET /api/books/reports/stock?kind&levelId`, `/reports/low-stock` | SA, A, ACC | `BookDto` ro'yxati (faol kitoblar) |
+| `GET /api/books/reports/sales?from&to&groupBy=ITEM\|KIND\|DAY` | SA, A, ACC (A — o'z kassasi) | `{rows:[{key, label, qty, revenue, cost*, margin*, costIncomplete*}], total, giftsCount*, giftsCost*}` |
+| `GET /api/finance/report` | SA | + `bookSales`, `bookSalesByKind {STUDY, FICTION}`, `bookPurchases`; `netProfit = … + bookSales − bookPurchases` (kitob sotuvi `otherIncome` ga, xaridi `totalExpenses` ga kirmaydi) |
+| `GET /api/analytics/overview` (SA) | — | Kitob sotuvi — `otherIncome` da, xaridi — `expenses` da (net hisobot bilan bir xil) |
+| `GET /api/cash-registers/{id}/by-category`, topshirish preview `byCategory` | — | `BOOK_SALE` → `BOOK_SALE_STUDY` ("O'quv kitob") va `BOOK_SALE_FICTION` ("Badiiy kitob") qatorlari |
+| `CashTransactionDto` | — | + `bookSaleId`, `bookSupplierPaymentId` |
+| Qo'ng'iroqcha `BOOK_LOW_STOCK` | SA, ADMIN | Kamaygandan keyin `stockQty ≤ minStock` — kalit `lowstock:{bookId}:{kun}` (kuniga bitta), `link: /books` |
+
+`*` — faqat SA javobida.
+
 ## Yangilanishlar (2026-10-18, kassa va ruxsatlar — 1-bosqich, V86)
 
 > Dizayn: [cash-and-books.md](../design/cash-and-books.md) §0.1, §1. Ruxsat **bitta nuqtada** (`CashAccessService`): SA — hamma kassa;

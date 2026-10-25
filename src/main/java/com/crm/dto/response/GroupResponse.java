@@ -36,6 +36,9 @@ public class GroupResponse {
     private GroupStatus status;
     /** Dars turi: GROUP | INDIVIDUAL (V82). */
     private com.crm.entity.enums.LessonType lessonType;
+    /** O'quv darajasi (V87). */
+    private Long levelId;
+    private String levelName;
     private List<ScheduleResponse> schedules;
     private List<ScheduleDayResponse> scheduleDays;
     /** Active members; populated only for single-group fetches (e.g. getById). */

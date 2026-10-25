@@ -51,4 +51,8 @@ public class Course extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "lesson_type", length = 20)
     private com.crm.entity.enums.LessonType lessonType;
+
+    /** Yangi guruh uchun standart daraja ({@code study_levels.id}, V87); haqiqiy daraja — guruhda. */
+    @Column(name = "level_id")
+    private Long levelId;
 }

@@ -140,10 +140,11 @@ public class AnalyticsOverviewService {
         Snapshot s = new Snapshot(buckets == null ? 0 : buckets.size());
         FinanceReportResponse report = financeService.getFinanceReport(from, to);
         s.income = nz(report.getTotalIncome());
-        s.expenses = nz(report.getTotalExpenses());
+        // V87: kitob xaridi va sotuvi analitikada xarajat va boshqa kirimga qo'shiladi — net hisobot bilan bir xil
+        s.expenses = nz(report.getTotalExpenses()).add(nz(report.getBookPurchases()));
         s.payroll = nz(report.getPayrollPaid());
         s.examFees = nz(report.getExamFees());
-        s.otherIncome = nz(report.getOtherIncome());
+        s.otherIncome = nz(report.getOtherIncome()).add(nz(report.getBookSales()));
         s.refunds = nz(report.getRefunds());
 
         DashboardPeriod p = DashboardPeriod.of("CUSTOM", null, from, to, LocalDateTime.now(billingClock));
@@ -174,8 +175,8 @@ public class AnalyticsOverviewService {
         // Xarajat, boshqa kirim, qaytarish — moliya hisoboti bilan bir xil tasnif (FinanceService.classifyByDay)
         financeService.classifyByDay(from, to).forEach((day, c) -> {
             int i = idx.apply(day);
-            add(s.expenseSeries, i, c.expenses);
-            add(s.otherIncomeSeries, i, c.otherIncome);
+            add(s.expenseSeries, i, c.expenses.add(c.bookPurchases));
+            add(s.otherIncomeSeries, i, c.otherIncome.add(c.bookSales));
             add(s.refundSeries, i, c.refunds);
         });
         for (Object[] row : queries.em().createQuery("""

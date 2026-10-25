@@ -13,4 +13,6 @@ public class CourseRequest {
     @DecimalMin(value = "0.0", message = "{course.lessonPrice.min}") private BigDecimal lessonPrice;
     /** Ixtiyoriy (V82): yangi guruh uchun standart dars turi — GROUP | INDIVIDUAL; bo'sh — null (GROUP). */
     private String lessonType;
+    /** Yangi guruh uchun standart daraja ({@code study_levels.id}, V87); null — yo'q. */
+    private Long levelId;
 }

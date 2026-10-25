@@ -163,6 +163,14 @@ public class BillingLocks {
         return lockRefreshing(CashRegister.class, id);
     }
 
+    /**
+     * Bitta qator qulfi (kitob ombori, V87: {@code BookItem}, {@code BookReceipt}) — xuddi shu kutish chegarasi va
+     * 409 {@code concurrency.busy}. Bir nechta qatorni chaqiruvchi id o'sish tartibida qulflaydi.
+     */
+    public <T> T lock(Class<T> type, Long id) {
+        return lockRefreshing(type, id);
+    }
+
     /** Qisqa yo'l: o'quvchi + bitta yozilma (accrual, muzlatish). */
     public StudentGroup lockEnrollmentWithStudent(Long studentId, Long enrollmentId) {
         return acquire(Plan.of().student(studentId).enrollment(enrollmentId)).enrollment(enrollmentId);
