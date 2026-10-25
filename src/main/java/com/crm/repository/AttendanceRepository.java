@@ -14,6 +14,20 @@ import java.util.Optional;
 @Repository
 public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
 
+    /** Qarzdorlar ro'yxati (bugungi holat): shu o'quvchilarning shu kungi davomati — bitta so'rov. */
+    @Query(value = "SELECT a FROM Attendance a WHERE a.student.id IN :studentIds AND a.attendanceDate = :date")
+    List<Attendance> findByStudentIdsAndDate(@Param(value = "studentIds") java.util.Collection<Long> studentIds,
+                                             @Param(value = "date") LocalDate date);
+
+    /** [studentId, groupId, oxirgi PRESENT/LATE sanasi] — qarzdorlar ro'yxati, bitta so'rov. */
+    @Query(value = """
+        SELECT a.student.id, a.group.id, MAX(a.attendanceDate) FROM Attendance a
+        WHERE a.student.id IN :studentIds AND a.status IN :statuses
+        GROUP BY a.student.id, a.group.id
+        """)
+    List<Object[]> findLastAttendedByStudentIds(@Param(value = "studentIds") java.util.Collection<Long> studentIds,
+                                                @Param(value = "statuses") java.util.Collection<AttendanceStatus> statuses);
+
     /** Kitob sovg'asi (V87): o'quvchining birinchi kelgan kuni — eng erta PRESENT / LATE davomat (yo'q bo'lsa null). */
     @Query(value = "SELECT MIN(a.attendanceDate) FROM Attendance a WHERE a.student.id = :studentId AND a.status IN :statuses")
     LocalDate findFirstAttendedDate(@Param(value = "studentId") Long studentId,

@@ -38,6 +38,72 @@ public class DebtorService {
     private final BillingStatusService statusService;
     private final StudentGroupRepository studentGroupRepository;
     private final com.crm.repository.BillingPeriodRepository periodRepository;
+    private final com.crm.repository.AttendanceRepository attendanceRepository;
+    private final com.crm.service.GroupScheduleService scheduleService;
+
+    private static final java.util.EnumSet<com.crm.entity.enums.AttendanceStatus> ATTENDED =
+        java.util.EnumSet.of(com.crm.entity.enums.AttendanceStatus.PRESENT, com.crm.entity.enums.AttendanceStatus.LATE);
+
+    /**
+     * Qarzdorlar ro'yxatidagi "bugun" holati (shu guruhda): davomat bo'lsa — uning holati; bo'lmasa bugun dars bor —
+     * NOT_MARKED, dars yo'q — NO_LESSON. O'quvchi qatorida — guruhlari ichida eng "kelgan" (tartib — shu enum).
+     */
+    public enum TodayStatus {
+        PRESENT, LATE, ABSENT, EXCUSED, NOT_MARKED, NO_LESSON
+    }
+
+    /**
+     * Davomat ro'yxati uchun qarzdor belgisi — {@link #collect} bilan AYNAN bir xil ta'rif (§4.5, ACTIVE doirasi):
+     * qarzdor = OVERDUE SG ({@link BillingStatusService#isOverdue}); qarz = Σ max(0, −balance) doiradagi qarzli SG lar.
+     *
+     * @param debtor           shu guruh yozilmasi OVERDUE
+     * @param studentDebtor    o'quvchi qarzdor (istalgan guruhi bo'yicha — {@code /debtors} ro'yxatidagi bilan bir xil)
+     * @param otherGroupDebt   boshqa guruhdagi yozilmasi OVERDUE
+     * @param debtAmount       shu yozilma qarzi; {@code studentDebtAmount} — o'quvchining jami qarzi (ikkalasi ham
+     *                         faqat qarzdor bo'lsa; summani kimga ko'rsatish — chaqiruvchida)
+     */
+    public record DebtFlag(boolean debtor, LocalDate debtSince, Long debtDays, BigDecimal debtAmount,
+                           boolean studentDebtor, LocalDate studentDebtSince, Long studentDebtDays,
+                           BigDecimal studentDebtAmount, boolean otherGroupDebt) {
+
+        public static final DebtFlag NONE = new DebtFlag(false, null, null, null, false, null, null, null, false);
+    }
+
+    /**
+     * Guruh davomati uchun qarzdor belgilari — BITTA so'rov ({@code findWithDebtByStudentIds}). Ro'yxatda yo'q
+     * o'quvchi — {@link DebtFlag#NONE}.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, DebtFlag> debtFlags(Long groupId, java.util.Collection<Long> studentIds, LocalDate today) {
+        Map<Long, DebtFlag> out = new LinkedHashMap<>();
+        if (studentIds == null || studentIds.isEmpty()) {
+            return out;
+        }
+        Map<Long, List<StudentGroup>> byStudent = new LinkedHashMap<>();
+        for (StudentGroup sg : studentGroupRepository.findWithDebtByStudentIds(studentIds)) {
+            if (inScope(sg, Scope.ACTIVE)) {
+                byStudent.computeIfAbsent(sg.getStudent().getId(), k -> new ArrayList<>()).add(sg);
+            }
+        }
+        byStudent.forEach((studentId, sgs) -> {
+            List<StudentGroup> overdue = sgs.stream().filter(sg -> statusService.isOverdue(sg, today)).toList();
+            if (overdue.isEmpty()) {
+                return;
+            }
+            LocalDate since = overdue.stream().map(StudentGroup::getDebtSince).min(Comparator.naturalOrder()).orElseThrow();
+            BigDecimal total = sgs.stream().map(sg -> Money.nz(sg.getBalance()).negate())
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            List<StudentGroup> here = overdue.stream().filter(sg -> sg.getGroup().getId().equals(groupId)).toList();
+            LocalDate hereSince = here.stream().map(StudentGroup::getDebtSince).min(Comparator.naturalOrder()).orElse(null);
+            BigDecimal hereDebt = here.isEmpty() ? null : here.stream().map(sg -> Money.nz(sg.getBalance()).negate())
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            out.put(studentId, new DebtFlag(!here.isEmpty(), hereSince,
+                hereSince != null ? ChronoUnit.DAYS.between(hereSince, today) : null, hereDebt,
+                true, since, ChronoUnit.DAYS.between(since, today), total,
+                overdue.stream().anyMatch(sg -> !sg.getGroup().getId().equals(groupId))));
+        });
+        return out;
+    }
 
     public enum Scope {
         /** Faol yoki muzlatilgan o'quvchining ochiq SG lari (default, §13 #4). */
@@ -50,7 +116,15 @@ public class DebtorService {
         }
     }
 
-    public record Filter(Scope scope, Integer minDays, Long groupId, Integer page, Integer size) {
+    /**
+     * {@code today}: null — hammasi; {@code present} — bugun kelgan qarzdorlar (PRESENT yoki LATE); yoki aniq
+     * {@link TodayStatus} nomi (masalan {@code ABSENT}, {@code NOT_MARKED}).
+     */
+    public record Filter(Scope scope, Integer minDays, Long groupId, Integer page, Integer size, String today) {
+        public Filter(Scope scope, Integer minDays, Long groupId, Integer page, Integer size) {
+            this(scope, minDays, groupId, page, size, null);
+        }
+
         public static Filter defaults() {
             return new Filter(Scope.ACTIVE, null, null, null, null);
         }
@@ -69,7 +143,12 @@ public class DebtorService {
 
     @Transactional(readOnly = true)
     public DebtorsListResponse debtors(Filter filter, LocalDate today) {
+        java.util.function.Predicate<TodayStatus> todayFilter = parseToday(filter.today());
         List<DebtorsListResponse.DebtorStudent> all = collect(filter, today);
+        withToday(all, today);
+        if (todayFilter != null) {
+            all = all.stream().filter(r -> todayFilter.test(TodayStatus.valueOf(r.getTodayStatus()))).toList();
+        }
         int page = filter.page() != null ? Math.max(filter.page(), 0) : 0;
         int size = filter.size() != null ? Math.min(Math.max(filter.size(), 1), 500) : all.size();
         List<DebtorsListResponse.DebtorStudent> pageRows = all.stream()
@@ -190,6 +269,72 @@ public class DebtorService {
             .nextPaymentDate(debtSince)
             .groupName(groups.isEmpty() ? null : groups.get(0).getGroupName())
             .build();
+    }
+
+    /**
+     * Har qatorga (va guruhiga) bugungi holat va oxirgi kelgan sana — 2 so'rov (bugungi davomat, oxirgi PRESENT/LATE)
+     * + guruh bo'yicha dars kuni tekshiruvi (har guruh bir marta).
+     */
+    private void withToday(List<DebtorsListResponse.DebtorStudent> rows, LocalDate today) {
+        if (rows.isEmpty()) {
+            return;
+        }
+        List<Long> ids = rows.stream().map(DebtorsListResponse.DebtorStudent::getStudentId).toList();
+        Map<String, com.crm.entity.enums.AttendanceStatus> marked = new java.util.HashMap<>();
+        for (com.crm.entity.Attendance a : attendanceRepository.findByStudentIdsAndDate(ids, today)) {
+            marked.put(a.getStudent().getId() + ":" + a.getGroup().getId(), a.getStatus());
+        }
+        Map<String, LocalDate> last = new java.util.HashMap<>();
+        for (Object[] r : attendanceRepository.findLastAttendedByStudentIds(ids, ATTENDED)) {
+            last.put(r[0] + ":" + r[1], (LocalDate) r[2]);
+        }
+        Map<Long, Boolean> lessonToday = new java.util.HashMap<>();
+        for (DebtorsListResponse.DebtorStudent row : rows) {
+            TodayStatus best = null;
+            LocalDate lastAll = null;
+            for (DebtorsListResponse.DebtorGroup g : row.getGroups()) {
+                String key = row.getStudentId() + ":" + g.getGroupId();
+                com.crm.entity.enums.AttendanceStatus a = marked.get(key);
+                TodayStatus st;
+                if (a != null) {
+                    st = TodayStatus.valueOf(a.name());
+                } else if (lessonToday.computeIfAbsent(g.getGroupId(), id -> scheduleService.hasLessonOn(id, today))) {
+                    st = TodayStatus.NOT_MARKED;
+                } else {
+                    st = TodayStatus.NO_LESSON;
+                }
+                g.setTodayStatus(st.name());
+                g.setLastAttendedOn(last.get(key));
+                best = best == null || st.ordinal() < best.ordinal() ? st : best;
+                if (last.get(key) != null && (lastAll == null || last.get(key).isAfter(lastAll))) {
+                    lastAll = last.get(key);
+                }
+            }
+            row.setTodayStatus((best != null ? best : TodayStatus.NO_LESSON).name());
+            // Oxirgi kelgan sana — o'quvchining barcha guruhlari bo'yicha (qarzsiz guruh ham)
+            for (Map.Entry<String, LocalDate> e : last.entrySet()) {
+                if (e.getKey().startsWith(row.getStudentId() + ":") && (lastAll == null || e.getValue().isAfter(lastAll))) {
+                    lastAll = e.getValue();
+                }
+            }
+            row.setLastAttendedOn(lastAll);
+        }
+    }
+
+    private static java.util.function.Predicate<TodayStatus> parseToday(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String v = raw.trim().toUpperCase(java.util.Locale.ROOT);
+        if (v.equals("PRESENT")) {
+            return st -> st == TodayStatus.PRESENT || st == TodayStatus.LATE;     // bugun kelgan
+        }
+        try {
+            TodayStatus exact = TodayStatus.valueOf(v);
+            return st -> st == exact;
+        } catch (IllegalArgumentException e) {
+            throw com.crm.exception.CodedException.badRequest("debtors.today.invalid", raw);
+        }
     }
 
     // ── Kutilayotgan to'lovlar ─────────────────────────────────────────

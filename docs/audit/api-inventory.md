@@ -10,6 +10,20 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-10-25, davomatda qarzdor belgisi; qarzdorlarning bugungi davomati)
+
+> Buyurtmachi: o'qituvchi davomatda qarzdorni ko'radi (darsdan chiqaradi), admin — qarzdor bugun kelgan-kelmaganini.
+> Qarzdor ta'rifi — `DebtorService` (billing-v2 §4.5) bilan AYNAN bir xil: `DebtorService.debtFlags(groupId, studentIds, today)`
+> — guruh bo'yicha BITTA so'rov (`StudentGroupRepository.findWithDebtByStudentIds`), ACTIVE doirasi, OVERDUE =
+> `BillingStatusService.isOverdue`. Holat — bugungi (tanlangan sanadan qat'i nazar). Sxema o'zgarmadi (migratsiya yo'q).
+
+| Endpoint | Yangi maydonlar | Izoh |
+|---|---|---|
+| `GET /api/attendance/group/{groupId}?date` (SA, A, T), `POST /api/attendance/mark` javobi | `debtor`, `debtSince`, `debtDays`, `debtAmount`, `studentDebtor`, `studentDebtSince`, `studentDebtDays`, `studentDebtAmount`, `otherGroupDebt` | `debtor*` — shu guruh yozilmasi; `studentDebtor*` — o'quvchi bo'yicha (boshqa guruhdagi qarz ham); `otherGroupDebt` — boshqa guruhda OVERDUE. **Summa** (`debtAmount`, `studentDebtAmount`) — faqat SA / ADMIN / ACCOUNTANT, **TEACHER uchun null**. Oylik jurnal (frontend `AttendanceJournalPage` — har sana uchun shu endpoint) ham shu maydonlar bilan |
+| `GET /api/app/teacher/attendance/{groupId}`, `PUT` javobi (Mini App o'qituvchi) | `debtor`, `debtSince`, `debtDays`, `studentDebtor`, `studentDebtDays`, `otherGroupDebt`, `debtAmount` (har doim null) | [miniapp-api.md](../design/miniapp-api.md) §7 |
+| `GET /api/payments/debtors?…&today=` (SA, A, ACC) | qatorda `todayStatus`, `lastAttendedOn`; `groups[]` da ham `todayStatus`, `lastAttendedOn` | `todayStatus`: `PRESENT` / `LATE` / `ABSENT` / `EXCUSED` (bugungi davomat), `NOT_MARKED` (bugun dars bor, davomat yo'q), `NO_LESSON`; o'quvchi qatorida — guruhlari ichida eng "kelgan" (shu tartib). `lastAttendedOn` — oxirgi PRESENT/LATE (barcha guruhlar). Filtr `today=present` — bugun kelgan (PRESENT + LATE) qarzdorlar; aniq holat nomi ham (`today=NOT_MARKED`); noto'g'ri — 400 `debtors.today.invalid`. `totalDebtors`, `totalDebt` — filtrdan keyingi to'plam |
+| `GET /api/dashboard/director/debtors` | o'sha maydonlar | Filtr parametri yo'q |
+
 ## Yangilanishlar (2026-10-24, kitoblar ombori — 2-bosqich, V87)
 
 > Dizayn: [cash-and-books.md](../design/cash-and-books.md) §2, §2.7. **Tannarx** (`avgCost`, `stockValue`, `unitCost`, `lineCost`,

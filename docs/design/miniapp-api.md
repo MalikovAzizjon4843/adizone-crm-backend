@@ -372,9 +372,17 @@ Xabar:
   "unlockRequest": null,
   "students": [ { "studentId": 101, "fullName": "Ali Karimov", "status": null, "notes": null, "excused": null,
                   "excuseReason": null, "notice": { "id": 55, "type": "ABSENT", "comment": "Kasal",
-                                                    "createdAt": "2026-09-15T12:00:00" } } ] }
+                                                    "createdAt": "2026-09-15T12:00:00" },
+                  "debtor": true, "debtSince": "2026-09-04", "debtDays": 12,
+                  "studentDebtor": true, "studentDebtDays": 12, "otherGroupDebt": false, "debtAmount": null } ] }
 ```
 `lockReason`: `null` | `FUTURE` | `PAST_DATE` (ochish so'rovi kerak) | `UNLOCK_EXPIRED` | `SUBSTITUTED` | `NO_LESSON`.
+
+**Qarzdor belgisi (2026-10-25)** — o'qituvchi darsdan oldin qarzdorni ko'radi. Ta'rif CRM `/api/payments/debtors` bilan AYNAN
+bir xil (`DebtorService.debtFlags`, guruh bo'yicha bitta so'rov), holat — **bugungi** (tanlangan sanadan qat'i nazar):
+- `debtor` — shu guruh yozilmasi OVERDUE; `debtSince` / `debtDays` — shu yozilma qarzi qachondan / necha kun;
+- `studentDebtor` — o'quvchi qarzdor (istalgan guruhi bo'yicha), `studentDebtDays`; `otherGroupDebt` — boshqa guruhdagi qarz;
+- `debtAmount` — o'qituvchi rejimida **har doim null** (summa ko'rsatilmaydi). `PUT` javobi ham shu maydonlar bilan.
 
 `PUT /api/app/teacher/attendance/{groupId}?date` — `{ "items": [ {"studentId": 101, "status": "ABSENT", "notes": "Kasal", "excused": true, "excuseReason": "Kasal"} ] }` → yangilangan `attendance` ko'rinishi.
 - `status`: `PRESENT` | `LATE` | `ABSENT` | `EXCUSED`; `ABSENT`/`LATE`/`EXCUSED` — sabab (`notes` yoki `excuseReason`) majburiy (CRM qoidasi, 400).

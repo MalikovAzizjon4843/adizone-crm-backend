@@ -137,9 +137,11 @@ public class PaymentController {
             @RequestParam(name = "minDays", required = false) Integer minDays,
             @RequestParam(name = "groupId", required = false) Long groupId,
             @RequestParam(name = "page", required = false) Integer page,
-            @RequestParam(name = "size", required = false) Integer size) {
+            @RequestParam(name = "size", required = false) Integer size,
+            @RequestParam(name = "today", required = false) String today) {
+        // today=present — bugun kelgan qarzdorlar (PRESENT/LATE); yoki aniq holat: ABSENT, NOT_MARKED, NO_LESSON ...
         return ResponseEntity.ok(ApiResponse.success(paymentService.getDebtors(
-            new DebtorService.Filter(DebtorService.Scope.parse(scope), minDays, groupId, page, size))));
+            new DebtorService.Filter(DebtorService.Scope.parse(scope), minDays, groupId, page, size, today))));
     }
 
     @GetMapping("/calculate-debt")

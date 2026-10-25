@@ -55,6 +55,8 @@ public class AttendanceService {
     private final LessonSubstitutionService lessonSubstitutionService;
     private final AbsenceNoticeService absenceNoticeService;
     private final AttendanceDueService attendanceDueService;
+    private final com.crm.billing.DebtorService debtorService;
+    private final com.crm.billing.BillingStatusService billingStatusService;
 
     @Transactional
     @Audited(action = AuditAction.UPDATE, entity = "Attendance",
@@ -179,7 +181,7 @@ public class AttendanceService {
             // "Darsni X o'tdi" belgisi bo'lsa — dars o'tildi (CONDUCTED), shu tranzaksiyada
             lessonSubstitutionService.onAttendanceSaved(group.getId(), date, marker);
         }
-        return results;
+        return withDebt(results, group.getId());
     }
 
     /**
@@ -266,15 +268,15 @@ public class AttendanceService {
         Map<Long, AbsenceNoticeResponse> notices = absenceNoticeService.byStudent(groupId, d);
 
         if (!existing.isEmpty()) {
-            return existing.stream()
+            return withDebt(existing.stream()
                 .map(this::toResponse)
                 .peek(r -> r.setAbsenceNotice(notices.get(r.getStudentId())))
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()), groupId);
         }
 
         List<StudentGroup> activeStudents = studentGroupRepository.findByGroup_IdAndIsActiveTrue(groupId);
 
-        return activeStudents.stream()
+        return withDebt(activeStudents.stream()
             .map(sg -> AttendanceResponse.builder()
                 .studentId(sg.getStudent().getId())
                 .studentName(sg.getStudent().getFirstName() + " " + sg.getStudent().getLastName())
@@ -284,7 +286,32 @@ public class AttendanceService {
                 .notes("")
                 .absenceNotice(notices.get(sg.getStudent().getId()))
                 .build())
-            .collect(Collectors.toList());
+            .collect(Collectors.toList()), groupId);
+    }
+
+    /**
+     * Qarzdor belgisi (o'qituvchi davomatda qarzdorni ko'radi; admin — kelgan-kelmaganini): bugungi holat, guruh
+     * bo'yicha BITTA so'rov ({@link com.crm.billing.DebtorService#debtFlags} — /debtors bilan bir xil ta'rif).
+     * Summa ({@code debtAmount}, {@code studentDebtAmount}) — faqat SA / ADMIN / ACCOUNTANT.
+     */
+    private List<AttendanceResponse> withDebt(List<AttendanceResponse> rows, Long groupId) {
+        Map<Long, com.crm.billing.DebtorService.DebtFlag> flags = debtorService.debtFlags(groupId,
+            rows.stream().map(AttendanceResponse::getStudentId).distinct().toList(), billingStatusService.today());
+        boolean amounts = com.crm.billing.BillingAuth.hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT");
+        for (AttendanceResponse r : rows) {
+            com.crm.billing.DebtorService.DebtFlag f =
+                flags.getOrDefault(r.getStudentId(), com.crm.billing.DebtorService.DebtFlag.NONE);
+            r.setDebtor(f.debtor());
+            r.setDebtSince(f.debtSince());
+            r.setDebtDays(f.debtDays());
+            r.setDebtAmount(amounts ? f.debtAmount() : null);
+            r.setStudentDebtor(f.studentDebtor());
+            r.setStudentDebtSince(f.studentDebtSince());
+            r.setStudentDebtDays(f.studentDebtDays());
+            r.setStudentDebtAmount(amounts ? f.studentDebtAmount() : null);
+            r.setOtherGroupDebt(f.otherGroupDebt());
+        }
+        return rows;
     }
 
     @Transactional(readOnly = true)

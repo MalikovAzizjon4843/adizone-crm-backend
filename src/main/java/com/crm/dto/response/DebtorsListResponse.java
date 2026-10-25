@@ -60,6 +60,14 @@ public class DebtorsListResponse {
         private LocalDate nextPaymentDate;
         /** Birinchi (eng eski qarzli) guruh nomi. */
         private String groupName;
+
+        /**
+         * Bugungi holat (guruhlari ichida eng "kelgan"): PRESENT, LATE, ABSENT, EXCUSED, NOT_MARKED (bugun dars bor,
+         * davomat yo'q), NO_LESSON. Filtr — {@code ?today=present} (PRESENT yoki LATE).
+         */
+        private String todayStatus;
+        /** Oxirgi PRESENT / LATE sanasi (barcha guruhlari bo'yicha); hech kelmagan — null. */
+        private LocalDate lastAttendedOn;
     }
 
     @Data
@@ -75,5 +83,9 @@ public class DebtorsListResponse {
         private long daysOverdue;
         private String status;
         private boolean closed;
+        /** Shu guruhdagi bugungi holat (o'quvchi qatoridagi bilan bir xil qiymatlar). */
+        private String todayStatus;
+        /** Shu guruhdagi oxirgi PRESENT / LATE sanasi. */
+        private LocalDate lastAttendedOn;
     }
 }

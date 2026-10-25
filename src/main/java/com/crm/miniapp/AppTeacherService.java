@@ -77,6 +77,8 @@ public class AppTeacherService {
     private final AttendanceUnlockRequestService unlockService;
     private final GroupScheduleService groupScheduleService;
     private final com.crm.service.AttendanceDueService attendanceDueService;
+    private final com.crm.billing.DebtorService debtorService;
+    private final com.crm.billing.BillingStatusService statusService;
     private final org.springframework.transaction.support.TransactionTemplate tx;
     private final Clock billingClock;
 
@@ -212,13 +214,21 @@ public class AppTeacherService {
             attendanceRepository.findByGroup_IdAndAttendanceDate(groupId, day)
                 .forEach(a -> marked.put(a.getStudent().getId(), a));
             List<AppDtos.TeacherAttendanceStudent> students = new ArrayList<>();
-            studentsOf(groupId, day).forEach((studentId, name) -> {
+            Map<Long, String> roster = studentsOf(groupId, day);
+            // Qarzdor belgisi — guruh bo'yicha bitta so'rov (CRM davomati bilan bir xil ta'rif); summa — yo'q
+            Map<Long, com.crm.billing.DebtorService.DebtFlag> debts =
+                debtorService.debtFlags(groupId, roster.keySet(), statusService.today());
+            roster.forEach((studentId, name) -> {
                 Attendance a = marked.get(studentId);
                 AbsenceNoticeResponse n = notices.get(studentId);
+                com.crm.billing.DebtorService.DebtFlag f =
+                    debts.getOrDefault(studentId, com.crm.billing.DebtorService.DebtFlag.NONE);
                 students.add(new AppDtos.TeacherAttendanceStudent(studentId, name,
                     a != null ? a.getStatus().name() : null, a != null ? a.getNotes() : null,
                     a != null ? a.getExcused() : null, a != null ? a.getExcuseReason() : null,
-                    n != null ? new AppDtos.AbsenceBrief(n.id(), n.type(), n.comment(), n.createdAt()) : null));
+                    n != null ? new AppDtos.AbsenceBrief(n.id(), n.type(), n.comment(), n.createdAt()) : null,
+                    f.debtor(), f.debtSince(), f.debtDays(), f.studentDebtor(), f.studentDebtDays(),
+                    f.otherGroupDebt(), null));
             });
             String lock = lockReason(staff, groupId, day, true);
             AppDtos.UnlockInfo unlock = asStaff(staff.user(), () -> unlockService.getMyRequests(groupId, day))

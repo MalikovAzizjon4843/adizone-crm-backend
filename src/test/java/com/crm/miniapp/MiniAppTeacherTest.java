@@ -46,6 +46,7 @@ class MiniAppTeacherTest extends MiniAppItBase {
     @Autowired private AttendanceRepository attendanceRepository;
     @Autowired private AttendanceUnlockRequestRepository unlockRepository;
     @Autowired private LessonSubstitutionRepository substitutionRepository;
+    @Autowired private com.crm.repository.StudentGroupRepository studentGroupRepository;
 
     private LocalDate today;
     private User teacherUser;
@@ -123,6 +124,30 @@ class MiniAppTeacherTest extends MiniAppItBase {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.data.lessons", hasSize(1)))
             .andExpect(jsonPath("$.data.lessons[0].groupId").value(groupId));
+    }
+
+    /** Qarzdor belgisi o'qituvchi rejimida: CRM davomati bilan bir xil ta'rif, summa — har doim null. */
+    @Test
+    void attendance_showsDebtorFlag_withoutAmount() throws Exception {
+        inTx(() -> {
+            var sg = studentGroupRepository.findByStudentIdAndIsActiveTrue(studentA).get(0);
+            sg.setBalance(java.math.BigDecimal.valueOf(-700_000));
+            sg.setDebtSince(today.minusDays(12));
+            studentGroupRepository.save(sg);
+        });
+        mvc.perform(get("/api/app/teacher/attendance/{id}", groupId).header("Authorization", bearer(token)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.students[?(@.studentId == " + studentA + ")].debtor").value(true))
+            .andExpect(jsonPath("$.data.students[?(@.studentId == " + studentA + ")].debtDays").value(12))
+            .andExpect(jsonPath("$.data.students[?(@.studentId == " + studentA + ")].studentDebtor").value(true))
+            .andExpect(jsonPath("$.data.students[?(@.studentId == " + studentA + ")].debtAmount")
+                .value(org.hamcrest.Matchers.contains(org.hamcrest.Matchers.nullValue())))
+            .andExpect(jsonPath("$.data.students[?(@.studentId == " + studentB + ")].debtor").value(false));
+        // Saqlash javobi ham belgi bilan
+        save(groupId, today, "[{\"studentId\":" + studentA + ",\"status\":\"PRESENT\"},"
+                + "{\"studentId\":" + studentB + ",\"status\":\"PRESENT\"}]")
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.students[?(@.studentId == " + studentA + ")].debtor").value(true));
     }
 
     @Test

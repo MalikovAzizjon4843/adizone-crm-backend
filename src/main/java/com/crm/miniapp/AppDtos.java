@@ -254,8 +254,16 @@ public final class AppDtos {
                                     List<TeacherAttendanceStudent> students) {
     }
 
+    /**
+     * Qarzdor belgisi (CRM davomati bilan bir xil — {@code DebtorService.debtFlags}, bugungi holat): {@code debtor} —
+     * shu guruh yozilmasi bo'yicha, {@code studentDebtor} — istalgan guruhi bo'yicha, {@code otherGroupDebt} — boshqa
+     * guruhdagi qarz. {@code debtAmount} — o'qituvchiga har doim null (summa ko'rsatilmaydi).
+     */
     public record TeacherAttendanceStudent(Long studentId, String fullName, String status, String notes,
-                                           Boolean excused, String excuseReason, AbsenceBrief notice) {
+                                           Boolean excused, String excuseReason, AbsenceBrief notice,
+                                           boolean debtor, LocalDate debtSince, Long debtDays,
+                                           boolean studentDebtor, Long studentDebtDays, boolean otherGroupDebt,
+                                           java.math.BigDecimal debtAmount) {
     }
 
     public record AbsenceBrief(Long id, String type, String comment, LocalDateTime createdAt) {

@@ -279,6 +279,15 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
         """)
     List<StudentGroup> findWithDebt();
 
+    /** Davomat ro'yxati uchun (bitta so'rov): shu o'quvchilarning qarzli SG lari — {@link #findWithDebt} sharti bilan. */
+    @Query(value = """
+        SELECT sg FROM StudentGroup sg
+        JOIN FETCH sg.student s
+        JOIN FETCH sg.group g
+        WHERE sg.balance < 0 AND sg.debtSince IS NOT NULL AND s.id IN :studentIds
+        """)
+    List<StudentGroup> findWithDebtByStudentIds(@Param(value = "studentIds") java.util.Collection<Long> studentIds);
+
 
     @Query("SELECT sg FROM StudentGroup sg WHERE sg.isTrial = true AND sg.isActive = true")
     List<StudentGroup> findActiveTrials();
