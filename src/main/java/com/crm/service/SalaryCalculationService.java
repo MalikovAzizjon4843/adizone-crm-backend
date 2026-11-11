@@ -32,6 +32,7 @@ import com.crm.entity.enums.BillingPeriodStatus;
 import com.crm.entity.enums.BonusPenaltyKind;
 import com.crm.entity.enums.BonusPenaltyStatus;
 import com.crm.entity.enums.BonusTargetType;
+import com.crm.entity.enums.KpiMetric;
 import com.crm.entity.enums.LeaveStatus;
 import com.crm.entity.enums.LessonType;
 import com.crm.entity.enums.SubstitutionStatus;
@@ -597,9 +598,41 @@ public class SalaryCalculationService {
      * PAID, naqdli to'lov sanasi shu oyda.
      */
     private List<NewStudent> newStudents(Long userId, LocalDate from, LocalDate to) {
-        List<Student> students = em.createQuery(
+        return newStudentsAmong(em.createQuery(
                 "SELECT s FROM Student s WHERE s.attributedUserId = :u ORDER BY s.id", Student.class)
-            .setParameter("u", userId).getResultList();
+            .setParameter("u", userId).getResultList(), from, to);
+    }
+
+    /**
+     * KPI {@code NEW_STUDENTS} (V88): oy davomida MARKAZGA kelgan yangi o'quvchilar — {@link #newStudents} bilan AYNAN
+     * bir ta'rif ({@link #newStudentsAmong}), lekin {@code attributed_user} bo'yicha emas, barcha o'quvchilar ichidan.
+     * Hamma o'quvchini yuklamaslik uchun avval zaruriy shart bo'yicha nomzodlar (ta'rifdan keng to'plam): oyda
+     * {@code max(paidOn, periodStart)} ga tushadigan to'langan yig'iladigan davri bor, yoki oyda PAID to'lovi bor.
+     * Yangi o'quvchining "birinchi to'langan davri" (yoki davrsizda birinchi to'lovi) aynan shunday bo'ladi —
+     * nomzodlar ichida ta'rif o'quvchining butun tarixi bo'yicha qo'llanadi.
+     */
+    private List<NewStudent> centerNewStudents(LocalDate from, LocalDate to) {
+        Set<Long> candidates = new TreeSet<>(em.createQuery("""
+                SELECT DISTINCT sg.student.id FROM BillingPeriod bp, StudentGroup sg
+                WHERE sg.id = bp.studentGroupId AND bp.chargeTxId IS NOT NULL AND bp.status IN :st
+                  AND bp.paidOn IS NOT NULL AND bp.paidOn <= :to AND bp.periodStart <= :to
+                  AND (bp.paidOn >= :f OR bp.periodStart >= :f)
+                """, Long.class)
+            .setParameter("st", COLLECTIBLE).setParameter("f", from).setParameter("to", to).getResultList());
+        candidates.addAll(em.createQuery("""
+                SELECT DISTINCT p.student.id FROM Payment p
+                WHERE p.status = :paid AND p.paymentDate BETWEEN :f AND :to
+                """, Long.class)
+            .setParameter("paid", PaymentStatus.PAID).setParameter("f", from).setParameter("to", to).getResultList());
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        return newStudentsAmong(em.createQuery("SELECT s FROM Student s WHERE s.id IN :ids ORDER BY s.id", Student.class)
+            .setParameter("ids", candidates).getResultList(), from, to);
+    }
+
+    /** "Yangi o'quvchi" ta'rifi (yuqorida) berilgan o'quvchilar to'plamida. */
+    private List<NewStudent> newStudentsAmong(List<Student> students, LocalDate from, LocalDate to) {
         if (students.isEmpty()) {
             return List.of();
         }
@@ -912,12 +945,15 @@ public class SalaryCalculationService {
 
     /**
      * ADMIN / SALES v3: {@code gross = uzs(fiksa × stavka) + yangi o'quvchi bonusi × soni (stavkasiz) + KPI − haqsiz
-     * ta'til} (ta'til ayirmasi stavkali fiksadan). KPI (faqat ADMIN): {@code faol > threshold} bo'lgan eng yuqori
-     * pog'ona bonusi, yig'ilmaydi.
+     * ta'til} (ta'til ayirmasi stavkali fiksadan). KPI — ADMIN (har doim, pog'onasiz bo'lsa ham qator) va SALES_HEAD
+     * (pog'onasi bo'lsa; V88): qoida metrikasi ({@link KpiMetric}) {@code > threshold} (pog'ona {@code inclusive} —
+     * {@code ≥}) bo'lgan eng yuqori pog'ona bonusi, yig'ilmaydi.
      */
     private SalaryCalculationDto staffV3(User user, SalaryRule rule, int month, int year,
                                          LocalDate from, LocalDate to) {
         boolean admin = user.getRole() == UserRole.ADMIN;
+        boolean kpiOn = admin || (user.getRole() == UserRole.SALES_HEAD
+            && rule.getKpiTiers() != null && !rule.getKpiTiers().isEmpty());
         BigDecimal baseFixed = nz(rule.getFixedSalary());
         BigDecimal rate = rate(rule);
         BigDecimal fixed = Money.uzs(baseFixed.multiply(rate));
@@ -935,19 +971,23 @@ public class SalaryCalculationService {
         Kpi kpi = null;
         BigDecimal kpiAmount = BigDecimal.ZERO;
         Integer active = null;
-        if (admin) {
-            long actual = activeV3(from, to);
+        if (kpiOn) {
+            KpiMetric metric = rule.getKpiMetric();
+            boolean newMetric = metric == KpiMetric.NEW_STUDENTS;
+            long actual = newMetric ? centerNewStudents(from, to).size() : activeV3(from, to);
             PayrollCalculationDetails.KpiTier hit = tiers.stream()
-                .filter(t -> actual > t.threshold())
+                .filter(t -> t.reachedBy(actual))
                 .max(Comparator.comparing(PayrollCalculationDetails.KpiTier::threshold))
                 .orElse(null);
             PayrollCalculationDetails.KpiTier shown = hit != null ? hit : (tiers.isEmpty() ? null : tiers.get(0));
             kpiAmount = hit != null ? hit.bonus() : BigDecimal.ZERO;
-            kpi = new Kpi(shown != null ? shown.threshold() : null, actual, hit != null, kpiAmount, tiers);
-            active = (int) actual;
-            String formula = shown == null ? "KPI: pog'ona yo'q (faol " + actual + ")"
-                : hit != null ? "KPI: " + actual + " > " + hit.threshold() + " → " + sum(hit.bonus())
-                : "KPI: " + actual + " ≤ " + shown.threshold() + " → 0";
+            kpi = new Kpi(shown != null ? shown.threshold() : null, actual, hit != null, kpiAmount, tiers, metric.name());
+            active = newMetric ? null : (int) actual;
+            String value = (newMetric ? "yangi o'quvchilar " : "") + actual;
+            String formula = shown == null ? "KPI: pog'ona yo'q (" + (newMetric ? "yangi o'quvchilar " : "faol ") + actual + ")"
+                : hit != null ? "KPI: " + value + (Boolean.TRUE.equals(hit.inclusive()) ? " ≥ " : " > ")
+                    + hit.threshold() + " → " + sum(hit.bonus())
+                : "KPI: " + value + (Boolean.TRUE.equals(shown.inclusive()) ? " < " : " ≤ ") + shown.threshold() + " → 0";
             lines.add(new Line(PayrollCalculationDetails.KPI, "KPI bonusi", shown != null ? shown.bonus() : BigDecimal.ZERO,
                 hit != null ? BigDecimal.ONE : BigDecimal.ZERO, kpiAmount, null, formula));
         }
@@ -1052,13 +1092,13 @@ public class SalaryCalculationService {
     private static List<PayrollCalculationDetails.KpiTier> kpiTiers(SalaryRule rule) {
         if (rule.getKpiTiers() != null && !rule.getKpiTiers().isEmpty()) {
             return rule.getKpiTiers().stream()
-                .map(t -> new PayrollCalculationDetails.KpiTier(t.getThreshold(), nz(t.getBonus())))
+                .map(t -> new PayrollCalculationDetails.KpiTier(t.getThreshold(), nz(t.getBonus()), t.isInclusive()))
                 .sorted(Comparator.comparing(PayrollCalculationDetails.KpiTier::threshold))
                 .toList();
         }
         if (rule.getKpiThreshold() != null && nz(rule.getKpiBonus()).signum() > 0) {
             return List.of(new PayrollCalculationDetails.KpiTier(Math.max(rule.getKpiThreshold() - 1, 0),
-                rule.getKpiBonus()));
+                rule.getKpiBonus(), false));
         }
         return List.of();
     }
@@ -1080,7 +1120,8 @@ public class SalaryCalculationService {
         return new RuleSnapshot(r.getId(), r.getUser() != null ? "PERSONAL" : "ROLE",
             r.getRole() != null ? r.getRole().name() : null, r.getEffectiveFrom(), r.getEffectiveTo(),
             nz(r.getFixedSalary()), nz(r.getPerPayingStudent()), nz(r.getPerNewStudent()),
-            r.getKpiThreshold(), nz(r.getKpiBonus()), substituteRate, r.getPerStudentIndividual(), rate(r), tiers);
+            r.getKpiThreshold(), nz(r.getKpiBonus()), substituteRate, r.getPerStudentIndividual(), rate(r), tiers,
+            r.getKpiMetric().name());
     }
 
     /** {@code 180000} → {@code "180 000"}. */

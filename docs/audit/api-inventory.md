@@ -10,6 +10,20 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-11-11, oylik KPI metrikasi — SALES_HEAD yangi o'quvchilar pog'onalari, "≥" pog'onalar — V88)
+
+> Buyurtmachi: SALES_HEAD oyligi = fiksa × stavka + oy davomida **markazga** kelgan yangi o'quvchilar soni bo'yicha
+> pog'ona (masalan ≥100 → 1 000 000, ≥200 → 2 000 000, ≥300 → 4 000 000; eng yuqorisi, yig'ilmaydi; summalar qoidada).
+> Migratsiya V88: `salary_rules.kpi_metric` (`ACTIVE_STUDENTS` | `NEW_STUDENTS`, standart `ACTIVE_STUDENTS`),
+> `salary_rule_kpi_tiers.inclusive` (standart false). Mavjud admin qoidalari va pog'onalari o'zgarmaydi.
+> Formulalar: [payroll-v2.md §14](../design/payroll-v2.md).
+
+| Endpoint | Rollar | O'zgarish |
+|---|---|---|
+| `POST/PUT /api/salary-rules` | SA | Yangi ixtiyoriy **`kpiMetric`**: `ACTIVE_STUDENTS` (oy oxiridagi faol o'quvchilar; berilmasa shu) \| `NEW_STUDENTS` (oyda markazga kelgan yangi o'quvchilar — "yangi o'quvchi" ta'rifi, `attributed_user` bo'yicha emas). **`kpiTiers[]`** da yangi ixtiyoriy **`inclusive`**: `true` — "metrika ≥ threshold", `false`/null — "metrika > threshold" (avvalgidek). `kpiTiers` va `kpiMetric` endi **ADMIN va SALES_HEAD** uchun; SALES_MANAGER / TEACHER da `kpiTiers` yoki `kpiMetric: NEW_STUDENTS` → **400** `salaryRule.field.notApplicable` (avvalgidek). Eski `kpiThreshold`/`kpiBonus` — faqat ADMIN (SALES_HEAD da → 400). Takroriy chegara → 400 `salaryRule.kpiTiers.invalid`; noma'lum `kpiMetric` → 400. Javobda `kpiMetric`, `kpiTiers[].inclusive`; `kpiThreshold`/`kpiBonus` (eski "≥" ko'rinish) faqat ADMIN + `ACTIVE_STUDENTS` da (eng past pog'ona: "> N" → N + 1, "≥ N" → N), aks holda `null` / 0 |
+| `GET /api/salary-rules`, `GET /api/salary-rules/{id}` | SA | Javobda `kpiMetric`, `kpiTiers[].inclusive` (mavjud qoidalarda `ACTIVE_STUDENTS`, `false`) |
+| `GET /api/payroll/calculate*`, `POST /api/payroll/generate`, `/{id}/recalculate`, `GET /api/payroll/{id}` | SA, A, ACC (avvalgidek) | v3 (oktyabr 2026 dan): SALES_HEAD qoidasida pog'ona bo'lsa — `KPI` qatori (pog'onasiz SALES_HEAD — avvalgidek, KPI yo'q). `formula`: `"KPI: yangi o'quvchilar 214 ≥ 200 → 2 000 000"`, bajarilmasa `"KPI: yangi o'quvchilar 99 < 100 → 0"`; admin `"KPI: 520 > 500 → 1 000 000"` (o'zgarmagan) yoki "≥" pog'onada `"KPI: 520 ≥ 500 → …"`. `items.kpi` da yangi `metric` (`ACTIVE_STUDENTS` \| `NEW_STUDENTS`; eski snapshot'da null), `tiers[].inclusive`; `rule.kpiMetric`. `NEW_STUDENTS` da `totalActiveStudents` — null, soni `items.kpi.actual` da |
+
 ## Yangilanishlar (2026-11-11, davomat intizomida kelganlar; oxirgi guruh; o'quvchi oqimi va retention)
 
 > Buyurtmachi: (A) "Davomat intizomi"dagi `11/11` (belgilangan/kutilgan) "11 kishi keldi" deb o'qilyapti; (B) chiqib
@@ -2321,9 +2335,9 @@ Xarajatni tahrirlash/o'chirish endpointi YO'Q.
 
 `GET /api/salary-rules/{id}` — **qo'shildi** (payroll v2). `PUT` — qoida APPROVED/PAID oylikda ishlatilgan bo'lsa 409 `salaryRule.inUse`; `POST` (`effectiveFrom` bilan) shu doiradagi oldinroq boshlangan faol qoidani `effectiveFrom − 1` da yopadi, shu sanadan yoki keyin boshlanganini nofaol qiladi (ishlatilgan bo'lsa 409 `salaryRule.overlapsUsed`). Batafsil: [`payroll-v2-api.md` §4](../design/payroll-v2-api.md).
 
-**`SalaryRuleRequest`** (payroll v2 — yakuniy nomlar): `role: UserRole` — `@NotNull` (TEACHER/ADMIN/SALES_MANAGER); `userId: Long?` (shaxsiy qoida, roli `role` ga teng); [PUL] `fixedSalary`, `perPayingStudent` (TEACHER), `perNewStudent` (ADMIN, SALES), `kpiBonus` (ADMIN) — hammasi ≥ 0; `kpiThreshold: Integer` (ADMIN); `isActive: Boolean` (null → true); `effectiveFrom: LocalDate?`, `effectiveTo: LocalDate?`. Noma'lum/eski nomlar (`baseSalary`, `perStudentFee`, `newStudentBonus`) → 400 `salaryRule.field.unknown`; rolga tegishli bo'lmagan nol emas maydon → 400 `salaryRule.field.notApplicable`.
+**`SalaryRuleRequest`** (payroll v2 — yakuniy nomlar): `role: UserRole` — `@NotNull` (TEACHER/ADMIN/SALES_MANAGER); `userId: Long?` (shaxsiy qoida, roli `role` ga teng); [PUL] `fixedSalary`, `perPayingStudent` (TEACHER), `perNewStudent` (ADMIN, SALES), `kpiBonus` (ADMIN) — hammasi ≥ 0; `kpiThreshold: Integer` (ADMIN); payroll v3: `perStudentIndividual` (TEACHER), `employmentRate`, `kpiMetric: KpiMetric?` (`ACTIVE_STUDENTS` \| `NEW_STUDENTS`, null → `ACTIVE_STUDENTS`; ADMIN, SALES_HEAD — V88), `kpiTiers: [{threshold, bonus, inclusive?}]` (ADMIN, SALES_HEAD); `isActive: Boolean` (null → true); `effectiveFrom: LocalDate?`, `effectiveTo: LocalDate?`. Noma'lum/eski nomlar (`baseSalary`, `perStudentFee`, `newStudentBonus`) → 400 `salaryRule.field.unknown`; rolga tegishli bo'lmagan nol emas maydon → 400 `salaryRule.field.notApplicable`.
 
-**`SalaryRuleResponse`**: `id`, `role`, `userId?`, `userName?`, [PUL] `fixedSalary`, `perPayingStudent`, `perNewStudent`, `kpiThreshold`, [PUL] `kpiBonus`, `isActive`, `effectiveFrom`, `effectiveTo`, `createdAt`, `updatedAt` (so'rov bilan bir xil nomlar).
+**`SalaryRuleResponse`**: `id`, `role`, `userId?`, `userName?`, [PUL] `fixedSalary`, `perPayingStudent`, `perNewStudent`, `kpiThreshold`, [PUL] `kpiBonus`, `perStudentIndividual`, `employmentRate`, `kpiMetric`, `kpiTiers[{threshold, bonus, inclusive}]`, `isActive`, `effectiveFrom`, `effectiveTo`, `createdAt`, `updatedAt` (so'rov bilan bir xil nomlar).
 
 **Enum** `UserRole` = `SUPER_ADMIN, ADMIN, SALES_MANAGER, TEACHER, ACCOUNTANT, STUDENT, PARENT` (`entity/enums/UserRole.java:3-11`).
 

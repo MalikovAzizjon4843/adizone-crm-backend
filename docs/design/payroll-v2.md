@@ -427,23 +427,50 @@ gross = uzs(fixed × stavka) + uzs(per_student_fee × Σ GROUP birlik) + uzs(per
 
 **Admin / sotuv:**
 ```
-gross = uzs(fixed × stavka) + per_new_student × yangi o'quvchilar (stavkasiz) + KPI (faqat ADMIN) − haqsiz ta'til
-KPI = max{ tier.bonus : faol > tier.threshold }   (yig'ilmaydi; pog'onalar salary_rule_kpi_tiers)
-faol = oy oxirida status ACTIVE (student_status_history dan tiklanadi)
+gross = uzs(fixed × stavka) + per_new_student × yangi o'quvchilar (stavkasiz) + KPI (ADMIN, SALES_HEAD) − haqsiz ta'til
+KPI = max{ tier.bonus : metrika > tier.threshold  (tier.inclusive = true bo'lsa: metrika ≥ tier.threshold) }
+      (yig'ilmaydi; pog'onalar salary_rule_kpi_tiers)
+metrika = salary_rules.kpi_metric:
+  ACTIVE_STUDENTS (standart) — faol:
+       oy oxirida status ACTIVE (student_status_history dan tiklanadi)
        VA [ oy bilan kesishadigan MONTHLY davri oy oxirigacha PAYMENT bilan to'liq yoki qisman qoplangan
             YOKI darsbay (sinovda emas) yozilmasi bo'yicha shu oyda PAID to'lov ]
+  NEW_STUDENTS — oy davomida MARKAZGA kelgan yangi o'quvchilar soni: §2.2 ta'rifi AYNAN (birinchi real to'lov bilan
+       yopilgan davri shu oyga tushgan; davrsizda — birinchi PAID to'lovi shu oyda), lekin attributed_user bo'yicha
+       emas — barcha o'quvchilar ichidan
 ```
-Yangi o'quvchi ta'rifi o'zgarmagan (§2.2).
+Yangi o'quvchi ta'rifi o'zgarmagan (§2.2); `per_new_student` qatori hamon xodimga biriktirilgan (`attributed_user`)
+yangi o'quvchilar bo'yicha.
 
-**Qoida.** `per_student_individual` (TEACHER), `employment_rate` (0 < r ≤ 1, standart 1), `kpiTiers` (ADMIN).
+**KPI metrikasi va "≥" pog'onalar (`V88__salary_rule_kpi_metric_inclusive.sql`, buyurtmachi 2026-11).**
+- `salary_rules.kpi_metric` — `ACTIVE_STUDENTS | NEW_STUDENTS`, NOT NULL DEFAULT `ACTIVE_STUDENTS`: mavjud admin
+  qoidalari o'zgarmaydi. `salary_rule_kpi_tiers.inclusive` — NOT NULL DEFAULT false (false — ">", true — "≥"):
+  mavjud pog'onalar o'zgarmaydi. CHECK `kpi_metric = … OR …` (EnumCheckConstraintCleaner sababli `IN` emas).
+- KPI pog'onalari ADMIN va SALES_HEAD uchun. ADMIN — har doim KPI qatori (pog'onasiz bo'lsa ham, avvalgidek);
+  SALES_HEAD — faqat pog'onasi bo'lsa (pog'onasiz SALES_HEAD oyligi avvalgidek). SALES_MANAGER, TEACHER — yo'q.
+- Misol (SALES_HEAD): fiksa 5 000 000 × stavka 1, `NEW_STUDENTS`, pog'onalar ≥100 → 1 000 000, ≥200 → 2 000 000,
+  ≥300 → 4 000 000 (summalar qoidada sozlanadi). Oyda 99 yangi → 0; 199 → 1 000 000; 200 → 2 000 000;
+  350 → 4 000 000 (yig'ilmaydi).
+- Eski `kpi_threshold` / `kpi_bonus` (v2 hisobi) faqat ADMIN + `ACTIVE_STUDENTS` da eng past pog'onani "≥"
+  ko'rinishida aks ettiradi ("> N" → N + 1, "≥ N" → N); boshqa holatda NULL / 0 (v2 da KPI faqat ADMIN, faol).
+- V88 ADMIN bo'lmagan qoidada pog'ona topsa NOTICE beradi (V82 eski ustunlarni rolidan qat'i nazar ko'chirgan;
+  endi SALES_HEAD da qo'llanadi) — ko'rib chiqing, ma'lumot o'zgartirilmaydi.
+- Markaz bo'yicha hisob butun o'quvchilar bazasini yuklamaydi: avval zaruriy shart bo'yicha nomzodlar (oyda
+  `max(paidOn, periodStart)` ga tushgan to'langan davri yoki oydagi PAID to'lovi bor), keyin §2.2 ta'rifi
+  o'quvchining butun tarixi bo'yicha (`SalaryCalculationService.centerNewStudents` → `newStudentsAmong`).
+
+**Qoida.** `per_student_individual` (TEACHER), `employment_rate` (0 < r ≤ 1, standart 1), `kpiMetric` va
+`kpiTiers[{threshold, bonus, inclusive}]` (ADMIN, SALES_HEAD; V88).
 Eski `kpi_threshold` / `kpi_bonus` ("≥") V82 da bitta pog'onaga `threshold − 1` bilan ko'chadi; API'da `kpiTiers`
 berilmasa eski maydonlar xuddi shunday aylantiriladi, eski ustunlar eng past pog'onani aks ettiradi (v2 hisobi uchun).
 
 **Tafsilot (v3).** Qatorlarda `formula`: `"Fiksa 4 000 000 × 0.75"`, `"Guruh 23.4286 × 180 000"`,
-`"Individual 1 × 700 000"`, `"Yangi o'quvchi 26 × 50 000"`, `"KPI: 520 > 500 → 1 000 000"`. `items.paidPeriods[]` da
-`lessonType, periodAmount, paidInMonth, paidTotal, unit, partial`; `items.lessonEnrollments[]` da `lessonType,
-paidInMonth, monthlyEquivalent` (`share` — birlik); `items.kpi` da `bonus, tiers`; `rule` da `perStudentIndividual,
-employmentRate, kpiTiers`.
+`"Individual 1 × 700 000"`, `"Yangi o'quvchi 26 × 50 000"`, `"KPI: 520 > 500 → 1 000 000"` (V88: `"KPI: 520 ≥ 500 →
+…"`, bajarilmasa `"KPI: 499 < 500 → 0"`; `NEW_STUDENTS` da `"KPI: yangi o'quvchilar 214 ≥ 200 → 2 000 000"`).
+`items.paidPeriods[]` da `lessonType, periodAmount, paidInMonth, paidTotal, unit, partial`; `items.lessonEnrollments[]`
+da `lessonType, paidInMonth, monthlyEquivalent` (`share` — birlik); `items.kpi` da `bonus, tiers`, V88: `metric`,
+`tiers[].inclusive`; `rule` da `perStudentIndividual, employmentRate, kpiTiers`, V88: `kpiMetric`. `NEW_STUDENTS` da
+`totalActiveStudents` — null (soni `items.kpi.actual` da).
 
 **payroll.teacher_id** — NULL bo'la oladi (admin/sotuv), CHECK `teacher_id IS NOT NULL OR user_id IS NOT NULL`
 (prod'da qo'lda `payroll_owner_chk`; V82 ta'rifi bo'yicha topadi, ikkinchisini qo'shmaydi).

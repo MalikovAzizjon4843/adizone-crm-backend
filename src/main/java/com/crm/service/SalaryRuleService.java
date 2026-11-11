@@ -5,6 +5,7 @@ import com.crm.dto.response.SalaryRuleResponse;
 import com.crm.entity.SalaryRule;
 import com.crm.entity.SalaryRuleKpiTier;
 import com.crm.entity.User;
+import com.crm.entity.enums.KpiMetric;
 import com.crm.entity.enums.PayrollStatus;
 import com.crm.entity.enums.UserRole;
 import com.crm.exception.CodedException;
@@ -27,8 +28,9 @@ import java.util.Set;
  * Oylik qoidalari (faqat SUPER_ADMIN) — docs/design/payroll-v2.md §7.
  *
  * <p>Maydonlar rolga bog'liq: TEACHER — {@code fixedSalary, perPayingStudent, substituteLessonRate};
- * SALES_MANAGER, SALES_HEAD — {@code fixedSalary, perNewStudent}; ADMIN — {@code fixedSalary, perNewStudent,
- * kpiThreshold, kpiBonus}. Rolga tegishli bo'lmagan maydon nol emas bo'lsa 400 — hisobda
+ * SALES_MANAGER — {@code fixedSalary, perNewStudent}; SALES_HEAD — {@code fixedSalary, perNewStudent, kpiMetric,
+ * kpiTiers}; ADMIN — {@code fixedSalary, perNewStudent, kpiMetric, kpiTiers} (va eski {@code kpiThreshold, kpiBonus}).
+ * Hammasida {@code employmentRate}. Rolga tegishli bo'lmagan maydon nol emas bo'lsa 400 — hisobda
  * baribir ishlatilmaydi va "saqlandi, lekin ta'sir qilmadi" holati bo'lmasin.
  */
 @Service
@@ -37,6 +39,9 @@ public class SalaryRuleService {
 
     public static final Set<UserRole> SALARY_ROLES =
         EnumSet.of(UserRole.TEACHER, UserRole.ADMIN, UserRole.SALES_MANAGER, UserRole.SALES_HEAD);
+
+    /** KPI pog'onalari ruxsat etilgan rollar (payroll v3, V88). */
+    public static final Set<UserRole> KPI_ROLES = EnumSet.of(UserRole.ADMIN, UserRole.SALES_HEAD);
 
     private static final Set<PayrollStatus> USED_STATUSES = EnumSet.of(PayrollStatus.APPROVED, PayrollStatus.PAID);
 
@@ -149,7 +154,7 @@ public class SalaryRuleService {
         rule.setSubstituteLessonRate(role == UserRole.TEACHER ? request.getSubstituteLessonRate() : null);
         rule.setPerStudentIndividual(role == UserRole.TEACHER ? request.getPerStudentIndividual() : null);
         rule.setEmploymentRate(employmentRate(request.getEmploymentRate()));
-        applyKpiTiers(rule, role, request);
+        applyKpi(rule, role, request);
         rule.setIsActive(request.getIsActive() == null || request.getIsActive());
         if (request.getEffectiveFrom() != null && request.getEffectiveTo() != null
                 && request.getEffectiveTo().isBefore(request.getEffectiveFrom())) {
@@ -170,35 +175,48 @@ public class SalaryRuleService {
         return raw;
     }
 
+    /** Pog'ona qiymati (chegara — kalit): bonus va shart turi ({@code inclusive} — "≥"). */
+    private record Tier(BigDecimal bonus, boolean inclusive) {
+    }
+
     /**
-     * KPI pog'onalari (payroll v3): {@code kpiTiers} berilsa — shular (chegaralar takrorlanmasin — 400
-     * {@code salaryRule.kpiTiers.invalid}); berilmasa va eski {@code kpiThreshold} berilsa — bitta pog'ona
-     * {@code threshold − 1} (eski "≥" = yangi "&gt;", V82 bilan bir xil). Eski ustunlar (v2 hisobi, oktyabrgacha) eng
-     * past pog'onani aks ettiradi: {@code kpi_threshold = threshold + 1}.
+     * KPI (payroll v3, V82/V88) — faqat {@link #KPI_ROLES}: metrika ({@code kpiMetric}, null — ACTIVE_STUDENTS) va
+     * pog'onalar. {@code kpiTiers} berilsa — shular (chegaralar takrorlanmasin — 400 {@code salaryRule.kpiTiers.invalid};
+     * {@code inclusive} null — false, "&gt;"); berilmasa va eski {@code kpiThreshold} berilsa (faqat ADMIN) — bitta
+     * pog'ona {@code threshold − 1} "&gt;" (eski "≥", V82 bilan bir xil). Eski ustunlar (v2 hisobi, oktyabrgacha — faqat
+     * ADMIN, faqat faol o'quvchilar) eng past pog'onani "≥" ko'rinishida aks ettiradi: "&gt; N" → N + 1, "≥ N" → N;
+     * boshqa holatda bo'sh (v2 hisobida KPI yo'q).
      */
-    private static void applyKpiTiers(SalaryRule rule, UserRole role, SalaryRuleRequest request) {
-        java.util.TreeMap<Integer, BigDecimal> tiers = new java.util.TreeMap<>();
-        if (role == UserRole.ADMIN) {
+    private static void applyKpi(SalaryRule rule, UserRole role, SalaryRuleRequest request) {
+        java.util.TreeMap<Integer, Tier> tiers = new java.util.TreeMap<>();
+        KpiMetric metric = KpiMetric.ACTIVE_STUDENTS;
+        if (KPI_ROLES.contains(role)) {
+            if (request.getKpiMetric() != null) {
+                metric = request.getKpiMetric();
+            }
             if (request.getKpiTiers() != null) {
                 for (SalaryRuleRequest.KpiTier t : request.getKpiTiers()) {
                     if (t == null || t.getThreshold() == null || t.getBonus() == null
-                            || tiers.put(t.getThreshold(), t.getBonus()) != null) {
+                            || tiers.put(t.getThreshold(), new Tier(t.getBonus(), Boolean.TRUE.equals(t.getInclusive())))
+                                != null) {
                         throw CodedException.badRequest("salaryRule.kpiTiers.invalid");
                     }
                 }
-            } else if (request.getKpiThreshold() != null && positive(request.getKpiBonus())) {
-                tiers.put(Math.max(request.getKpiThreshold() - 1, 0), request.getKpiBonus());
+            } else if (role == UserRole.ADMIN && request.getKpiThreshold() != null && positive(request.getKpiBonus())) {
+                tiers.put(Math.max(request.getKpiThreshold() - 1, 0), new Tier(request.getKpiBonus(), false));
             }
         }
+        rule.setKpiMetric(metric);
         rule.getKpiTiers().clear();
-        tiers.forEach((threshold, bonus) -> rule.getKpiTiers().add(SalaryRuleKpiTier.builder()
-            .salaryRule(rule).threshold(threshold).bonus(bonus).build()));
-        if (tiers.isEmpty()) {
+        tiers.forEach((threshold, tier) -> rule.getKpiTiers().add(SalaryRuleKpiTier.builder()
+            .salaryRule(rule).threshold(threshold).bonus(tier.bonus()).inclusive(tier.inclusive()).build()));
+        if (tiers.isEmpty() || role != UserRole.ADMIN || metric != KpiMetric.ACTIVE_STUDENTS) {
             rule.setKpiThreshold(null);
             rule.setKpiBonus(BigDecimal.ZERO);
         } else {
-            rule.setKpiThreshold(tiers.firstKey() + 1);
-            rule.setKpiBonus(tiers.firstEntry().getValue());
+            Tier lowest = tiers.firstEntry().getValue();
+            rule.setKpiThreshold(lowest.inclusive() ? tiers.firstKey() : tiers.firstKey() + 1);
+            rule.setKpiBonus(lowest.bonus());
         }
     }
 
@@ -207,8 +225,11 @@ public class SalaryRuleService {
         if (role != UserRole.TEACHER && positive(r.getPerStudentIndividual())) {
             wrong.add("perStudentIndividual");
         }
-        if (role != UserRole.ADMIN && r.getKpiTiers() != null && !r.getKpiTiers().isEmpty()) {
+        if (!KPI_ROLES.contains(role) && r.getKpiTiers() != null && !r.getKpiTiers().isEmpty()) {
             wrong.add("kpiTiers");
+        }
+        if (!KPI_ROLES.contains(role) && r.getKpiMetric() != null && r.getKpiMetric() != KpiMetric.ACTIVE_STUDENTS) {
+            wrong.add("kpiMetric");
         }
         if (role != UserRole.TEACHER && positive(r.getPerPayingStudent())) {
             wrong.add("perPayingStudent");
@@ -249,8 +270,9 @@ public class SalaryRuleService {
             .substituteLessonRate(r.getSubstituteLessonRate())
             .perStudentIndividual(r.getPerStudentIndividual())
             .employmentRate(r.getEmploymentRate())
+            .kpiMetric(r.getKpiMetric())
             .kpiTiers(r.getKpiTiers().stream()
-                .map(t -> new SalaryRuleResponse.KpiTier(t.getThreshold(), t.getBonus())).toList())
+                .map(t -> new SalaryRuleResponse.KpiTier(t.getThreshold(), t.getBonus(), t.isInclusive())).toList())
             .isActive(r.getIsActive())
             .effectiveFrom(r.getEffectiveFrom())
             .effectiveTo(r.getEffectiveTo())

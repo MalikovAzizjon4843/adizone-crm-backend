@@ -1,5 +1,6 @@
 package com.crm.dto.request;
 
+import com.crm.entity.enums.KpiMetric;
 import com.crm.entity.enums.UserRole;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -64,9 +65,17 @@ public class SalaryRuleRequest {
     private BigDecimal employmentRate;
 
     /**
-     * ADMIN KPI pog'onalari (payroll v3): har biri {@code {threshold, bonus}}, shart "faol &gt; threshold", eng yuqori
-     * bajarilgani olinadi. Berilmasa va {@code kpiThreshold} berilsa — eski ma'no ("≥") bitta pog'ona
-     * {@code threshold − 1} ga aylanadi (V82 bilan bir xil).
+     * KPI metrikasi (payroll v3, V88; ADMIN, SALES_HEAD): ACTIVE_STUDENTS (oy oxiridagi faol o'quvchilar) yoki
+     * NEW_STUDENTS (oy davomida markazga kelgan yangi o'quvchilar). null — ACTIVE_STUDENTS. Boshqa rolda
+     * NEW_STUDENTS — 400 {@code salaryRule.field.notApplicable}.
+     */
+    private KpiMetric kpiMetric;
+
+    /**
+     * KPI pog'onalari (payroll v3; ADMIN, SALES_HEAD): har biri {@code {threshold, bonus, inclusive}}, shart
+     * "metrika &gt; threshold" ({@code inclusive} false/null) yoki "metrika ≥ threshold" ({@code inclusive = true}),
+     * eng yuqori bajarilgani olinadi. Berilmasa va {@code kpiThreshold} berilsa (faqat ADMIN) — eski ma'no ("≥")
+     * bitta pog'ona {@code threshold − 1} ga aylanadi (V82 bilan bir xil).
      */
     @Valid
     private List<KpiTier> kpiTiers;
@@ -80,6 +89,9 @@ public class SalaryRuleRequest {
         @NotNull(message = "{salaryRule.kpiTiers.invalid}")
         @DecimalMin(value = "0", message = "{salaryRule.amount.min}")
         private BigDecimal bonus;
+
+        /** V88: true — "≥ threshold"; false yoki null — "&gt; threshold". */
+        private Boolean inclusive;
     }
 
     private Boolean isActive;

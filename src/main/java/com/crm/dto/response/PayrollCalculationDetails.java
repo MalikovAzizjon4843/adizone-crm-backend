@@ -69,19 +69,35 @@ public record PayrollCalculationDetails(
         BigDecimal perStudentIndividual,
         /** v3: stavka (fiksa × stavka); v2 snapshot'da null. */
         BigDecimal employmentRate,
-        /** v3, ADMIN: KPI pog'onalari ("faol > threshold"); v2 snapshot'da null. */
-        List<KpiTier> kpiTiers) {
+        /** v3, ADMIN / SALES_HEAD: KPI pog'onalari; v2 snapshot'da null. */
+        List<KpiTier> kpiTiers,
+        /** v3 (V88): KPI metrikasi ACTIVE_STUDENTS | NEW_STUDENTS; V88 dan oldingi snapshot'da null (= ACTIVE_STUDENTS). */
+        String kpiMetric) {
 
         /** v2 snapshot. */
         public RuleSnapshot(Long id, String scope, String role, LocalDate effectiveFrom, LocalDate effectiveTo,
                             BigDecimal fixedSalary, BigDecimal perPayingStudent, BigDecimal perNewStudent,
                             Integer kpiThreshold, BigDecimal kpiBonus, BigDecimal substituteLessonRate) {
             this(id, scope, role, effectiveFrom, effectiveTo, fixedSalary, perPayingStudent, perNewStudent,
-                kpiThreshold, kpiBonus, substituteLessonRate, null, null, null);
+                kpiThreshold, kpiBonus, substituteLessonRate, null, null, null, null);
         }
     }
 
-    public record KpiTier(Integer threshold, BigDecimal bonus) {
+    /**
+     * {@code inclusive} (V88): true — "metrika ≥ threshold", false — "metrika &gt; threshold"; V88 dan oldingi
+     * snapshot'da null (= false).
+     */
+    public record KpiTier(Integer threshold, BigDecimal bonus, Boolean inclusive) {
+
+        /** V88 dan oldingi ko'rinish: "&gt; threshold". */
+        public KpiTier(Integer threshold, BigDecimal bonus) {
+            this(threshold, bonus, null);
+        }
+
+        /** Pog'ona bajarilganmi: {@code inclusive} — {@code value ≥ threshold}, aks holda {@code value > threshold}. */
+        public boolean reachedBy(long value) {
+            return Boolean.TRUE.equals(inclusive) ? value >= threshold : value > threshold;
+        }
     }
 
     /**
@@ -194,14 +210,22 @@ public record PayrollCalculationDetails(
     }
 
     /**
-     * v2: {@code actual ≥ threshold}. v3: {@code actual > threshold} — {@code threshold} bajarilgan eng yuqori pog'ona
-     * (bajarilmasa — eng past pog'ona), {@code bonus} — qo'llangan summa, {@code tiers} — barcha pog'onalar.
+     * v2: {@code actual ≥ threshold}. v3: {@code actual > threshold} (V88: pog'onada {@code inclusive} — "≥") —
+     * {@code threshold} bajarilgan eng yuqori pog'ona (bajarilmasa — eng past pog'ona), {@code bonus} — qo'llangan
+     * summa, {@code tiers} — barcha pog'onalar, {@code metric} (V88) — {@code actual} nima: ACTIVE_STUDENTS (oy
+     * oxiridagi faol) yoki NEW_STUDENTS (oydagi markaz yangi o'quvchilari); oldingi snapshot'da null (= faol).
      */
-    public record Kpi(Integer threshold, long actual, boolean applied, BigDecimal bonus, List<KpiTier> tiers) {
+    public record Kpi(Integer threshold, long actual, boolean applied, BigDecimal bonus, List<KpiTier> tiers,
+                      String metric) {
 
         /** v2. */
         public Kpi(Integer threshold, long actual, boolean applied) {
-            this(threshold, actual, applied, null, null);
+            this(threshold, actual, applied, null, null, null);
+        }
+
+        /** v3, V88 dan oldin. */
+        public Kpi(Integer threshold, long actual, boolean applied, BigDecimal bonus, List<KpiTier> tiers) {
+            this(threshold, actual, applied, bonus, tiers, null);
         }
     }
 

@@ -1,5 +1,6 @@
 package com.crm.entity;
 
+import com.crm.entity.enums.KpiMetric;
 import com.crm.entity.enums.UserRole;
 import jakarta.persistence.*;
 import lombok.*;
@@ -73,7 +74,20 @@ public class SalaryRule {
     @Builder.Default
     private BigDecimal employmentRate = BigDecimal.ONE;
 
-    /** ADMIN KPI pog'onalari (payroll v3, V82): shart qat'iy "faol > threshold", eng yuqori bajarilgani olinadi. */
+    /**
+     * KPI metrikasi (payroll v3, V88): pog'onalar nima bo'yicha sanaladi. Hech qachon null emas: boshlang'ich
+     * ACTIVE_STUDENTS (V82 ma'nosi), setter va @PrePersist/@PreUpdate null ni ACTIVE_STUDENTS ga aylantiradi.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "kpi_metric", nullable = false, length = 30)
+    @org.hibernate.annotations.ColumnDefault(value = "'ACTIVE_STUDENTS'")
+    @Builder.Default
+    private KpiMetric kpiMetric = KpiMetric.ACTIVE_STUDENTS;
+
+    /**
+     * KPI pog'onalari (payroll v3, V82/V88; ADMIN, SALES_HEAD): shart har pog'onada "&gt;" yoki "≥"
+     * ({@code inclusive}), eng yuqori bajarilgani olinadi.
+     */
     @OneToMany(mappedBy = "salaryRule", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("threshold ASC")
     @Builder.Default
@@ -109,6 +123,9 @@ public class SalaryRule {
         if (employmentRate == null) {
             employmentRate = BigDecimal.ONE;
         }
+        if (kpiMetric == null) {
+            kpiMetric = KpiMetric.ACTIVE_STUDENTS;
+        }
     }
 
     @PreUpdate
@@ -117,6 +134,18 @@ public class SalaryRule {
         if (employmentRate == null) {
             employmentRate = BigDecimal.ONE;
         }
+        if (kpiMetric == null) {
+            kpiMetric = KpiMetric.ACTIVE_STUDENTS;
+        }
+    }
+
+    /** null — ACTIVE_STUDENTS: NOT NULL ustunga null yetib bormasin. */
+    public void setKpiMetric(KpiMetric kpiMetric) {
+        this.kpiMetric = kpiMetric != null ? kpiMetric : KpiMetric.ACTIVE_STUDENTS;
+    }
+
+    public KpiMetric getKpiMetric() {
+        return kpiMetric != null ? kpiMetric : KpiMetric.ACTIVE_STUDENTS;
     }
 
     /** null — 1.00 (to'liq stavka): NOT NULL ustunga null yetib bormasin. */

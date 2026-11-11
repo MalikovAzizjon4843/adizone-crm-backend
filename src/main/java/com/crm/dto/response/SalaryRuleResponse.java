@@ -30,7 +30,12 @@ public class SalaryRuleResponse {
     private BigDecimal perStudentIndividual;
     /** v3: stavka (fiksa × stavka). */
     private BigDecimal employmentRate;
-    /** v3: KPI pog'onalari ("faol > threshold"); kpiThreshold/kpiBonus — eski ("≥") ko'rinish, eng past pog'ona. */
+    /** v3 (V88): KPI metrikasi — ACTIVE_STUDENTS | NEW_STUDENTS. */
+    private com.crm.entity.enums.KpiMetric kpiMetric;
+    /**
+     * v3: KPI pog'onalari ("metrika &gt; threshold", {@code inclusive} — "≥"); kpiThreshold/kpiBonus — eski ("≥")
+     * ko'rinish, eng past pog'ona (faqat ADMIN + ACTIVE_STUDENTS; aks holda null / 0).
+     */
     private java.util.List<KpiTier> kpiTiers;
     private Boolean isActive;
     private LocalDate effectiveFrom;
@@ -44,5 +49,7 @@ public class SalaryRuleResponse {
     public static class KpiTier {
         private Integer threshold;
         private BigDecimal bonus;
+        /** V88: true — "≥ threshold", false — "&gt; threshold". */
+        private boolean inclusive;
     }
 }
