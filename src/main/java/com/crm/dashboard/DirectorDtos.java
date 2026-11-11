@@ -85,9 +85,14 @@ public final class DirectorDtos {
                                     long unplanned, BigDecimal rate, long upcomingToday) {
     }
 
+    /**
+     * {@code markedCount / activeStudents} — belgilangan / kutilgan (kelganlar soni EMAS). Kelganlar —
+     * {@code present} (PRESENT + LATE), kelmaganlar — {@code absent} (ABSENT), sababli — {@code excused}.
+     */
     public record LessonRow(Long groupId, String groupName, Long teacherId, String teacherName,
                             LocalDate date, String startTime, String endTime, int activeStudents,
-                            long markedCount, LocalDateTime firstMarkedAt, String status) {
+                            long markedCount, long present, long absent, long excused,
+                            LocalDateTime firstMarkedAt, String status) {
     }
 
     // ── trials (§1.5) ───────────────────────────────────────────────────

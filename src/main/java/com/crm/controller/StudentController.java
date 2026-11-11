@@ -46,9 +46,10 @@ public class StudentController {
             @RequestParam(required = false) String search,
             @RequestParam(required = false) StudentStatus status,
             @RequestParam(name = "source", required = false) String source,
-            @RequestParam(name = "trial", required = false) Boolean trial) {
+            @RequestParam(name = "trial", required = false) Boolean trial,
+            @RequestParam(name = "lastTeacherId", required = false) Long lastTeacherId) {
         return ResponseEntity.ok(ApiResponse.success(
-            studentService.getAllStudents(page, size, search, status, source, trial)));
+            studentService.getAllStudents(page, size, search, status, source, trial, lastTeacherId)));
     }
 
     @GetMapping("/{id}/groups")
@@ -273,8 +274,9 @@ public class StudentController {
 
     // Ketgan o'quvchilar (LEFT, GRADUATED): oxirgi guruh, chiqish sanasi va sababi bilan
     @GetMapping("/left")
-    public ResponseEntity<ApiResponse<List<LeftStudentResponse>>> getLeftStudents() {
-        return ResponseEntity.ok(ApiResponse.success(studentRosterService.getLeftStudents()));
+    public ResponseEntity<ApiResponse<List<LeftStudentResponse>>> getLeftStudents(
+            @RequestParam(name = "lastTeacherId", required = false) Long lastTeacherId) {
+        return ResponseEntity.ok(ApiResponse.success(studentRosterService.getLeftStudents(lastTeacherId)));
     }
 
     // Probniy o'quvchilar (TRIAL payment status)

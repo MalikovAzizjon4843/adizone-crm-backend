@@ -4,6 +4,8 @@ import com.crm.dashboard.AnalyticsDtos;
 import com.crm.dashboard.AnalyticsOverviewService;
 import com.crm.dashboard.SourceAnalyticsService;
 import com.crm.dashboard.StaffPerformanceService;
+import com.crm.dashboard.StudentFlowDtos;
+import com.crm.dashboard.StudentFlowService;
 import com.crm.dto.response.*;
 import com.crm.exception.CodedException;
 import com.crm.billing.BillingAuth;
@@ -16,6 +18,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -33,6 +36,7 @@ public class AnalyticsController {
     private final AnalyticsOverviewService overviewService;
     private final StaffPerformanceService staffPerformanceService;
     private final SourceAnalyticsService sourceAnalyticsService;
+    private final StudentFlowService studentFlowService;
 
     /** Umumiy ko'rinish: moliya, o'quvchilar, lidlar, guruhlar + oldingi teng davr va vaqt qatorlari. */
     @GetMapping("/overview")
@@ -56,6 +60,33 @@ public class AnalyticsController {
             @RequestParam(name = "includeImported", required = false) Boolean includeImported) {
         return ResponseEntity.ok(ApiResponse.success(
             sourceAnalyticsService.sources(from, to, groupBy, includeImported)));
+    }
+
+    /**
+     * O'quvchi oqimi va retention ({@code month=YYYY-MM}, standart — joriy oy): jami, o'qituvchi va guruh
+     * qatorlari — oy boshida faol, yangi, ko'chib kelgan/ketgan, bitirgan, sabab bilan/sababsiz ketgan, muzlatilgan,
+     * oy oxirida, yo'qotilgan, bo'lishi mumkin edi, keyingi oyga o'tganlar %, yo'qotilgan tushum. Kesh 60 s.
+     */
+    @GetMapping("/student-flow")
+    public ResponseEntity<ApiResponse<StudentFlowDtos.Report>> studentFlow(
+            @RequestParam(name = "month", required = false) String month,
+            @RequestParam(name = "teacherId", required = false) Long teacherId,
+            @RequestParam(name = "groupId", required = false) Long groupId) {
+        return ResponseEntity.ok(ApiResponse.success(studentFlowService.report(month, teacherId, groupId)));
+    }
+
+    /**
+     * Oqim drill-down: {@code category} = lost | leftWithReason | leftNoReason | completed | joined |
+     * transferredIn | transferredOut | frozen.
+     */
+    @GetMapping("/student-flow/students")
+    public ResponseEntity<ApiResponse<List<StudentFlowDtos.StudentRow>>> studentFlowStudents(
+            @RequestParam(name = "month", required = false) String month,
+            @RequestParam(name = "teacherId", required = false) Long teacherId,
+            @RequestParam(name = "groupId", required = false) Long groupId,
+            @RequestParam(name = "category") String category) {
+        return ResponseEntity.ok(ApiResponse.success(
+            studentFlowService.students(month, teacherId, groupId, category)));
     }
 
     /** Hozirgi faol o'quvchilar (faol yozilmasi bor) {@code students.source} bo'yicha. */

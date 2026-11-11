@@ -32,11 +32,16 @@ public class LeftStudentResponse {
     private Long lastGroupId;
     private String lastGroupName;
     private Long lastStudentGroupId;
+    /** Oxirgi guruhning o'qituvchisi (guruhning hozirgi o'qituvchisi). */
+    private Long lastTeacherId;
+    private String lastTeacherName;
     /** Yozilma yopilgan kun ({@code student_groups.leave_date}, bo'lmasa {@code exit_date}). */
     private LocalDate leaveDate;
     /** Front kaliti: erkin matn ({@code exit_reason}), bo'lmasa {@code exitReasonCode} nomi. */
     private String exitReason;
     private ExitReasonCode exitReasonCode;
+    /** {@link ExitReasonCode#getLabel()}. */
+    private String exitReasonLabel;
     private String exitNotes;
     /** Billing v2: Σ sg.balance (I1, ledger). */
     private BigDecimal balance;

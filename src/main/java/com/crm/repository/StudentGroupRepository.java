@@ -47,6 +47,13 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
     @Query("SELECT sg FROM StudentGroup sg JOIN FETCH sg.group WHERE sg.student.id IN :studentIds")
     List<StudentGroup> findWithGroupByStudentIds(@Param("studentIds") Collection<Long> studentIds);
 
+    /** Oxirgi guruh (o'qituvchisi bilan) — ro'yxatlar uchun batch, N+1 yo'q. */
+    @Query("""
+        SELECT sg FROM StudentGroup sg JOIN FETCH sg.student JOIN FETCH sg.group g LEFT JOIN FETCH g.teacher
+        WHERE sg.student.id IN :studentIds
+        """)
+    List<StudentGroup> findWithGroupAndTeacherByStudentIds(@Param("studentIds") Collection<Long> studentIds);
+
     /**
      * Muzlatilgan yozilmalar — {@code EnrollmentLifecycleService.isFrozen} bilan bir xil shart:
      * {@code frozenFrom} bor, yoki eski (v1) muzlatish — nofaol va {@code exitReason = 'FROZEN'}.

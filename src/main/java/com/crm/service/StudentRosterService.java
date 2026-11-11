@@ -5,6 +5,8 @@ import com.crm.dto.response.FrozenStudentResponse;
 import com.crm.dto.response.LeftStudentResponse;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
+import com.crm.entity.Teacher;
+import com.crm.entity.enums.ExitReasonCode;
 import com.crm.entity.enums.StudentStatus;
 import com.crm.repository.BalanceTransactionRepository;
 import com.crm.repository.StudentGroupRepository;
@@ -46,14 +48,25 @@ public class StudentRosterService {
 
     @Transactional(readOnly = true)
     public List<LeftStudentResponse> getLeftStudents() {
+        return getLeftStudents(null);
+    }
+
+    /** {@code lastTeacherId} — oxirgi guruhning o'qituvchisi bo'yicha filtr (null — hammasi). */
+    @Transactional(readOnly = true)
+    public List<LeftStudentResponse> getLeftStudents(Long lastTeacherId) {
         List<Student> students = studentRepository.findByStatusIn(LEFT_STATUSES);
-        Map<Long, List<StudentGroup>> byStudent = enrollmentsByStudent(
+        Map<Long, List<StudentGroup>> byStudent = enrollmentsWithTeacher(
             students.stream().map(Student::getId).toList());
 
         List<LeftStudentResponse> rows = new ArrayList<>();
         for (Student s : students) {
             StudentGroup last = lastEnrollment(byStudent.getOrDefault(s.getId(), List.of()));
             boolean closed = last != null && !Boolean.TRUE.equals(last.getIsActive());
+            Teacher teacher = last != null && last.getGroup() != null ? last.getGroup().getTeacher() : null;
+            if (lastTeacherId != null && (teacher == null || !lastTeacherId.equals(teacher.getId()))) {
+                continue;
+            }
+            ExitReasonCode code = closed ? exitCode(last) : null;
             rows.add(LeftStudentResponse.builder()
                 .id(s.getId())
                 .firstName(s.getFirstName())
@@ -65,9 +78,12 @@ public class StudentRosterService {
                 .lastGroupId(last != null && last.getGroup() != null ? last.getGroup().getId() : null)
                 .lastGroupName(last != null && last.getGroup() != null ? last.getGroup().getGroupName() : null)
                 .lastStudentGroupId(last != null ? last.getId() : null)
+                .lastTeacherId(teacher != null ? teacher.getId() : null)
+                .lastTeacherName(teacherName(teacher))
                 .leaveDate(closed ? closedOn(last) : null)
                 .exitReason(closed ? exitReason(last) : null)
-                .exitReasonCode(closed ? last.getExitReasonCode() : null)
+                .exitReasonCode(code)
+                .exitReasonLabel(code != null ? code.getLabel() : null)
                 .exitNotes(closed ? last.getExitNotes() : null)
                 .balance(Money.normalize(Money.nz(s.getBalance())))
                 .debt(Money.normalize(Money.nz(s.getDebt())))
@@ -177,7 +193,56 @@ public class StudentRosterService {
         return rows;
     }
 
+    /**
+     * Joriy guruhi yo'q o'quvchilar ro'yxati uchun: o'quvchi → oxirgi YOPILGAN yozilma (guruh va o'qituvchisi
+     * bilan, {@link #lastEnrollment} qoidasi). Yopilgani yo'q o'quvchi natijada bo'lmaydi. Bitta batch so'rov.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, StudentGroup> lastClosedEnrollments(Collection<Long> studentIds) {
+        Map<Long, StudentGroup> out = new HashMap<>();
+        if (studentIds == null || studentIds.isEmpty()) {
+            return out;
+        }
+        enrollmentsWithTeacher(List.copyOf(studentIds)).forEach((studentId, sgs) -> {
+            StudentGroup last = lastEnrollment(sgs);
+            if (last != null && !Boolean.TRUE.equals(last.getIsActive())) {
+                out.put(studentId, last);
+            }
+        });
+        return out;
+    }
+
+    /** Yopilgan yozilma sababi: kod, bo'lmasa muzlatish → FROZEN, aks holda eski matndan. */
+    public static ExitReasonCode exitCode(StudentGroup sg) {
+        if (sg.getExitReasonCode() != null) {
+            return sg.getExitReasonCode();
+        }
+        if (sg.getFrozenFrom() != null) {
+            return ExitReasonCode.FROZEN;
+        }
+        String text = sg.getExitReason();
+        return text == null || text.isBlank() ? null : ExitReasonCode.fromLegacy(text);
+    }
+
+    public static String teacherName(Teacher t) {
+        if (t == null) {
+            return null;
+        }
+        return ((t.getFirstName() != null ? t.getFirstName() : "")
+            + " " + (t.getLastName() != null ? t.getLastName() : "")).trim();
+    }
+
     // ── yordamchilar ────────────────────────────────────────────────────
+
+    private Map<Long, List<StudentGroup>> enrollmentsWithTeacher(List<Long> studentIds) {
+        Map<Long, List<StudentGroup>> out = new HashMap<>();
+        for (List<Long> chunk : chunks(studentIds)) {
+            for (StudentGroup sg : studentGroupRepository.findWithGroupAndTeacherByStudentIds(chunk)) {
+                out.computeIfAbsent(sg.getStudent().getId(), k -> new ArrayList<>()).add(sg);
+            }
+        }
+        return out;
+    }
 
     private Map<Long, List<StudentGroup>> enrollmentsByStudent(List<Long> studentIds) {
         Map<Long, List<StudentGroup>> out = new HashMap<>();
@@ -220,7 +285,7 @@ public class StudentRosterService {
             .orElse(null);
     }
 
-    private static LocalDate closedOn(StudentGroup sg) {
+    public static LocalDate closedOn(StudentGroup sg) {
         return sg.getLeaveDate() != null ? sg.getLeaveDate() : sg.getExitDate();
     }
 

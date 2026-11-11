@@ -117,10 +117,16 @@ public class AttendanceMetricsService {
             }
         }
 
-        // Davomat: (guruh, kun) → belgilar soni va birinchi belgi payti
+        // Davomat: (guruh, kun) → belgilar soni, birinchi belgi payti va kelgan (PRESENT+LATE) / kelmagan / sababli —
+        // bitta guruhlangan so'rov (N+1 yo'q)
         Map<String, Object[]> marks = new HashMap<>();
         for (Object[] r : queries.em().createQuery("""
-                SELECT a.group.id, a.attendanceDate, COUNT(a), MIN(a.createdAt) FROM Attendance a
+                SELECT a.group.id, a.attendanceDate, COUNT(a), MIN(a.createdAt),
+                       SUM(CASE WHEN a.status IN (com.crm.entity.enums.AttendanceStatus.PRESENT,
+                                                  com.crm.entity.enums.AttendanceStatus.LATE) THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN a.status = com.crm.entity.enums.AttendanceStatus.ABSENT THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN a.status = com.crm.entity.enums.AttendanceStatus.EXCUSED THEN 1 ELSE 0 END)
+                FROM Attendance a
                 WHERE a.attendanceDate BETWEEN :f AND :t GROUP BY a.group.id, a.attendanceDate
                 """, Object[].class).setParameter("f", from).setParameter("t", to).getResultList()) {
             marks.put(key((Long) r[0], (LocalDate) r[1]), r);
@@ -194,7 +200,12 @@ public class AttendanceMetricsService {
             teacher != null ? teacher.getId() : null,
             teacher != null ? FunnelMetricsService.name(teacher.getFirstName(), teacher.getLastName()) : null,
             d, slot != null ? slot.startTime() : null, slot != null ? slot.endTime() : null, active,
-            m != null ? (Long) m[2] : 0, firstMarked, status);
+            m != null ? (Long) m[2] : 0, m != null ? num(m[4]) : 0, m != null ? num(m[5]) : 0,
+            m != null ? num(m[6]) : 0, firstMarked, status);
+    }
+
+    private static long num(Object o) {
+        return o instanceof Number n ? n.longValue() : 0;
     }
 
     /** D kuni faol yozilmalar: qo'shilgan, chiqmagan, muzlatilmagan (§1.4). */

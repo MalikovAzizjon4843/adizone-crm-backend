@@ -10,6 +10,32 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-11-11, davomat intizomida kelganlar; oxirgi guruh; o'quvchi oqimi va retention)
+
+> Buyurtmachi: (A) "Davomat intizomi"dagi `11/11` (belgilangan/kutilgan) "11 kishi keldi" deb o'qilyapti; (B) chiqib
+> ketganlar ro'yxatda "Guruhsiz"; (C) o'qituvchi/guruh kesimida oylik oqim, yo'qotish va retention. Sxema o'zgarmadi
+> (migratsiya yo'q).
+
+| Endpoint | Rol | O'zgarish |
+|---|---|---|
+| `GET /api/dashboard/director/attendance/lessons` (`LessonRow`) | o'zgarmagan | Yangi **`present`** (PRESENT + LATE), **`absent`** (ABSENT), **`excused`** (EXCUSED). `markedCount / activeStudents` — belgilangan / kutilgan, kelganlar emas. Hammasi bitta guruhlangan so'rovdan (N+1 yo'q) |
+| `GET /api/students`, `GET /api/students/search` (`StudentResponse`) | o'zgarmagan | Joriy guruh yo'q bo'lsa (chiqib ketgan / muzlatilgan): **`lastGroup`** `{id, name, teacherId, teacherName}`, **`leftAt`** (`leave_date ?? exit_date`), **`exitReasonCode`**, **`exitReasonLabel`** (o'zbekcha). Oxirgi guruh — eng oxirgi YOPILGAN yozilma (`/left` bilan bir qoida); joriy guruh bo'lsa hammasi `null`. Batch (2 so'rov) |
+| `GET /api/students?lastTeacherId=` | o'zgarmagan | Yangi filtr: joriy (ochiq) yozilmasi yo'q va oxirgi yopilgan yozilmasi shu o'qituvchi guruhida bo'lganlar; boshqa filtrlar bilan birga |
+| `GET /api/students/left` (`LeftStudentResponse`) | o'zgarmagan | Yangi `lastTeacherId`, `lastTeacherName`, `exitReasonLabel`; query `?lastTeacherId=` |
+| `GET /api/analytics/student-flow?month=YYYY-MM&teacherId=&groupId=` | SA, A (T, ACC — 403) | **YANGI.** `month` — standart joriy oy; noto'g'ri yoki kelajak — 400 `dashboard.param.invalid`. Javob: `{month, from, to, asOf, monthFinal, total, teachers[]}`; `teachers[]` — `FlowRow` + `groups[]` (guruh qatorlari). `FlowRow`: `teacherId`, `teacherName`, `groupId`, `groupName`, `groupStatus`, `startActive`, `joined`, `transferredIn`, `completed`, `leftWithReason`, `leftByReason{kod: soni}`, `leftNoReason`, `transferredOut`, `frozen`, `endActive`, `lost = leftWithReason + leftNoReason`, `potential = startActive + joined + transferredIn − completed − transferredOut`, `lostRevenue` (yo'qotilganlarning oylik narxi, chegirmadan keyin), `retentionNextMonth {paidStudents, retainedStudents, percent, final}`. Kesh 60 s |
+| `GET /api/analytics/student-flow/students?month&teacherId&groupId&category=` | SA, A | **YANGI.** `category` = `lost` \| `leftWithReason` \| `leftNoReason` \| `completed` \| `joined` \| `transferredIn` \| `transferredOut` \| `frozen` (boshqasi — 400). Qator: `{studentId, studentName, phone, studentGroupId, groupId, groupName, teacherId, teacherName, category, date, reasonCode, reasonLabel, notes, monthlyPrice}`; `date` bo'yicha |
+
+**Oqim ta'riflari** (`dashboard/StudentFlowService`): birlik — to'lovli YOZILMA (sinov kirmaydi; sinovdan o'tgan yozilma
+`trial_converted_at` dan hisoblanadi). Yopilgan kun `leave_date ?? exit_date ?? frozen_from`. Chiqish turi mavjud kodlardan
+(`RetentionMetricsService.exits`, KPI "saqlab qolish"): muzlatish (`frozen_from`, FROZEN, AUTO_ARCHIVE) → `frozen`;
+TRANSFERRED → `transferredOut`; GRADUATED, yoki guruh COMPLETED/CANCELLED va chiqish `end_date` dan keyin, yoki yozilma
+tugagan guruhda ochiq qolgan (`end_date` da) → `completed`; qolgani — ketish: aniq sabab (PRICE, SCHEDULE, MOVED_AWAY,
+QUALITY, HEALTH, NO_TIME) yoki izoh/erkin matn → `leftWithReason`, aks holda `leftNoReason`. `transferredIn` — o'sha
+o'quvchining TRANSFERRED bilan yopilgan to'lovli yozilmasidan keyingi (± 31 kun) yozilma. O'qituvchi — guruhning hozirgi
+o'qituvchisi. Retention: shu oyda boshlangan, real to'lov (PAYMENT / TRANSFER_IN krediti) bilan to'liq yopilgan davri bor
+o'quvchilardan keyingi oyda boshlangan shunday davri borlar (istalgan guruhda); keyingi oy tugamagan — `final = false`.
+PER_LESSON yozilmalar retention'ga kirmaydi.
+
 ## Yangilanishlar (2026-10-25, davomatda qarzdor belgisi; qarzdorlarning bugungi davomati)
 
 > Buyurtmachi: o'qituvchi davomatda qarzdorni ko'radi (darsdan chiqaradi), admin — qarzdor bugun kelgan-kelmaganini.
@@ -899,7 +925,7 @@ Javob shakli (`service/TeacherService.java:192-267`), DTO yo'q — Map:
   - `PaymentSummary` (`:76-85`): `id: Long`, `receiptNumber: String`, `amount: BigDecimal`, `formattedAmount: String`, `paymentDate: LocalDate`, `paymentMethod: PaymentMethod`, `groupName: String`, `status: PaymentStatus`.
   - `StudentParentInfo` (`:91-98`): `parentId: Long`, `fullName`, `phone`, `address`, `relation: String`, `isPrimary: Boolean`.
 - `FrozenStudentResponse`: `studentId: Long`, `fullName`, `phone: String`, `studentStatus`, `frozenDate: LocalDate` (eng oxirgi `frozenFrom`), `balance: BigDecimal` (Σ muzlatilgan yozilmalar ledger qoldig'i, ishorali), `lastGroupId: Long`, `lastGroupName: String`, `totalRemaining`, `totalDebt: BigDecimal`, `enrollments: [{studentGroupId, groupId, groupName, frozenFrom, balance, remainingAmount = max(0, balance), debt = max(0, −balance), note}]`.
-- `LeftStudentResponse`: `id`, `firstName`, `lastName`, `fullName`, `phone`, `parentPhone`, `status`, `lastGroupId`, `lastGroupName`, `lastStudentGroupId`, `leaveDate: LocalDate`, `exitReason: String`, `exitReasonCode: ExitReasonCode`, `exitNotes`, `balance`, `debt: BigDecimal`, `updatedAt`.
+- `LeftStudentResponse`: `id`, `firstName`, `lastName`, `fullName`, `phone`, `parentPhone`, `status`, `lastGroupId`, `lastGroupName`, `lastStudentGroupId`, `lastTeacherId: Long`, `lastTeacherName: String`, `leaveDate: LocalDate`, `exitReason: String`, `exitReasonCode: ExitReasonCode`, `exitReasonLabel: String`, `exitNotes`, `balance`, `debt: BigDecimal`, `updatedAt` (2026-11-11).
 - `FreezeStudentResponse` (`dto/response/FreezeStudentResponse.java:16-39`): `studentId: Long`, `totalBalance: BigDecimal`, `groups: List<FrozenGroupBreakdown>`; `FrozenGroupBreakdown`: `groupId: Long`, `groupName: String`, `lessonsAttended: Integer`, `lessonsUsed: int` (alias), `lessonPrice`, `used`, `paid`, `balance: BigDecimal`.
 - `BalanceHistoryItemDto` (`dto/response/BalanceHistoryItemDto.java:16-26`): `date: LocalDateTime`, `type: BalanceTransactionType`, `typeLabel: String`, `amount`, `balanceAfter: BigDecimal`, `note: String`, `groupId: Long`, `groupName`, `createdBy: String`.
 - Enumlar:

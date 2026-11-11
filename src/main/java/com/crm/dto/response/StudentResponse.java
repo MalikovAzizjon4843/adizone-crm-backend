@@ -1,5 +1,6 @@
 package com.crm.dto.response;
 
+import com.crm.entity.enums.ExitReasonCode;
 import com.crm.entity.enums.MarketingSource;
 import com.crm.entity.enums.StudyFormat;
 import com.crm.entity.enums.PaymentStatus;
@@ -51,4 +52,24 @@ public class StudentResponse {
     /** Billing v2: eng yaqin nextPaymentDate dagi summalar. */
     private BigDecimal nextPaymentAmount;
     private LocalDateTime createdAt;
+
+    // ── Joriy guruh yo'q bo'lsa (chiqib ketgan / muzlatilgan) — oxirgi guruh ──
+    /** Oxirgi yopilgan yozilmaning guruhi; joriy guruh bo'lsa yoki yozilma yo'q bo'lsa null. */
+    private LastGroup lastGroup;
+    /** Oxirgi yozilma yopilgan kun ({@code leave_date ?? exit_date}). */
+    private LocalDate leftAt;
+    private ExitReasonCode exitReasonCode;
+    /** {@link ExitReasonCode#getLabel()} — o'zbekcha nomi. */
+    private String exitReasonLabel;
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class LastGroup {
+        private Long id;
+        private String name;
+        private Long teacherId;
+        private String teacherName;
+    }
 }

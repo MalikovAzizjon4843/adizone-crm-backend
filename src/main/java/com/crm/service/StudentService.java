@@ -70,6 +70,7 @@ public class StudentService {
     private final BillingStatusService billingStatusService;
     private final BillingSnapshotService billingSnapshotService;
     private final com.crm.billing.StudentStatusService studentStatusService;
+    private final StudentRosterService studentRosterService;
 
     @Transactional(readOnly = true)
     public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status) {
@@ -93,13 +94,24 @@ public class StudentService {
     @Transactional(readOnly = true)
     public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status,
                                                         String source, Boolean trial) {
+        return getAllStudents(page, size, search, status, source, trial, null);
+    }
+
+    /**
+     * {@code lastTeacherId}: joriy guruhi yo'q va oxirgi YOPILGAN yozilmasi shu o'qituvchining guruhida bo'lgan
+     * o'quvchilar ({@code lastGroup} bilan bir xil qoida — {@link StudentRosterService#lastEnrollment}).
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<StudentResponse> getAllStudents(int page, int size, String search, StudentStatus status,
+                                                        String source, Boolean trial, Long lastTeacherId) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<Student> studentPage;
 
         var teacherScope = teacherAccessService.resolveTeacherScope();
-        if ((source != null && !source.isBlank()) || trial != null) {
+        if ((source != null && !source.isBlank()) || trial != null || lastTeacherId != null) {
             studentPage = studentRepository.findAll(
-                filterSpec(search, status, source, trial, teacherScope.map(t -> t.getId()).orElse(null)), pageable);
+                filterSpec(search, status, source, trial, teacherScope.map(t -> t.getId()).orElse(null),
+                    lastTeacherId), pageable);
         } else if (teacherScope.isPresent()) {
             Long teacherId = teacherScope.get().getId();
             if (search != null && !search.isBlank()) {
@@ -119,13 +131,7 @@ public class StudentService {
             studentPage = studentRepository.findAll(pageable);
         }
 
-        List<Student> students = studentPage.getContent();
-        Map<Long, StudentGroup> currentGroups = loadCurrentGroups(
-            students.stream().map(Student::getId).collect(Collectors.toList()));
-
-        List<StudentResponse> content = students.stream()
-            .map(s -> toResponse(s, currentGroups.get(s.getId())))
-            .collect(Collectors.toList());
+        List<StudentResponse> content = toListResponses(studentPage.getContent());
 
         return PageResponse.<StudentResponse>builder()
             .content(content)
@@ -577,12 +583,7 @@ public class StudentService {
     public PageResponse<StudentResponse> searchStudents(String query, int page, int size) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<Student> studentPage = studentRepository.searchStudents(query, pageable);
-        List<Student> students = studentPage.getContent();
-        Map<Long, StudentGroup> currentGroups = loadCurrentGroups(
-            students.stream().map(Student::getId).collect(Collectors.toList()));
-        List<StudentResponse> content = students.stream()
-            .map(s -> toResponse(s, currentGroups.get(s.getId())))
-            .collect(Collectors.toList());
+        List<StudentResponse> content = toListResponses(studentPage.getContent());
         return PageResponse.<StudentResponse>builder()
             .content(content).pageNumber(page).pageSize(size)
             .totalElements(studentPage.getTotalElements())
@@ -710,7 +711,7 @@ public class StudentService {
      * manba va o'qituvchi doirasi ({@code findDistinctActiveByTeacherId} — faol yozilmasi bor) birga.
      */
     private static org.springframework.data.jpa.domain.Specification<Student> filterSpec(
-            String search, StudentStatus status, String source, Boolean trial, Long teacherId) {
+            String search, StudentStatus status, String source, Boolean trial, Long teacherId, Long lastTeacherId) {
         return (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> and = new ArrayList<>();
             if (trial != null) {
@@ -759,8 +760,53 @@ public class StudentService {
                     cb.isNull(sg.get("leaveDate")));
                 and.add(cb.exists(sq));
             }
+            if (lastTeacherId != null) {
+                // Joriy (ochiq) yozilma yo'q
+                var oq = query.subquery(Long.class);
+                var open = oq.from(StudentGroup.class);
+                oq.select(open.get("id")).where(
+                    cb.equal(open.get("student"), root),
+                    cb.isTrue(open.get("isActive")),
+                    cb.isNull(open.get("leaveDate")));
+                and.add(cb.not(cb.exists(oq)));
+                // Oxirgi yopilgan yozilma (leave_date ?? exit_date, keyin id) shu o'qituvchining guruhida
+                var lq = query.subquery(Long.class);
+                var last = lq.from(StudentGroup.class);
+                var lq2 = query.subquery(Long.class);
+                var later = lq2.from(StudentGroup.class);
+                var lastKey = closedKey(cb, last);
+                var laterKey = closedKey(cb, later);
+                lq2.select(later.get("id")).where(
+                    cb.equal(later.get("student"), root),
+                    closed(cb, later),
+                    cb.or(cb.greaterThan(laterKey, lastKey),
+                        cb.and(cb.equal(laterKey, lastKey), cb.greaterThan(later.get("id"), last.<Long>get("id")))));
+                lq.select(last.get("id")).where(
+                    cb.equal(last.get("student"), root),
+                    closed(cb, last),
+                    cb.equal(last.get("group").get("teacher").get("id"), lastTeacherId),
+                    cb.not(cb.exists(lq2)));
+                and.add(cb.exists(lq));
+            }
             return cb.and(and.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };
+    }
+
+    private static final LocalDate NO_CLOSE_DATE = LocalDate.of(1900, 1, 1);
+
+    private static jakarta.persistence.criteria.Predicate closed(
+            jakarta.persistence.criteria.CriteriaBuilder cb, jakarta.persistence.criteria.Root<StudentGroup> sg) {
+        return cb.or(cb.isFalse(sg.get("isActive")), cb.isNull(sg.get("isActive")));
+    }
+
+    /** {@link StudentRosterService#lastEnrollment} tartibi: {@code leave_date ?? exit_date}, sanasiz — eng boshida. */
+    private static jakarta.persistence.criteria.Expression<LocalDate> closedKey(
+            jakarta.persistence.criteria.CriteriaBuilder cb, jakarta.persistence.criteria.Root<StudentGroup> sg) {
+        jakarta.persistence.criteria.CriteriaBuilder.Coalesce<LocalDate> c = cb.coalesce();
+        c.value(sg.<LocalDate>get("leaveDate"));
+        c.value(sg.<LocalDate>get("exitDate"));
+        c.value(cb.literal(NO_CLOSE_DATE));
+        return c;
     }
 
     /**
@@ -788,6 +834,37 @@ public class StudentService {
                 Comparator.nullsLast(Comparator.naturalOrder())))
             .orElse(null);
         return toResponse(s, current);
+    }
+
+    /**
+     * Ro'yxat sahifasi: joriy guruh (faol yozilma) va joriy guruhi yo'qlarga oxirgi yopilgan guruh
+     * ({@code lastGroup}, sana, sabab) — ikkita batch so'rov, N+1 yo'q.
+     */
+    private List<StudentResponse> toListResponses(List<Student> students) {
+        List<Long> ids = students.stream().map(Student::getId).collect(Collectors.toList());
+        Map<Long, StudentGroup> currentGroups = loadCurrentGroups(ids);
+        List<Long> withoutGroup = ids.stream().filter(id -> !currentGroups.containsKey(id)).toList();
+        Map<Long, StudentGroup> lastGroups = studentRosterService.lastClosedEnrollments(withoutGroup);
+        List<StudentResponse> out = new ArrayList<>(students.size());
+        for (Student s : students) {
+            StudentResponse r = toResponse(s, currentGroups.get(s.getId()));
+            StudentGroup last = lastGroups.get(s.getId());
+            if (last != null && last.getGroup() != null) {
+                Group g = last.getGroup();
+                r.setLastGroup(StudentResponse.LastGroup.builder()
+                    .id(g.getId())
+                    .name(g.getGroupName())
+                    .teacherId(g.getTeacher() != null ? g.getTeacher().getId() : null)
+                    .teacherName(StudentRosterService.teacherName(g.getTeacher()))
+                    .build());
+                r.setLeftAt(StudentRosterService.closedOn(last));
+                com.crm.entity.enums.ExitReasonCode code = StudentRosterService.exitCode(last);
+                r.setExitReasonCode(code);
+                r.setExitReasonLabel(code != null ? code.getLabel() : null);
+            }
+            out.add(r);
+        }
+        return out;
     }
 
     private StudentResponse toResponse(Student s, StudentGroup currentGroup) {
