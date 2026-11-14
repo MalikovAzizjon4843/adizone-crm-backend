@@ -241,7 +241,8 @@ public class DirectorDashboardService {
         }
         if (as != null) {
             lines.add(as.planned() + " darsdan " + as.taken() + " tasida davomat qilindi"
-                + (as.missing() > 0 ? " (" + as.missing() + " ta yo'q)" : ""));
+                + (as.missing() > 0 ? " (" + as.missing() + " ta yo'q)" : "")
+                + (as.partial() > 0 ? " (" + as.partial() + " ta qisman)" : ""));
         }
         if (ts != null) {
             lines.add("Sinov: " + ts.cohort() + " kelgan → " + ts.buckets().get("D0").count() + " shu kuni to'ladi");

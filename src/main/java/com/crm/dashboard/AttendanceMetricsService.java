@@ -35,12 +35,15 @@ import java.util.Set;
  * bir xil qoida ({@link AttendanceDueService#isDueOn}): ACTIVE/FORMING guruh, start..end oralig'i, dars kuni
  * (jadval, bayram/bekor emas), faol (muzlatilmagan) yozilma bor; bir kunda bitta dars.
  * O'z vaqtida — o'sha kun 23:59 gacha birinchi belgi.
+ *
+ * <p>Olingan (TAKEN / LATE_MARKED) — shu kuni faol o'quvchilarning HAMMASI belgilangan; bir qismi — PARTIAL
+ * (olingan emas, rejadagi darsga kiradi). Qoida — {@link AttendanceDueService#marking} (/missing bilan bitta).
  */
 @Service
 @RequiredArgsConstructor
 public class AttendanceMetricsService {
 
-    public enum Status { TAKEN, LATE_MARKED, MISSING, UPCOMING, UNPLANNED }
+    public enum Status { TAKEN, LATE_MARKED, PARTIAL, MISSING, UPCOMING, UNPLANNED }
 
     private final DashboardQueries queries;
     private final GroupScheduleService scheduleService;
@@ -52,12 +55,13 @@ public class AttendanceMetricsService {
     public AttendanceSection summary(DashboardPeriod p, Long teacherId) {
         List<LessonRow> rows = rows(p, teacherId);
         long taken = count(rows, Status.TAKEN) + count(rows, Status.LATE_MARKED);
-        long planned = taken + count(rows, Status.MISSING) + count(rows, Status.UPCOMING);
+        long partial = count(rows, Status.PARTIAL);
+        long planned = taken + partial + count(rows, Status.MISSING) + count(rows, Status.UPCOMING);
         return new AttendanceSection(planned, taken, count(rows, Status.TAKEN), count(rows, Status.MISSING),
-            count(rows, Status.UNPLANNED), Ratios.percent(taken, planned), count(rows, Status.UPCOMING));
+            count(rows, Status.UNPLANNED), Ratios.percent(taken, planned), count(rows, Status.UPCOMING), partial);
     }
 
-    /** Drill-down; {@code status = PLANNED} — rejadagi hammasi (TAKEN, LATE_MARKED, MISSING, UPCOMING). */
+    /** Drill-down; {@code status = PLANNED} — rejadagi hammasi (TAKEN, LATE_MARKED, PARTIAL, MISSING, UPCOMING). */
     @Transactional(readOnly = true)
     public List<LessonRow> rows(DashboardPeriod p, Long teacherId, String status) {
         List<LessonRow> all = rows(p, teacherId);
@@ -66,7 +70,7 @@ public class AttendanceMetricsService {
             case "PLANNED" -> all.stream().filter(r -> !Status.UNPLANNED.name().equals(r.status())).toList();
             case "TAKEN" -> all.stream().filter(r -> Status.TAKEN.name().equals(r.status())
                 || Status.LATE_MARKED.name().equals(r.status())).toList();
-            case "MISSING", "LATE_MARKED", "UPCOMING", "UNPLANNED" -> all.stream().filter(r -> s.equals(r.status())).toList();
+            case "MISSING", "PARTIAL", "LATE_MARKED", "UPCOMING", "UNPLANNED" -> all.stream().filter(r -> s.equals(r.status())).toList();
             default -> throw com.crm.exception.CodedException.badRequest("dashboard.param.invalid", "status");
         };
     }
@@ -131,6 +135,14 @@ public class AttendanceMetricsService {
                 """, Object[].class).setParameter("f", from).setParameter("t", to).getResultList()) {
             marks.put(key((Long) r[0], (LocalDate) r[1]), r);
         }
+        // (guruh, kun) → belgilangan o'quvchilar — qisman dars (AttendanceDueService.marking)
+        Map<String, Set<Long>> markedStudents = new HashMap<>();
+        for (Object[] r : queries.em().createQuery("""
+                SELECT a.group.id, a.attendanceDate, a.student.id FROM Attendance a
+                WHERE a.attendanceDate BETWEEN :f AND :t
+                """, Object[].class).setParameter("f", from).setParameter("t", to).getResultList()) {
+            markedStudents.computeIfAbsent(key((Long) r[0], (LocalDate) r[1]), k -> new HashSet<>()).add((Long) r[2]);
+        }
 
         LocalDateTime now = p.now();
         List<LessonRow> rows = new ArrayList<>();
@@ -153,7 +165,8 @@ public class AttendanceMetricsService {
                 if (!AttendanceDueService.isDueOn(g, sgs, d, lessonDay)) {
                     continue;
                 }
-                int active = activeOn(sgs, d);
+                AttendanceDueService.Marking marking =
+                    AttendanceDueService.marking(sgs, markedStudents.getOrDefault(k, Set.of()), d);
                 plannedKeys.add(k);
                 Teacher lessonTeacher = substitutes.getOrDefault(k, g.getTeacher());
                 if (teacherId != null && (lessonTeacher == null || !teacherId.equals(lessonTeacher.getId()))) {
@@ -163,7 +176,9 @@ public class AttendanceMetricsService {
                 Object[] m = marks.get(k);
                 LocalDateTime firstMarked = m != null ? (LocalDateTime) m[3] : null;
                 String status;
-                if (m != null) {
+                if (m != null && marking.unmarked() > 0) {
+                    status = Status.PARTIAL.name();
+                } else if (m != null) {
                     status = firstMarked != null && firstMarked.isBefore(d.plusDays(1).atStartOfDay())
                         ? Status.TAKEN.name() : Status.LATE_MARKED.name();
                 } else if (d.isBefore(now.toLocalDate()) || (d.equals(now.toLocalDate()) && ended(slot, d, now))) {
@@ -171,7 +186,7 @@ public class AttendanceMetricsService {
                 } else {
                     status = Status.UPCOMING.name();
                 }
-                rows.add(row(g, lessonTeacher, d, slot, active, m, firstMarked, status));
+                rows.add(row(g, lessonTeacher, d, slot, marking.active(), marking.unmarked(), m, firstMarked, status));
             }
         }
         // Rejada yo'q, lekin davomat qilingan (jadval eskirgan bo'lishi mumkin)
@@ -186,7 +201,9 @@ public class AttendanceMetricsService {
             if (teacherId != null && (lessonTeacher == null || !teacherId.equals(lessonTeacher.getId()))) {
                 continue;
             }
-            rows.add(row(g, lessonTeacher, d, null, activeOn(enrollments.getOrDefault(g.getId(), List.of()), d), m,
+            AttendanceDueService.Marking marking = AttendanceDueService.marking(
+                enrollments.getOrDefault(g.getId(), List.of()), markedStudents.getOrDefault(e.getKey(), Set.of()), d);
+            rows.add(row(g, lessonTeacher, d, null, marking.active(), marking.unmarked(), m,
                 (LocalDateTime) m[3], Status.UNPLANNED.name()));
         }
         rows.sort(Comparator.comparing(LessonRow::date).thenComparing(LessonRow::groupId));
@@ -195,45 +212,17 @@ public class AttendanceMetricsService {
 
     /** {@code teacher} — darsni o'tgan o'qituvchi: o'rinbosar belgisi bo'lsa u, aks holda guruh o'qituvchisi. */
     private static LessonRow row(Group g, Teacher teacher, LocalDate d, GroupScheduleService.LessonSlot slot, int active,
-                                 Object[] m, LocalDateTime firstMarked, String status) {
+                                 int unmarked, Object[] m, LocalDateTime firstMarked, String status) {
         return new LessonRow(g.getId(), g.getGroupName(),
             teacher != null ? teacher.getId() : null,
             teacher != null ? FunnelMetricsService.name(teacher.getFirstName(), teacher.getLastName()) : null,
             d, slot != null ? slot.startTime() : null, slot != null ? slot.endTime() : null, active,
             m != null ? (Long) m[2] : 0, m != null ? num(m[4]) : 0, m != null ? num(m[5]) : 0,
-            m != null ? num(m[6]) : 0, firstMarked, status);
+            m != null ? num(m[6]) : 0, firstMarked, status, unmarked);
     }
 
     private static long num(Object o) {
         return o instanceof Number n ? n.longValue() : 0;
-    }
-
-    /** D kuni faol yozilmalar: qo'shilgan, chiqmagan, muzlatilmagan (§1.4). */
-    static int activeOn(List<StudentGroup> sgs, LocalDate d) {
-        int n = 0;
-        for (StudentGroup sg : sgs) {
-            if (isActiveOn(sg, d)) {
-                n++;
-            }
-        }
-        return n;
-    }
-
-    /**
-     * Yozilma D kuni faolmi (§1.4): qo'shilgan, chiqmagan, muzlatilmagan; sinov ham faol. Dars eslatmasi
-     * ({@code LessonReminderJob}) ham shu qoida bilan.
-     */
-    public static boolean isActiveOn(StudentGroup sg, LocalDate d) {
-        if (sg.getJoinDate() != null && sg.getJoinDate().isAfter(d)) {
-            return false;
-        }
-        if (sg.getLeaveDate() != null && d.isAfter(sg.getLeaveDate()) && sg.getFrozenFrom() == null) {
-            return false;
-        }
-        if (sg.getLeaveDate() == null && !Boolean.TRUE.equals(sg.getIsActive()) && sg.getFrozenFrom() == null) {
-            return false;
-        }
-        return sg.getFrozenFrom() == null || d.isBefore(sg.getFrozenFrom());
     }
 
     private static boolean ended(GroupScheduleService.LessonSlot slot, LocalDate d, LocalDateTime now) {

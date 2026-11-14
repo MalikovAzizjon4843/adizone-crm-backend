@@ -173,6 +173,110 @@ class MiniAppTeacherTest extends MiniAppItBase {
             .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("app.attendance.statusInvalid"));
     }
 
+    private List<java.util.Map<String, Object>> json(ResultActions r, String path) throws Exception {
+        return com.jayway.jsonpath.JsonPath.read(r.andReturn().getResponse().getContentAsString(), path);
+    }
+
+    private static List<Long> ids(List<java.util.Map<String, Object>> rows) {
+        return rows.stream().map(m -> ((Number) m.get("studentId")).longValue()).toList();
+    }
+
+    private static Object statusOf(List<java.util.Map<String, Object>> rows, Long studentId) {
+        return rows.stream().filter(m -> ((Number) m.get("studentId")).longValue() == studentId)
+            .findFirst().orElseThrow().get("status");
+    }
+
+    /**
+     * Prod 14.11.2026 (guruh 27): kunning bir qismi saqlangach CRM GET faqat yozuvlarni qaytarardi — belgilanmagan
+     * o'quvchi ro'yxatdan yo'qolardi. Endi ro'yxat = shu kuni faol yozilmalar ∪ yozuvlar; CRM va Mini App bir xil;
+     * qisman dars /missing'da "belgilanmagan: 1" bilan chiqadi, qolganini belgilagach yo'qoladi.
+     */
+    @Test
+    void partialSave_rosterKeepsUnmarked_sameInCrmAndMiniApp_thenRestCanBeMarked() throws Exception {
+        Long nozila = student("Nozila", "Kimsanova", phone(), null);
+        fixtures.enrollment(nozila, groupId).start(today.minusDays(30)).save();
+        // Ertadan qo'shiladigan va bugun chiqib ketgan — bugungi ro'yxatda emas
+        fixtures.enrollment(student("Kelajak", "Karimov", phone(), null), groupId).start(today.plusDays(1)).save();
+        Long leftSg = fixtures.enrollment(student("Ketgan", "Karimov", phone(), null), groupId)
+            .start(today.minusDays(30)).save();
+        inTx(() -> {
+            var sg = studentGroupRepository.findById(leftSg).orElseThrow();
+            sg.setIsActive(false);
+            sg.setLeaveDate(today);
+        });
+
+        // O'qituvchi ikkitasini belgilab saqladi, Nozila belgilanmagan qoldi
+        save(groupId, today, "[{\"studentId\":" + studentA + ",\"status\":\"PRESENT\"},"
+                + "{\"studentId\":" + studentB + ",\"status\":\"PRESENT\"}]")
+            .andExpect(status().isOk());
+        assertThat(inTx(() -> attendanceRepository.findByGroup_IdAndAttendanceDate(groupId, today))).hasSize(2);
+
+        // CRM: hammasi, ism bo'yicha; Nozila — status null
+        List<java.util.Map<String, Object>> crm = json(mvc.perform(get("/api/attendance/group/{id}", groupId)
+                .param("date", today.toString()).with(as(teacherUser))).andExpect(status().isOk()), "$.data");
+        assertThat(ids(crm)).containsExactly(studentA, nozila, studentB);    // Ali, Nozila, Vali
+        assertThat(statusOf(crm, nozila)).isNull();
+        assertThat(statusOf(crm, studentA)).isEqualTo("PRESENT");
+        assertThat(crm).filteredOn(m -> ((Number) m.get("studentId")).longValue() == nozila)
+            .extracting(m -> m.get("studentName")).containsExactly("Nozila Kimsanova");
+
+        // Mini App: xuddi shu ro'yxat
+        List<java.util.Map<String, Object>> app = json(mvc.perform(get("/api/app/teacher/attendance/{id}", groupId)
+                .param("date", today.toString()).header("Authorization", bearer(token))).andExpect(status().isOk()),
+            "$.data.students");
+        assertThat(ids(app)).isEqualTo(ids(crm));
+        assertThat(statusOf(app, nozila)).isNull();
+        mvc.perform(get("/api/app/teacher/today").header("Authorization", bearer(token)))
+            .andExpect(jsonPath("$.data.lessons[0].marked").value(2))
+            .andExpect(jsonPath("$.data.lessons[0].total").value(3));
+
+        // Qisman dars — /missing'da, "belgilanmagan: 1 ta o'quvchi"
+        mvc.perform(get("/api/attendance/missing").param("groupId", groupId.toString())
+                .param("from", today.toString()).param("to", today.toString()).with(as(teacherUser)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.missingCount").value(1))
+            .andExpect(jsonPath("$.data.partialCount").value(1))
+            .andExpect(jsonPath("$.data.missingDates[0].date").value(today.toString()))
+            .andExpect(jsonPath("$.data.missingDates[0].partial").value(true))
+            .andExpect(jsonPath("$.data.missingDates[0].activeStudents").value(3))
+            .andExpect(jsonPath("$.data.missingDates[0].unmarkedStudents").value(1));
+
+        // Qolganini CRM'dan belgilash ishlaydi
+        mvc.perform(post("/api/attendance/mark").with(as(teacherUser)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"groupId\":" + groupId + ",\"date\":\"" + today + "\",\"attendances\":["
+                    + "{\"studentId\":" + nozila + ",\"status\":\"PRESENT\"}]}"))
+            .andExpect(status().isOk());
+        List<java.util.Map<String, Object>> after = json(mvc.perform(get("/api/attendance/group/{id}", groupId)
+                .param("date", today.toString()).with(as(teacherUser))).andExpect(status().isOk()), "$.data");
+        assertThat(ids(after)).containsExactly(studentA, nozila, studentB);
+        assertThat(after).allSatisfy(m -> assertThat(m.get("status")).isEqualTo("PRESENT"));
+        mvc.perform(get("/api/attendance/missing").param("groupId", groupId.toString())
+                .param("from", today.toString()).param("to", today.toString()).with(as(teacherUser)))
+            .andExpect(jsonPath("$.data.missingCount").value(0));
+        mvc.perform(get("/api/app/teacher/today").header("Authorization", bearer(token)))
+            .andExpect(jsonPath("$.data.lessons[0].marked").value(3))
+            .andExpect(jsonPath("$.data.lessons[0].total").value(3));
+    }
+
+    /** Shu kuni belgilangan, keyin chiqib ketgan o'quvchi o'sha kun ro'yxatida qoladi (ikkala endpoint). */
+    @Test
+    void markedThenLeft_staysInThatDaysRoster() throws Exception {
+        save(groupId, today, "[{\"studentId\":" + studentA + ",\"status\":\"PRESENT\"},"
+                + "{\"studentId\":" + studentB + ",\"status\":\"PRESENT\"}]")
+            .andExpect(status().isOk());
+        inTx(() -> {
+            var sg = studentGroupRepository.findByStudentIdAndIsActiveTrue(studentB).get(0);
+            sg.setIsActive(false);
+            sg.setLeaveDate(today);
+        });
+        List<java.util.Map<String, Object>> crm = json(mvc.perform(get("/api/attendance/group/{id}", groupId)
+                .param("date", today.toString()).with(as(teacherUser))).andExpect(status().isOk()), "$.data");
+        assertThat(ids(crm)).containsExactly(studentA, studentB);
+        List<java.util.Map<String, Object>> app = json(mvc.perform(get("/api/app/teacher/attendance/{id}", groupId)
+                .header("Authorization", bearer(token))).andExpect(status().isOk()), "$.data.students");
+        assertThat(ids(app)).containsExactly(studentA, studentB);
+    }
+
     @Test
     void pastDate_locked_untilUnlockApproved() throws Exception {
         LocalDate yesterday = today.minusDays(1);

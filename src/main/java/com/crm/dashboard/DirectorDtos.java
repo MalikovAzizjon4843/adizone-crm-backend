@@ -82,7 +82,7 @@ public final class DirectorDtos {
     // ── attendance (§1.4) ───────────────────────────────────────────────
 
     public record AttendanceSection(long planned, long taken, long takenOnTime, long missing,
-                                    long unplanned, BigDecimal rate, long upcomingToday) {
+                                    long unplanned, BigDecimal rate, long upcomingToday, long partial) {
     }
 
     /**
@@ -92,7 +92,7 @@ public final class DirectorDtos {
     public record LessonRow(Long groupId, String groupName, Long teacherId, String teacherName,
                             LocalDate date, String startTime, String endTime, int activeStudents,
                             long markedCount, long present, long absent, long excused,
-                            LocalDateTime firstMarkedAt, String status) {
+                            LocalDateTime firstMarkedAt, String status, int unmarkedStudents) {
     }
 
     // ── trials (§1.5) ───────────────────────────────────────────────────

@@ -93,7 +93,7 @@ class AttendanceDueTest extends AbstractBillingIT {
 
     private List<LocalDate> missing(Long group) {
         return inTx(() -> due.missing(groupRepo.findById(group).orElseThrow(), null, null)).stream()
-            .map(AttendanceDueService.DueLesson::date).toList();
+            .map(AttendanceDueService.MissingLesson::date).toList();
     }
 
     @Test
@@ -260,6 +260,68 @@ class AttendanceDueTest extends AbstractBillingIT {
         List<LocalDate> expected = List.of(d("25.09.2026"), d("28.09.2026"), d("05.10.2026"));
         assertThat(missing(g)).containsExactlyElementsOf(expected);
         assertThat(dashboardPlanned(g)).containsExactlyElementsOf(expected);
+    }
+
+    /**
+     * Qisman belgilangan dars (yozuvlar &lt; faol o'quvchilar) "olingan" emas: /missing'da "belgilanmagan: N" bilan,
+     * dashboardda PARTIAL (rejada, olinganlarga kirmaydi). Hammasi belgilansa — ikkalasidan ham chiqadi.
+     */
+    @Test
+    void partiallyMarkedLesson_isPartial_inMissingAndDashboard() {
+        Long g = group("29.09.2026");
+        Long a = join(g, "29.09.2026");
+        Long b = join(g, "29.09.2026");
+        mark(a, "30.09.2026");
+        mark(b, "30.09.2026");                    // 30.09 — to'liq
+        mark(a, "02.10.2026");                    // 02.10 — qisman (b belgilanmagan)
+
+        List<AttendanceDueService.MissingLesson> list =
+            inTx(() -> due.missing(groupRepo.findById(g).orElseThrow(), null, null));
+        assertThat(list).extracting(AttendanceDueService.MissingLesson::date)
+            .containsExactly(d("02.10.2026"), d("05.10.2026"), d("07.10.2026"), d("09.10.2026"));   // 30.09 — to'liq
+        AttendanceDueService.MissingLesson partial = list.stream()
+            .filter(l -> l.date().equals(d("02.10.2026"))).findFirst().orElseThrow();
+        assertThat(partial.partial()).isTrue();
+        assertThat(partial.activeStudents()).isEqualTo(2);
+        assertThat(partial.unmarkedStudents()).isEqualTo(1);
+        AttendanceDueService.MissingLesson none = list.get(1);     // 05.10 — umuman belgilanmagan
+        assertThat(none.partial()).isFalse();
+        assertThat(none.unmarkedStudents()).isEqualTo(2);
+
+        // /api/attendance/missing — xuddi shu
+        fixtures.loginAs(UserRole.ADMIN);
+        MissingAttendanceResponse api = attendance.getMissingAttendance(g, null, null);
+        assertThat(api.getMissingCount()).isEqualTo(list.size());
+        assertThat(api.getPartialCount()).isEqualTo(1);
+        assertThat(api.getMissingDates()).filteredOn(MissingAttendanceResponse.MissingDateItem::isPartial)
+            .singleElement().satisfies(i -> {
+                assertThat(i.getDate()).isEqualTo(d("02.10.2026"));
+                assertThat(i.getUnmarkedStudents()).isEqualTo(1);
+            });
+
+        // Dashboard: 02.10 — PARTIAL, 30.09 — TAKEN; olinganlar/rejadagi hisobi
+        DashboardPeriod p = DashboardPeriod.of("CUSTOM", null, d("10.09.2026"), d("10.10.2026"),
+            LocalDateTime.now(clock));
+        List<LessonRow> partialRows = inTx(() -> metrics.rows(p, teacher, "PARTIAL"));
+        assertThat(partialRows).extracting(LessonRow::date).containsExactly(d("02.10.2026"));
+        assertThat(partialRows.get(0).unmarkedStudents()).isEqualTo(1);
+        assertThat(partialRows.get(0).activeStudents()).isEqualTo(2);
+        assertThat(inTx(() -> metrics.rows(p, teacher, "TAKEN"))).extracting(LessonRow::date)
+            .containsExactly(d("30.09.2026"));
+        assertThat(dashboardPlanned(g)).containsExactlyElementsOf(
+            inTx(() -> due.dueLessons(groupRepo.findById(g).orElseThrow(), d("10.09.2026"), d("10.10.2026")))
+                .stream().map(AttendanceDueService.DueLesson::date).toList());
+        var summary = inTx(() -> metrics.summary(p, teacher));
+        assertThat(summary.partial()).isEqualTo(1);
+        assertThat(summary.taken()).isEqualTo(1);
+        assertThat(summary.planned()).isEqualTo(dashboardPlanned(g).size());
+
+        // Qolganini belgilash — dars olingan
+        mark(b, "02.10.2026");
+        assertThat(missing(g)).doesNotContain(d("02.10.2026"));
+        assertThat(inTx(() -> metrics.rows(p, teacher, "PARTIAL"))).isEmpty();
+        assertThat(inTx(() -> metrics.rows(p, teacher, "TAKEN"))).extracting(LessonRow::date)
+            .containsExactly(d("30.09.2026"), d("02.10.2026"));
     }
 
     @Test

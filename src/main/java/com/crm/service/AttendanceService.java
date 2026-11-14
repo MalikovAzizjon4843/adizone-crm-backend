@@ -42,7 +42,6 @@ public class AttendanceService {
 
     private final AttendanceRepository attendanceRepository;
     private final StudentRepository studentRepository;
-    private final StudentGroupRepository studentGroupRepository;
     private final GroupRepository groupRepository;
     private final GroupScheduleService groupScheduleService;
     private final NotificationService notificationService;
@@ -57,6 +56,7 @@ public class AttendanceService {
     private final AttendanceDueService attendanceDueService;
     private final com.crm.billing.DebtorService debtorService;
     private final com.crm.billing.BillingStatusService billingStatusService;
+    private final AttendanceRosterService attendanceRosterService;
 
     @Transactional
     @Audited(action = AuditAction.UPDATE, entity = "Attendance",
@@ -232,6 +232,9 @@ public class AttendanceService {
                 .date(l.date())
                 .dayOfWeek(l.dayOfWeek())
                 .startTime(l.startTime())
+                .activeStudents(l.activeStudents())
+                .unmarkedStudents(l.unmarkedStudents())
+                .partial(l.partial())
                 .build())
             .toList();
 
@@ -240,6 +243,7 @@ public class AttendanceService {
             .groupName(group.getGroupName())
             .missingDates(missing)
             .missingCount(missing.size())
+            .partialCount((int) missing.stream().filter(MissingAttendanceResponse.MissingDateItem::isPartial).count())
             .build();
     }
 
@@ -259,34 +263,34 @@ public class AttendanceService {
         };
     }
 
+    /**
+     * Kunlik davomat: ro'yxat — {@link AttendanceRosterService} (Mini App bilan bir xil): shu kuni faol yozilmalar ∪
+     * shu kungi yozuvlar. Yozuvi bor — yozuv, qolganlari {@code status = null} ("hali belgilanmagan"); qisman
+     * saqlangan kunda ham belgilanmaganlar ro'yxatda qoladi.
+     */
     @Transactional(readOnly = true)
     public List<AttendanceResponse> getGroupAttendance(Long groupId, LocalDate date) {
         LocalDate d = date != null ? date : LocalDate.now();
         attendanceAccessService.assertCanRead(groupId, d);
-        List<Attendance> existing = attendanceRepository.findByGroup_IdAndAttendanceDate(groupId, d);
         // O'quvchi yonida Mini App sabab bildirishi (telegram-platform §11.2)
         Map<Long, AbsenceNoticeResponse> notices = absenceNoticeService.byStudent(groupId, d);
 
-        if (!existing.isEmpty()) {
-            return withDebt(existing.stream()
-                .map(this::toResponse)
-                .peek(r -> r.setAbsenceNotice(notices.get(r.getStudentId())))
-                .collect(Collectors.toList()), groupId);
+        List<AttendanceResponse> rows = new ArrayList<>();
+        for (AttendanceRosterService.Entry e : attendanceRosterService.roster(groupId, d)) {
+            AttendanceResponse r = e.attendance() != null
+                ? toResponse(e.attendance())
+                : AttendanceResponse.builder()
+                    .studentId(e.studentId())
+                    .groupId(groupId)
+                    .attendanceDate(d)
+                    .status(null)
+                    .notes("")
+                    .build();
+            r.setStudentName(e.fullName());
+            r.setAbsenceNotice(notices.get(e.studentId()));
+            rows.add(r);
         }
-
-        List<StudentGroup> activeStudents = studentGroupRepository.findByGroup_IdAndIsActiveTrue(groupId);
-
-        return withDebt(activeStudents.stream()
-            .map(sg -> AttendanceResponse.builder()
-                .studentId(sg.getStudent().getId())
-                .studentName(sg.getStudent().getFirstName() + " " + sg.getStudent().getLastName())
-                .groupId(groupId)
-                .attendanceDate(d)
-                .status(null)
-                .notes("")
-                .absenceNotice(notices.get(sg.getStudent().getId()))
-                .build())
-            .collect(Collectors.toList()), groupId);
+        return withDebt(rows, groupId);
     }
 
     /**

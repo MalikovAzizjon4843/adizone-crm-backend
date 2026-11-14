@@ -10,6 +10,20 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-11-14, qisman saqlangan davomat — PARTIAL)
+
+> Prod bug: guruhda kunga bitta yozuv bo'lsa ham `GET /api/attendance/group/{id}?date=` FAQAT yozuvlarni qaytarardi —
+> qisman saqlangan kunda belgilanmagan o'quvchi ro'yxatdan yo'qolardi (guruh 27, 14.11.2026). Endi ro'yxat —
+> `AttendanceRosterService` (Mini App bilan bir xil). Dars "olingan" — shu kuni faol o'quvchilarning HAMMASI belgilangan
+> (`AttendanceDueService.marking`); bir qismi — qisman. Sxema o'zgarmadi.
+
+| Endpoint | Rol | O'zgarish |
+|---|---|---|
+| `GET /api/attendance/group/{id}?date=` | o'zgarmagan | Ro'yxat = shu kuni faol yozilmalar (qo'shilgan, chiqmagan, muzlatilmagan; sinov ham) ∪ shu kungi yozuvlar, ism bo'yicha. Yozuvi yo'qlar — `id: null`, `status: null`, `notes: ""` |
+| `GET /api/attendance/missing`, `/missing/my` | o'zgarmagan | Qisman dars ham ro'yxatda. `MissingDateItem`: yangi **`activeStudents`**, **`unmarkedStudents`**, **`partial`**. `MissingAttendanceResponse`: yangi **`partialCount`** (`missingCount` ga kiradi) |
+| `GET /api/dashboard/director` → `attendance` | o'zgarmagan | `AttendanceSection.partial` (yangi). `planned = taken + partial + missing + upcomingToday`; `taken` — faqat to'liq olingan |
+| `GET /api/dashboard/director/attendance/lessons` (`LessonRow`) | o'zgarmagan | Yangi holat **`PARTIAL`** (`?status=PARTIAL` filtri ham), yangi **`unmarkedStudents`** |
+
 ## Yangilanishlar (2026-11-11, oylik KPI metrikasi — SALES_HEAD yangi o'quvchilar pog'onalari, "≥" pog'onalar — V88)
 
 > Buyurtmachi: SALES_HEAD oyligi = fiksa × stavka + oy davomida **markazga** kelgan yangi o'quvchilar soni bo'yicha

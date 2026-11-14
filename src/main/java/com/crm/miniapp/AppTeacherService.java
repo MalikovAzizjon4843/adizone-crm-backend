@@ -7,7 +7,6 @@ import com.crm.dto.response.AttendanceUnlockResponseDto;
 import com.crm.entity.Attendance;
 import com.crm.entity.Group;
 import com.crm.entity.LessonSubstitution;
-import com.crm.entity.StudentGroup;
 import com.crm.entity.Teacher;
 import com.crm.entity.User;
 import com.crm.entity.enums.AttendanceStatus;
@@ -15,13 +14,12 @@ import com.crm.entity.enums.GroupStatus;
 import com.crm.entity.enums.SubstitutionStatus;
 import com.crm.exception.CodedException;
 import com.crm.exception.ResourceNotFoundException;
-import com.crm.repository.AttendanceRepository;
 import com.crm.repository.GroupRepository;
 import com.crm.repository.LessonSubstitutionRepository;
-import com.crm.repository.StudentGroupRepository;
 import com.crm.repository.TeacherRepository;
 import com.crm.service.AbsenceNoticeService;
 import com.crm.service.AttendanceAccessService;
+import com.crm.service.AttendanceRosterService;
 import com.crm.service.AttendanceService;
 import com.crm.service.AttendanceUnlockRequestService;
 import com.crm.service.GroupScheduleService;
@@ -39,13 +37,13 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * O'qituvchi rejimi (docs/design/telegram-platform.md §11.4). Davomat qoidalari takrorlanmaydi: o'qish huquqi —
@@ -69,8 +67,7 @@ public class AppTeacherService {
     private final TeacherRepository teacherRepository;
     private final GroupRepository groupRepository;
     private final LessonSubstitutionRepository substitutionRepository;
-    private final StudentGroupRepository studentGroupRepository;
-    private final AttendanceRepository attendanceRepository;
+    private final AttendanceRosterService rosterService;
     private final AbsenceNoticeService absenceNoticeService;
     private final AttendanceAccessService attendanceAccessService;
     private final AttendanceService attendanceService;
@@ -128,8 +125,10 @@ public class AppTeacherService {
                                          LocalDate day) {
         boolean held = held(l);
         boolean canMark = held && substitute == null && lockReason(staff, g.getId(), day, false) == null;
-        int marked = attendanceRepository.findByGroup_IdAndAttendanceDate(g.getId(), day).size();
-        int total = studentGroupRepository.findByGroup_IdAndIsActiveTrue(g.getId()).size();
+        // "Belgilangan / jami" — davomat ro'yxati bilan bir xil (qisman belgilangan dars marked < total)
+        List<AttendanceRosterService.Entry> roster = rosterService.roster(g.getId(), day);
+        int marked = (int) roster.stream().filter(AttendanceRosterService.Entry::marked).count();
+        int total = roster.size();
         int notices = absenceNoticeService.byStudent(g.getId(), day).size();
         return new AppDtos.TeacherLesson(g.getId(), g.getGroupName(), day, l.startTime(), l.endTime(), l.room(),
             l.status(), role, substitute, canMark, marked, total, notices);
@@ -164,7 +163,8 @@ public class AppTeacherService {
                         ? "UNLOCK_EXPIRED" : "PAST_DATE"));
             }
         }
-        Set<Long> allowed = tx.execute(s -> studentsOf(groupId, day).keySet());
+        Set<Long> allowed = tx.execute(s -> rosterService.roster(groupId, day).stream()
+            .map(AttendanceRosterService.Entry::studentId).collect(Collectors.toSet()));
         AttendanceRequest attendance = new AttendanceRequest();
         attendance.setGroupId(groupId);
         attendance.setDate(day);
@@ -210,20 +210,19 @@ public class AppTeacherService {
         return tx.execute(s -> {
             Group group = groupRepository.findById(groupId).orElseThrow(() -> new ResourceNotFoundException("Group", groupId));
             Map<Long, AbsenceNoticeResponse> notices = absenceNoticeService.byStudent(groupId, day);
-            Map<Long, Attendance> marked = new LinkedHashMap<>();
-            attendanceRepository.findByGroup_IdAndAttendanceDate(groupId, day)
-                .forEach(a -> marked.put(a.getStudent().getId(), a));
             List<AppDtos.TeacherAttendanceStudent> students = new ArrayList<>();
-            Map<Long, String> roster = studentsOf(groupId, day);
+            // Ro'yxat — CRM GET /api/attendance/group/{id} bilan bitta manba (AttendanceRosterService)
+            List<AttendanceRosterService.Entry> roster = rosterService.roster(groupId, day);
             // Qarzdor belgisi — guruh bo'yicha bitta so'rov (CRM davomati bilan bir xil ta'rif); summa — yo'q
-            Map<Long, com.crm.billing.DebtorService.DebtFlag> debts =
-                debtorService.debtFlags(groupId, roster.keySet(), statusService.today());
-            roster.forEach((studentId, name) -> {
-                Attendance a = marked.get(studentId);
+            Map<Long, com.crm.billing.DebtorService.DebtFlag> debts = debtorService.debtFlags(groupId,
+                roster.stream().map(AttendanceRosterService.Entry::studentId).toList(), statusService.today());
+            roster.forEach(e -> {
+                Long studentId = e.studentId();
+                Attendance a = e.attendance();
                 AbsenceNoticeResponse n = notices.get(studentId);
                 com.crm.billing.DebtorService.DebtFlag f =
                     debts.getOrDefault(studentId, com.crm.billing.DebtorService.DebtFlag.NONE);
-                students.add(new AppDtos.TeacherAttendanceStudent(studentId, name,
+                students.add(new AppDtos.TeacherAttendanceStudent(studentId, e.fullName(),
                     a != null ? a.getStatus().name() : null, a != null ? a.getNotes() : null,
                     a != null ? a.getExcused() : null, a != null ? a.getExcuseReason() : null,
                     n != null ? new AppDtos.AbsenceBrief(n.id(), n.type(), n.comment(), n.createdAt()) : null,
@@ -235,21 +234,6 @@ public class AppTeacherService {
                 .stream().findFirst().map(AppTeacherService::unlockInfo).orElse(null);
             return new AppDtos.TeacherAttendance(groupId, group.getGroupName(), day, lock == null, lock, unlock, students);
         });
-    }
-
-    /** Faol o'quvchilar + shu kuni belgilangan (keyin chiqib ketgan) o'quvchilar, ism bo'yicha. */
-    private Map<Long, String> studentsOf(Long groupId, LocalDate day) {
-        Map<Long, String> out = new LinkedHashMap<>();
-        for (StudentGroup sg : studentGroupRepository.findByGroup_IdAndIsActiveTrue(groupId)) {
-            out.put(sg.getStudent().getId(), MiniAppQueryService.fullName(sg.getStudent()));
-        }
-        for (Attendance a : attendanceRepository.findByGroup_IdAndAttendanceDate(groupId, day)) {
-            out.putIfAbsent(a.getStudent().getId(), MiniAppQueryService.fullName(a.getStudent()));
-        }
-        Map<Long, String> sorted = new LinkedHashMap<>();
-        out.entrySet().stream().sorted(Map.Entry.comparingByValue())
-            .forEach(e -> sorted.put(e.getKey(), e.getValue()));
-        return sorted;
     }
 
     /** null — tahrirlash mumkin; aks holda FUTURE / SUBSTITUTED / NO_LESSON / PAST_DATE / UNLOCK_EXPIRED. */

@@ -47,6 +47,13 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
         @Param("from") LocalDate from,
         @Param("to") LocalDate to);
 
+    /** [attendanceDate, studentId] — guruhning oraliqdagi yozuvlari (qisman belgilangan darslar, AttendanceDueService). */
+    @Query(value = "SELECT a.attendanceDate, a.student.id FROM Attendance a "
+           + "WHERE a.group.id = :groupId AND a.attendanceDate BETWEEN :from AND :to")
+    List<Object[]> findMarkedStudentsByGroupAndDateBetween(@Param(value = "groupId") Long groupId,
+                                                           @Param(value = "from") LocalDate from,
+                                                           @Param(value = "to") LocalDate to);
+
     List<Attendance> findByStudentIdOrderByAttendanceDateDesc(Long studentId);
 
     Optional<Attendance> findByStudentIdAndGroupIdAndAttendanceDate(

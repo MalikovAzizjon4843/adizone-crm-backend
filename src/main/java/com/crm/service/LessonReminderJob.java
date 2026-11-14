@@ -1,6 +1,5 @@
 package com.crm.service;
 
-import com.crm.dashboard.AttendanceMetricsService;
 import com.crm.entity.Group;
 import com.crm.entity.Student;
 import com.crm.entity.StudentGroup;
@@ -36,7 +35,7 @@ import java.util.Set;
  *   <li>dars bor-yo'qligi — {@link GroupScheduleService#hasLessonOn} (bayram, CANCELLED / MOVED — yo'q; EXTRA,
  *       ko'chirilgan kun — bor), vaqt — {@link GroupScheduleService#slotOn};</li>
  *   <li>faqat ACTIVE guruh, guruh boshlanishi / tugashi oralig'ida;</li>
- *   <li>qabul qiluvchilar — shu kuni faol yozilmalar ({@link AttendanceMetricsService#isActiveOn}): sinov ham;
+ *   <li>qabul qiluvchilar — shu kuni faol yozilmalar ({@link AttendanceDueService#isActiveOn}): sinov ham;
  *       muzlatilgan va chiqqan — yo'q;</li>
  *   <li>yuborish payti sokin soatga ({@code TelegramOutboxService.isQuiet}, 21:00–08:00) to'g'ri kelsa — umuman
  *       yuborilmaydi (kechikkan eslatma ma'nosiz);</li>
@@ -98,7 +97,7 @@ public class LessonReminderJob {
                 }
                 lessons++;
                 for (StudentGroup sg : studentGroupRepository.findActiveWithStudentByGroupId(group.getId())) {
-                    if (!AttendanceMetricsService.isActiveOn(sg, day)) {
+                    if (!AttendanceDueService.isActiveOn(sg, day)) {
                         continue;
                     }
                     students++;
