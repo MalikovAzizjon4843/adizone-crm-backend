@@ -52,7 +52,7 @@ public class BillingFixtures {
         "book_stock_movements", "book_gifts", "book_sale_lines", "book_sales", "book_supplier_payments",
         "book_receipt_lines", "book_receipts", "book_suppliers", "book_items", "study_levels",
         "cash_handover_lines", "cash_handovers", "cash_register_members", "cash_registers", "bonus_penalties", "attendance", "student_status_history",
-        "student_groups", "students", "group_schedule_days", "groups", "courses", "teachers",
+        "student_groups", "students", "group_schedule_days", "timetable", "groups", "courses", "teachers",
         "billing_held_applications", "billing_job_runs", "billing_migration_runs", "audit_logs",
         "lead_assignments", "lead_status_history", "lead_comments", "lead_notes", "tasks", "leads",
         "holidays", "lesson_exceptions", "director_daily_stats", "director_digest_log",

@@ -10,6 +10,21 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-11-19, jadvalda yopiq guruhlar, lid yopilganda vazifalar, to'lovni qabul qilgan xodim)
+
+> Prod bug: dars jadvalida COMPLETED/CANCELLED guruhlar ko'rinardi. Sabab: guruh holati o'zgarganda (`GroupService.updateStatus`)
+> `timetable` qatorlari o'chirilmaydi, `AcademicService` ning jadval so'rovlari (`TimetableRepository.findByDayOfWeekWithDetails*`,
+> `findAll`, `findByTeacherScope`, `findByGroupId`, `findByTeacherId`, `findByClassEntityId`) esa guruh holati va `end_date` ni
+> tekshirmasdi. Endi filtr o'qishda qo'llanadi. Sxema o'zgarmadi.
+
+| Endpoint | Rol | O'zgarish |
+|---|---|---|
+| `GET /api/timetable/grid`, `GET /api/timetable/by-room` | SA, A, T | Standart holda faqat **ACTIVE/FORMING** guruhlar darslari va `end_date` si sanadan oldin bo'lmaganlari. Yangi **`date`** (ISO, ixtiyoriy): hafta kuni undan olinadi (`dayOfWeek` endi ixtiyoriy; ikkalasi berilsa mos kelishi shart, aks holda 400), `end_date < date` bo'lgan guruh darsi chiqmaydi; `date` berilmasa — bugun (Toshkent). Guruhsiz (eski sinf) yozuvlar avvalgidek |
+| `GET /api/timetable`, `/group/{groupId}`, `/teacher/{teacherId}`, `/class/{classId}` | SA, A, T | Xuddi shu qoida, sana — bugun. `GET /api/timetable` filtri bazada (pagination to'g'ri) |
+| yuqoridagilarning barchasi | **`includeClosed=true`** — faqat SA, A (T → **403**) | Filtrsiz: COMPLETED/CANCELLED va `end_date` o'tgan guruhlar ham. Standart `false` |
+| `PATCH /api/leads/{id}/status`, `POST /api/leads/{id}/convert` | o'zgarmagan | Lid yopiq bosqichga (kind **REJECTED** yoki **CONVERTED**) o'tganda uning barcha OCHIQ vazifalari avtomatik **`CANCELLED`**: `result = "Lid yopildi"`, `completedBy` — bosqichni o'zgartirgan xodim, `completedAt` — vaqt. Bosqich o'zgarishi audit yozuvida `tasksCancelled: [id...]`. DONE vazifalarga tegilmaydi; "bajarildi" statistikasiga kirmaydi. Bosqich qaytarilsa vazifalar **tiklanmaydi**. `nextTask` berilsa u bekor qilishdan keyin yaratiladi (ochiq qoladi) |
+| `PaymentResponse` (`POST /api/payments`, `GET /api/payments`, `/student/{id}`, bekor qilish va h.k.) | o'zgarmagan | Yangi **`receivedByName`** (String) — to'lovni qabul qilgan xodim (`payments.received_by`): "Ism Familiya", ism-familiya bo'sh bo'lsa login, noma'lum bo'lsa `null`. Termochek uchun |
+
 ## Yangilanishlar (2026-11-14, qisman saqlangan davomat — PARTIAL)
 
 > Prod bug: guruhda kunga bitta yozuv bo'lsa ham `GET /api/attendance/group/{id}?date=` FAQAT yozuvlarni qaytarardi —
@@ -1259,7 +1274,7 @@ SecurityConfig qoidalari:
 
 | METHOD | path | Controller#metod | Effektiv rollar | Request | Response | Pagination | Izoh |
 |---|---|---|---|---|---|---|---|
-| GET | `/api/timetable` | `getAllTimetable` (`:127-133`) | SA, A, T | query `page=0`, `size=20` | `ApiResponse<PageResponse<TimetableResponse>>` | PageResponse, `createdAt DESC` (`AcademicService.java:185-199`) | TEACHER uchun `findByTeacherScope` bilan filtrlanadi. |
+| GET | `/api/timetable` | `getAllTimetable` (`:127-133`) | SA, A, T | query `page=0`, `size=20` | `ApiResponse<PageResponse<TimetableResponse>>` | PageResponse, `createdAt DESC` (`AcademicService.java:185-199`) | TEACHER uchun `findByTeacherScope` bilan filtrlanadi. 2026-11-19: standart holda faqat ACTIVE/FORMING va `end_date` o'tmagan guruhlar; `includeClosed=true` (SA, A) — hammasi (yuqoridagi Yangilanishlar). |
 | GET | `/api/timetable/group/{groupId}` | `getTimetableByGroup` (`:135-139`) | SA, A, T | path `groupId` | `ApiResponse<List<TimetableResponse>>` | yo'q | TEACHER uchun `assertOwnsGroup` (`AcademicService.java:216-220`). |
 | GET | `/api/timetable/by-room` | `getByRoom` (`:141-145`) | SA, A, T | query `dayOfWeek: String` (majburiy; MONDAY..SUNDAY, case-insensitive) | **`RoomTimetableDto` — ApiResponse envelope YO'Q** | yo'q | Noto'g'ri kun → 400 (`AcademicService.java:675-684`). TEACHER faqat o'z darslarini ko'radi (`:392-399`). |
 | GET | `/api/timetable/grid` | `getTimetableGrid` (`:147-152`) | SA, A, T | query `dayOfWeek: String` (majburiy) | `ApiResponse<TimetableGridResponse>` | yo'q | Faqat faol xonalar. Qat'iy qiymatlar: `startTime:"08:00"`, `endTime:"22:00"`, `slotMinutes:30`. `color` groupId bo'yicha palitradan olinadi (`AcademicService.java:273-313`). |
@@ -2064,7 +2079,7 @@ Shablon yuklab olish endpointi lid importi uchun YO'Q (amoCRM eksport fayli kuti
   - `latestNotices: List<NoticeResponse>` — 5 ta (`:99-114`); faqat qisman to'ldiriladi: `id, uuid, title, content, noticeDate, publishedTo, noticeType, isPublished, publishedAt, expiresAt, expiryDate, isExpired(false), createdAt`; qolganlari (`targetRole, isActive, isRead, createdByName`) null
     - `NoticeResponse` to'liq maydonlari (`dto/response/NoticeResponse.java:13-32`): `id: Long`, `uuid: UUID`, `title: String`, `content: String`, `noticeDate: LocalDate`, `publishedTo: String`, `noticeType: String`, `targetRole: String`, `isActive: Boolean`, `isPublished: Boolean`, `publishedAt: LocalDateTime`, `expiresAt: LocalDateTime`, `expiryDate: LocalDate`, `isExpired: Boolean`, `isRead: Boolean`, `createdByName: String`, `createdAt: LocalDateTime`
   - `recentPayments: List<PaymentResponse>` — oxirgi 10 ta (`:116-124`); faqat `id, uuid, receiptNumber, formattedAmount ("800 000 so'm"), amount, paymentDate, paymentMethod, status` to'ldiriladi — `studentName`, `groupName` va boshqalar NULL
-    - `PaymentResponse` to'liq maydonlari (`dto/response/PaymentResponse.java:16-44`): `id: Long`, `uuid: UUID`, `studentId: Long`, `studentName: String`, `groupId: Long`, `groupName: String`, `amount: BigDecimal`, `discountAmount: BigDecimal`, `bonusDiscount: BigDecimal`, `balanceUsed: BigDecimal`, `payable: BigDecimal`, `cashAmount: BigDecimal`, `receiptNumber: String`, `formattedAmount: String`, `paymentDate: LocalDate`, `paymentMethod: PaymentMethod`, `status: PaymentStatus`, `periodFrom: LocalDate`, `periodTo: LocalDate`, `description: String`, `createdAt: LocalDateTime`, `cashRegisterId: Long`, `cashRegisterName: String`
+    - `PaymentResponse` to'liq maydonlari (`dto/response/PaymentResponse.java:16-44`): `id: Long`, `uuid: UUID`, `studentId: Long`, `studentName: String`, `groupId: Long`, `groupName: String`, `amount: BigDecimal`, `discountAmount: BigDecimal`, `bonusDiscount: BigDecimal`, `balanceUsed: BigDecimal`, `payable: BigDecimal`, `cashAmount: BigDecimal`, `receiptNumber: String`, `formattedAmount: String`, `paymentDate: LocalDate`, `paymentMethod: PaymentMethod`, `status: PaymentStatus`, `periodFrom: LocalDate`, `periodTo: LocalDate`, `description: String`, `createdAt: LocalDateTime`, `cashRegisterId: Long`, `cashRegisterName: String`, `receivedByName: String` (2026-11-19)
 - `StaffAnalyticsResponse` (`dto/response/StaffAnalyticsResponse.java:16-21`): `period: String`, `from: LocalDate`, `to: LocalDate`, `staff: List<StaffMemberMetricsDto>`
   - `StaffMemberMetricsDto` (`dto/response/StaffMemberMetricsDto.java:14-41`): `userId: Long`, `fullName: String`, `role: String`, `photoUrl: String`, `leadsAssigned: Long`, `leadsConverted: Long`, `conversionRate: Double`, `paymentsReceived: Long`, `paymentsAmount: BigDecimal`, `studentsCreated: Long`; faqat TEACHER uchun: `groupCount: Integer`, `studentCount: Integer`, `attendanceRate: Double`, `paymentRate: Double`, `onTimePaymentRate: Double`, `retentionRate: Double`, `overallScore: Double`, `attendanceMarkedCount: Long`, `unlockRequestCount: Long`; `insufficientData: Boolean`, `activityLabel: String` (masalan "Faoliyat yo'q")
 - `StaffSummaryResponse` (`dto/response/StaffSummaryResponse.java:17-56`): `period: String`, `from: LocalDate`, `to: LocalDate`, `totalStaff: int`, `byRole: Map<String, Long>`, `topByConversion: List<TopConversionItem>`, `topByPayments: List<TopPaymentItem>`, `topByKpi: List<TopKpiItem>`

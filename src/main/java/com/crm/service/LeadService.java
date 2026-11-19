@@ -445,6 +445,8 @@ public class LeadService {
         if (!newStatus.equals(oldStatus)) {
             AuditContext.change("status", oldStatus, newStatus);
             recordStatusChange(lead, oldStatus, newStatus, null);
+            // nextTask (berilgan bo'lsa) pastda — bekor qilishdan KEYIN yaratiladi
+            cancelOpenTasksIfClosed(lead, newStatus);
         }
 
         // Avval bu qoida kodda "ONLINE_PAID"/"OFFLINE_PAID" ro'yxati edi va
@@ -776,6 +778,7 @@ public class LeadService {
         if (!convertedCode.equals(statusBeforeConvert)) {
             recordStatusChange(lead, statusBeforeConvert, convertedCode,
                 "O'quvchiga aylantirildi");
+            cancelOpenTasksIfClosed(lead, convertedCode);
         }
         leadRepository.save(lead);
 
@@ -1189,6 +1192,21 @@ public class LeadService {
         // Direktor dashboardi: voronka qadami sanalari va operatorning birinchi javobi
         leadFunnelTracker.onStageEntered(lead, to, at);
         leadFunnelTracker.onOperatorAction(lead.getId(), actor, LeadAssignment.KIND_STATUS, at);
+    }
+
+    /**
+     * Yopiq bosqichga (kind REJECTED/CONVERTED) kirish — lidning ochiq vazifalari bekor qilinadi
+     * ({@link TaskService#cancelOpenTasksOfClosedLead}); id lar shu bosqich o'zgarishi audit
+     * yozuviga {@code tasksCancelled} sifatida tushadi. Qaytarishda vazifalar tiklanmaydi.
+     */
+    private void cancelOpenTasksIfClosed(Lead lead, String newStatus) {
+        if (!leadStageService.isClosed(newStatus)) {
+            return;
+        }
+        List<Long> cancelled = taskService.cancelOpenTasksOfClosedLead(lead, getCurrentUser());
+        if (!cancelled.isEmpty()) {
+            AuditContext.change("tasksCancelled", null, cancelled);
+        }
     }
 
     private void addSystemComment(Lead lead, String text) {

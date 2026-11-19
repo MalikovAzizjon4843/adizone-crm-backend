@@ -41,6 +41,8 @@ public class PaymentResponse {
     private LocalDateTime createdAt;
     private Long cashRegisterId;
     private String cashRegisterName;
+    /** To'lovni qabul qilgan xodim (termochek): "Ism Familiya", ism bo'lmasa login; noma'lum bo'lsa null. */
+    private String receivedByName;
 
     // ── Billing v2 (§10.2) ──
     private Long studentGroupId;

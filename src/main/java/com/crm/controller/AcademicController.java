@@ -5,10 +5,12 @@ import com.crm.dto.response.*;
 import com.crm.service.AcademicService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.*;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @RestController
@@ -123,32 +125,43 @@ public class AcademicController {
     }
 
     // ── Timetable ──────────────────────────────────────────────────
+    //
+    // Standart holda faqat ACTIVE/FORMING guruhlar va end_date'i o'tmaganlari (grid/by-room: ?date
+    // bo'yicha, qolganlari: bugun). ?includeClosed=true — COMPLETED/CANCELLED ham (faqat SA/ADMIN, aks holda 403).
 
     @GetMapping("/api/timetable")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<PageResponse<TimetableResponse>>> getAllTimetable(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(ApiResponse.success(academicService.getAllTimetable(page, size)));
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(name = "includeClosed", defaultValue = "false") boolean includeClosed) {
+        return ResponseEntity.ok(ApiResponse.success(academicService.getAllTimetable(page, size, includeClosed)));
     }
 
     @GetMapping("/api/timetable/group/{groupId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
-    public ResponseEntity<ApiResponse<List<TimetableResponse>>> getTimetableByGroup(@PathVariable Long groupId) {
-        return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableByGroup(groupId)));
+    public ResponseEntity<ApiResponse<List<TimetableResponse>>> getTimetableByGroup(
+            @PathVariable(name = "groupId") Long groupId,
+            @RequestParam(name = "includeClosed", defaultValue = "false") boolean includeClosed) {
+        return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableByGroup(groupId, includeClosed)));
     }
 
     @GetMapping("/api/timetable/by-room")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
-    public ResponseEntity<RoomTimetableDto> getByRoom(@RequestParam String dayOfWeek) {
-        return ResponseEntity.ok(academicService.getByRoom(dayOfWeek));
+    public ResponseEntity<RoomTimetableDto> getByRoom(
+            @RequestParam(name = "dayOfWeek", required = false) String dayOfWeek,
+            @RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(name = "includeClosed", defaultValue = "false") boolean includeClosed) {
+        return ResponseEntity.ok(academicService.getByRoom(dayOfWeek, date, includeClosed));
     }
 
     @GetMapping("/api/timetable/grid")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
     public ResponseEntity<ApiResponse<TimetableGridResponse>> getTimetableGrid(
-            @RequestParam String dayOfWeek) {
-        return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableGrid(dayOfWeek)));
+            @RequestParam(name = "dayOfWeek", required = false) String dayOfWeek,
+            @RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam(name = "includeClosed", defaultValue = "false") boolean includeClosed) {
+        return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableGrid(dayOfWeek, date, includeClosed)));
     }
 
     @GetMapping("/api/timetable/{id}")
@@ -159,14 +172,18 @@ public class AcademicController {
 
     @GetMapping("/api/timetable/class/{classId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
-    public ResponseEntity<ApiResponse<List<TimetableResponse>>> getTimetableByClass(@PathVariable Long classId) {
-        return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableByClass(classId)));
+    public ResponseEntity<ApiResponse<List<TimetableResponse>>> getTimetableByClass(
+            @PathVariable(name = "classId") Long classId,
+            @RequestParam(name = "includeClosed", defaultValue = "false") boolean includeClosed) {
+        return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableByClass(classId, includeClosed)));
     }
 
     @GetMapping("/api/timetable/teacher/{teacherId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','TEACHER')")
-    public ResponseEntity<ApiResponse<List<TimetableResponse>>> getTimetableByTeacher(@PathVariable Long teacherId) {
-        return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableByTeacher(teacherId)));
+    public ResponseEntity<ApiResponse<List<TimetableResponse>>> getTimetableByTeacher(
+            @PathVariable(name = "teacherId") Long teacherId,
+            @RequestParam(name = "includeClosed", defaultValue = "false") boolean includeClosed) {
+        return ResponseEntity.ok(ApiResponse.success(academicService.getTimetableByTeacher(teacherId, includeClosed)));
     }
 
     @PostMapping("/api/timetable")

@@ -380,12 +380,25 @@ public class PaymentService {
             .createdAt(p.getCreatedAt())
             .cashRegisterId(p.getCashRegister() != null ? p.getCashRegister().getId() : null)
             .cashRegisterName(p.getCashRegister() != null ? p.getCashRegister().getName() : null)
+            .receivedByName(staffName(p.getReceivedBy()))
             .studentGroupId(p.getStudentGroup() != null ? p.getStudentGroup().getId() : null)
             .cancelledAt(p.getCancelledAt())
             .cancelledByName(p.getCancelledBy() != null
                 ? (p.getCancelledBy().getFirstName() + " " + p.getCancelledBy().getLastName()).trim() : null)
             .cancelReason(p.getCancelReason())
             .build();
+    }
+
+    /** "Ism Familiya" (bo'shlari tashlanadi); ikkalasi bo'sh bo'lsa login; foydalanuvchi yo'q — null. */
+    static String staffName(User u) {
+        if (u == null) {
+            return null;
+        }
+        String name = java.util.stream.Stream.of(u.getFirstName(), u.getLastName())
+            .filter(s -> s != null && !s.isBlank())
+            .map(String::trim)
+            .collect(Collectors.joining(" "));
+        return name.isEmpty() ? u.getUsername() : name;
     }
 
     private PaymentHistoryResponse toHistoryResponse(Payment p) {

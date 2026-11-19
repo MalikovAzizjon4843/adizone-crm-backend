@@ -172,6 +172,23 @@ class PaymentFlowTest extends AbstractBillingIT {
         assertThat(p.getReceiptNumber()).startsWith("RCP-");
     }
 
+    /** Termochek: to'lovni qabul qilgan xodim nomi — yaratish va ro'yxat javobida bir xil. */
+    @Test
+    void receivedByName_isCashierName() {
+        Ids ids = charged();
+        Long reg = fixtures.cashRegister(false);
+        String username = "kassir-rb-" + System.nanoTime();
+        fixtures.member(reg, fixtures.user(UserRole.ACCOUNTANT, username));
+        fixtures.loginAs(username, UserRole.ACCOUNTANT);
+
+        PaymentResponse created = payments.createPayment(req(ids, 630_000, reg), null);
+
+        assertThat(created.getReceivedByName()).isEqualTo("Test " + username);
+        assertThat(payments.getStudentPayments(ids.student()))
+            .extracting(PaymentResponse::getReceivedByName)
+            .containsExactly("Test " + username);
+    }
+
     @Test
     void money_wholeSumsOnly() {
         Ids ids = charged();

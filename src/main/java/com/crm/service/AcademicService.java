@@ -3,6 +3,7 @@ package com.crm.service;
 import com.crm.dto.request.*;
 import com.crm.dto.response.*;
 import com.crm.entity.*;
+import com.crm.entity.enums.GroupStatus;
 import com.crm.exception.BadRequestException;
 import com.crm.exception.ResourceNotFoundException;
 import com.crm.repository.*;
@@ -11,13 +12,17 @@ import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,6 +38,7 @@ public class AcademicService {
     private final GroupRepository groupRepository;
     private final StudentGroupRepository studentGroupRepository;
     private final TeacherAccessService teacherAccessService;
+    private final Clock billingClock;
 
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
     private static final String[] GRID_COLORS = {
@@ -181,15 +187,25 @@ public class AcademicService {
 
     // ── Timetable ──────────────────────────────────────────────────
 
+    /**
+     * {@code includeClosed = false} (standart): faqat ACTIVE/FORMING guruhlar va {@code end_date}
+     * bugundan oldin bo'lmaganlar. {@code true} — hammasi (faqat SUPER_ADMIN/ADMIN).
+     */
     @Transactional(readOnly = true)
-    public PageResponse<TimetableResponse> getAllTimetable(int page, int size) {
+    public PageResponse<TimetableResponse> getAllTimetable(int page, int size, boolean includeClosed) {
+        LocalDate onDate = visibilityDate(includeClosed, null);
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<Timetable> p;
         var teacherScope = teacherAccessService.resolveTeacherScope();
         if (teacherScope.isPresent()) {
-            p = timetableRepository.findByTeacherScope(teacherScope.get().getId(), pageable);
+            p = onDate == null
+                ? timetableRepository.findByTeacherScope(teacherScope.get().getId(), pageable)
+                : timetableRepository.findOpenByTeacherScope(
+                    teacherScope.get().getId(), OPEN_GROUP_STATUSES, onDate, pageable);
         } else {
-            p = timetableRepository.findAll(pageable);
+            p = onDate == null
+                ? timetableRepository.findAll(pageable)
+                : timetableRepository.findOpen(OPEN_GROUP_STATUSES, onDate, pageable);
         }
         return PageResponse.<TimetableResponse>builder()
             .content(p.getContent().stream().map(this::toTimetableResponse).collect(Collectors.toList()))
@@ -206,34 +222,42 @@ public class AcademicService {
     }
 
     @Transactional(readOnly = true)
-    public List<TimetableResponse> getTimetableByClass(Long classId) {
+    public List<TimetableResponse> getTimetableByClass(Long classId, boolean includeClosed) {
+        LocalDate onDate = visibilityDate(includeClosed, null);
         return timetableRepository.findByClassEntityId(classId).stream()
             .filter(this::isTimetableVisible)
+            .filter(t -> isOpenOn(t, onDate))
             .map(this::toTimetableResponse).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
-    public List<TimetableResponse> getTimetableByGroup(Long groupId) {
+    public List<TimetableResponse> getTimetableByGroup(Long groupId, boolean includeClosed) {
         teacherAccessService.assertOwnsGroup(groupId);
+        LocalDate onDate = visibilityDate(includeClosed, null);
         return timetableRepository.findByGroupId(groupId).stream()
+            .filter(t -> isOpenOn(t, onDate))
             .map(this::toTimetableResponse).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
-    public List<TimetableResponse> getTimetableByTeacher(Long teacherId) {
+    public List<TimetableResponse> getTimetableByTeacher(Long teacherId, boolean includeClosed) {
+        LocalDate onDate = visibilityDate(includeClosed, null);
         var teacherScope = teacherAccessService.resolveTeacherScope();
         if (teacherScope.isPresent() && !teacherScope.get().getId().equals(teacherId)) {
             throw new com.crm.exception.ForbiddenException("Faqat o'z jadvalingizni ko'ra olasiz");
         }
         return timetableRepository.findByTeacherId(teacherId).stream()
+            .filter(t -> isOpenOn(t, onDate))
             .map(this::toTimetableResponse).collect(Collectors.toList());
     }
 
+    /** {@link #getTimetableGrid(String, LocalDate, boolean)} bilan bir xil filtr. */
     @Transactional(readOnly = true)
-    public RoomTimetableDto getByRoom(String dayOfWeek) {
-        String day = normalizeDayOfWeek(dayOfWeek);
+    public RoomTimetableDto getByRoom(String dayOfWeek, LocalDate date, boolean includeClosed) {
+        String day = resolveDay(dayOfWeek, date);
+        LocalDate onDate = visibilityDate(includeClosed, date);
         List<Classroom> rooms = classroomRepository.findAllByOrderByRoomNumberAsc();
-        List<Timetable> entries = loadDayEntries(day);
+        List<Timetable> entries = loadDayEntries(day, onDate);
 
         List<RoomLessonDto> lessons = entries.stream().map(t -> {
             RoomLessonDto dto = new RoomLessonDto();
@@ -269,11 +293,18 @@ public class AcademicService {
         return result;
     }
 
+    /**
+     * Kunlik jadval. {@code date} berilsa hafta kuni undan olinadi ({@code dayOfWeek} ixtiyoriy,
+     * berilsa mos kelishi shart) va {@code end_date} si shu sanadan oldin bo'lgan guruh darslari
+     * chiqmaydi; berilmasa — bugungi sana bo'yicha. Standart holda faqat ACTIVE/FORMING guruhlar;
+     * {@code includeClosed = true} — hammasi (faqat SUPER_ADMIN/ADMIN).
+     */
     @Transactional(readOnly = true)
-    public TimetableGridResponse getTimetableGrid(String dayOfWeek) {
-        String day = normalizeDayOfWeek(dayOfWeek);
+    public TimetableGridResponse getTimetableGrid(String dayOfWeek, LocalDate date, boolean includeClosed) {
+        String day = resolveDay(dayOfWeek, date);
+        LocalDate onDate = visibilityDate(includeClosed, date);
         List<Classroom> rooms = classroomRepository.findByIsActiveTrueOrderByRoomNumberAsc();
-        List<Timetable> entries = loadDayEntries(day);
+        List<Timetable> entries = loadDayEntries(day, onDate);
 
         List<TimetableGridResponse.TimetableGridRoomDto> roomDtos = rooms.stream()
             .map(r -> TimetableGridResponse.TimetableGridRoomDto.builder()
@@ -388,13 +419,64 @@ public class AcademicService {
             .orElseThrow(() -> new ResourceNotFoundException("Timetable", id));
     }
 
-    private List<Timetable> loadDayEntries(String day) {
+    private List<Timetable> loadDayEntries(String day, LocalDate onDate) {
         var teacherScope = teacherAccessService.resolveTeacherScope();
-        if (teacherScope.isPresent()) {
-            return timetableRepository.findByDayOfWeekWithDetailsForTeacher(
-                day, teacherScope.get().getId());
+        List<Timetable> entries = teacherScope.isPresent()
+            ? timetableRepository.findByDayOfWeekWithDetailsForTeacher(day, teacherScope.get().getId())
+            : timetableRepository.findByDayOfWeekWithDetails(day);
+        return entries.stream().filter(t -> isOpenOn(t, onDate)).collect(Collectors.toList());
+    }
+
+    // ── Jadval ko'rinishi: yopilgan guruhlar ────────────────────────────
+
+    /**
+     * Jadvalda standart holda ko'rinadigan guruh holatlari. Guruh COMPLETED/CANCELLED bo'lganda
+     * uning timetable qatorlari o'chirilmaydi ({@code GroupService.updateStatus} ularga tegmaydi) —
+     * shuning uchun filtr o'qishda qo'llanadi.
+     */
+    static final Set<GroupStatus> OPEN_GROUP_STATUSES = EnumSet.of(GroupStatus.ACTIVE, GroupStatus.FORMING);
+
+    /**
+     * Filtr sanasi: {@code null} — filtr yo'q ({@code includeClosed}); aks holda {@code date}
+     * yoki bugun. {@code includeClosed} faqat SUPER_ADMIN/ADMIN ga ruxsat (aks holda 403).
+     */
+    private LocalDate visibilityDate(boolean includeClosed, LocalDate date) {
+        if (includeClosed) {
+            if (!teacherAccessService.isCurrentUserAdmin()) {
+                throw new com.crm.exception.ForbiddenException(
+                    "includeClosed faqat SUPER_ADMIN va ADMIN uchun");
+            }
+            return null;
         }
-        return timetableRepository.findByDayOfWeekWithDetails(day);
+        return date != null ? date : LocalDate.now(billingClock);
+    }
+
+    /**
+     * Dars {@code onDate} kuni jadvalda ko'rinadimi: guruh ACTIVE/FORMING va {@code end_date}
+     * {@code onDate} dan oldin emas. Guruhsiz (eski sinf) yozuv va {@code onDate = null} — doim.
+     */
+    static boolean isOpenOn(Timetable t, LocalDate onDate) {
+        if (onDate == null || t.getGroup() == null) {
+            return true;
+        }
+        Group g = t.getGroup();
+        if (g.getStatus() != null && !OPEN_GROUP_STATUSES.contains(g.getStatus())) {
+            return false;
+        }
+        return g.getEndDate() == null || !g.getEndDate().isBefore(onDate);
+    }
+
+    /** {@code date} berilsa hafta kuni undan; {@code dayOfWeek} ham berilsa mos kelishi shart. */
+    private static String resolveDay(String dayOfWeek, LocalDate date) {
+        if (date == null) {
+            return normalizeDayOfWeek(dayOfWeek);
+        }
+        String fromDate = date.getDayOfWeek().name();
+        if (dayOfWeek != null && !dayOfWeek.isBlank() && !normalizeDayOfWeek(dayOfWeek).equals(fromDate)) {
+            throw new BadRequestException("dayOfWeek (" + dayOfWeek + ") sana bilan mos emas: "
+                + date + " — " + fromDate);
+        }
+        return fromDate;
     }
 
     private void assertTimetableAccess(Timetable t) {

@@ -506,6 +506,37 @@ public class TaskService {
         return moved;
     }
 
+    /** Lid yopiq bosqichga o'tganda bekor qilingan vazifaning {@code result} izohi. */
+    static final String LEAD_CLOSED_REASON = "Lid yopildi";
+
+    /**
+     * Lid yopiq bosqichga (kind {@code REJECTED}/{@code CONVERTED}) o'tganda — uning barcha OCHIQ
+     * vazifalari {@link TaskStatus#CANCELLED} bo'ladi: {@code result = "Lid yopildi"}, kim
+     * ({@code completedBy} — bosqichni o'zgartirgan foydalanuvchi, tizim amali bo'lsa null) va
+     * qachon ({@code completedAt}). "Bajarildi" statistikasiga kirmaydi (u faqat DONE ni sanaydi).
+     *
+     * <p>Bosqich qaytarilsa (yopiqdan ochiqqa) vazifalar TIKLANMAYDI — operator yangisini qo'yadi.
+     * Alohida audit yozuvi emas: chaqiruvchi qaytgan id larni o'z (bosqich o'zgarishi) audit
+     * yozuviga qo'shadi.
+     */
+    @Transactional
+    public List<Long> cancelOpenTasksOfClosedLead(Lead lead, User actor) {
+        if (lead == null || lead.getId() == null) {
+            return List.of();
+        }
+        LocalDateTime now = leadFunnelTracker.now();
+        List<Long> cancelled = new java.util.ArrayList<>();
+        for (Task task : taskRepository.findByLead_IdAndStatus(lead.getId(), TaskStatus.OPEN)) {
+            task.setStatus(TaskStatus.CANCELLED);
+            task.setResult(LEAD_CLOSED_REASON);
+            task.setCompletedAt(now);
+            task.setCompletedBy(actor);
+            taskRepository.save(task);
+            cancelled.add(task.getId());
+        }
+        return cancelled;
+    }
+
     // ── O'qish ───────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)

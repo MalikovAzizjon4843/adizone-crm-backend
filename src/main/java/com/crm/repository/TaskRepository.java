@@ -55,6 +55,9 @@ public interface TaskRepository extends JpaRepository<Task, Long>, JpaSpecificat
 
     boolean existsByLead_IdAndStatus(Long leadId, TaskStatus status);
 
+    /** Lid yopiq bosqichga o'tganda bekor qilinadigan vazifalar ({@code TaskService.cancelOpenTasksOfClosedLead}). */
+    List<Task> findByLead_IdAndStatus(Long leadId, TaskStatus status);
+
     /** Lid mas'uli almashganda ko'chadigan vazifalar (V80): {@code status = OPEN}, {@code auto_created = true}. */
     @EntityGraph(attributePaths = {"assignedTo"})
     List<Task> findByLead_IdAndStatusAndAutoCreatedTrue(Long leadId, TaskStatus status);

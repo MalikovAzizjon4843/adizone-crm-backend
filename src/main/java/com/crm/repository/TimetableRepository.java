@@ -1,6 +1,7 @@
 package com.crm.repository;
 
 import com.crm.entity.Timetable;
+import com.crm.entity.enums.GroupStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -9,6 +10,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 
 @Repository
@@ -27,6 +30,31 @@ public interface TimetableRepository extends JpaRepository<Timetable, Long> {
         WHERE t.teacher.id = :teacherId OR t.group.teacher.id = :teacherId
         """)
     Page<Timetable> findByTeacherScope(@Param("teacherId") Long teacherId, Pageable pageable);
+
+    /**
+     * Jadval ro'yxati — faqat ochiq guruhlar ({@code statuses}, odatda ACTIVE/FORMING) va
+     * {@code end_date} si {@code onDate} dan oldin tugamaganlari. Guruhsiz (eski sinf) yozuvlar qoladi.
+     */
+    @Query("""
+        SELECT t FROM Timetable t LEFT JOIN t.group g
+        WHERE g IS NULL
+           OR (g.status IN :statuses AND (g.endDate IS NULL OR g.endDate >= :onDate))
+        """)
+    Page<Timetable> findOpen(@Param("statuses") Collection<GroupStatus> statuses,
+                             @Param("onDate") LocalDate onDate,
+                             Pageable pageable);
+
+    /** {@link #findByTeacherScope} + {@link #findOpen} filtri. */
+    @Query("""
+        SELECT t FROM Timetable t LEFT JOIN t.group g
+        WHERE (t.teacher.id = :teacherId OR g.teacher.id = :teacherId)
+          AND (g IS NULL
+               OR (g.status IN :statuses AND (g.endDate IS NULL OR g.endDate >= :onDate)))
+        """)
+    Page<Timetable> findOpenByTeacherScope(@Param("teacherId") Long teacherId,
+                                           @Param("statuses") Collection<GroupStatus> statuses,
+                                           @Param("onDate") LocalDate onDate,
+                                           Pageable pageable);
 
     @Query("""
         SELECT DISTINCT t FROM Timetable t
