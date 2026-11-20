@@ -29,7 +29,8 @@ public class TelegramAdminController {
 
     /** Telegram {@code secret_token}: 1–256 belgi, {@code A-Z a-z 0-9 _ -}; biz kamida 32 talab qilamiz. */
     private static final Pattern SECRET = Pattern.compile("[A-Za-z0-9_-]{32,256}");
-    static final List<String> ALLOWED_UPDATES = List.of("message");
+    /** {@code callback_query} — murojaat oqimining inline tugmalari (telegram-platform §12). */
+    static final List<String> ALLOWED_UPDATES = List.of("message", "callback_query");
 
     private final TelegramProperties properties;
     private final TelegramBotApi botApi;

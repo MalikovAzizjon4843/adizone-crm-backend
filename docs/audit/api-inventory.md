@@ -10,6 +10,31 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-11-20, taklif va shikoyatlar — murojaatlar, V89)
+
+> O'quvchi boti (@adizonestudents_bot) va Mini App orqali qabul, CRM'da ko'rib chiqish, javob yuboruvchiga bot orqali.
+> Dizayn: [telegram-platform.md](../design/telegram-platform.md) §12; Mini App: [miniapp-api.md](../design/miniapp-api.md) §7b.
+> Controller: `appeal/AppealController.java` (CRM), `appeal/AppAppealController.java` (Mini App). Migratsiya `V89__appeals.sql`.
+> Buyurtmachi hali tasdiqlamagan — standartlar `app.appeals.*` (limit 5/kun, matn ≤ 3000, holat 30 daqiqa, prefiks `MRJ`).
+
+**Ruxsat:** SecurityConfig `/api/appeals/**` — SA, A; qolgan rollar **403**. SA — hammasi; A — faqat `assignee` o'zi bo'lganlari
+(boshqasi **404** `appeal.notFound`, ro'yxat / sanoq / hisobotda yo'q). TEACHER turidagi murojaat predmeti bo'lgan o'qituvchining
+useri (SA yoki A bo'lsa ham) uni hech qachon ko'rmaydi va unga biriktirib bo'lmaydi.
+**Anonimlik:** anonim murojaatda `sender = null`, ro'yxatda `senderName = null`; `telegram_chat_id` hech bir javobda yo'q.
+
+| Endpoint | Rol | Tafsilot |
+|---|---|---|
+| `GET /api/appeals?status&type&assigneeId&from&to&q&page&size` | SA, A | `PageResponse<ListItem>`, yangilari oldin, `size` ≤ 100. `q` — raqam, matn, kontakt ismi / telefoni (o'quvchi ismi bo'yicha EMAS). `from/to` — yaratilgan sana (ISO). `ListItem`: `{id, number, type, status, anonymous, source: BOT\|MINIAPP, textPreview (≤200), senderName, assignee: {id, name}, teacher: {id, name}, messagesCount, lastMessageAt, createdAt, firstResponseAt, resolvedAt}`. 400 `appeal.status.invalid` / `appeal.type.invalid` / `appeal.date.invalidRange` |
+| `GET /api/appeals/{id}` | SA, A | `{id, number, type, status, anonymous, source, language, text, sender, assignee, teacher, createdAt, updatedAt, firstResponseAt, resolvedAt, messages}`. `sender` (anonimda `null`): `{linked, kind: STUDENT\|PARENT\|TEACHER\|null, name, phone, student: {id, name}, parent: {id, name}}`. `messages`: `[{id, authorType: SENDER\|STAFF, author: {id, name}\|null, text, internal, delivered, createdAt}]` — ichki izohlar ham |
+| `PATCH /api/appeals/{id}` `{status?, assigneeUserId?, teacherId?}` | SA, A | Faqat berilgan maydonlar; `assigneeUserId: null` / `teacherId: null` — tozalash. `status`: IN_PROGRESS / RESOLVED / REJECTED (NEW ga qaytish — 400 `appeal.status.invalidTransition`); RESOLVED/REJECTED → `resolvedAt` va yuboruvchiga bot xabari (`app.appeals.notify-sender-on-close`). `assigneeUserId` — faqat **SA** (A → 403 `appeal.assign.forbidden`), faol SA/A (400 `appeal.assignee.invalid`), predmet o'qituvchi emas (400 `appeal.assignee.isSubject`); yangi mas'ulga `APPEAL_NEW` (`assigned`). `teacherId` — faqat TEACHER turida (400 `appeal.teacher.typeMismatch` / `appeal.teacher.notFound`). Javob — `Detail` |
+| `POST /api/appeals/{id}/messages` `{text, internal?}` | SA, A | STAFF xabari (≤ 3000). `internal=false` — yuboruvchiga bot (outbox, MANUAL: darhol, sokin soatda ovozsiz), "✍️ Javob yozish" tugmasi bilan; `delivered` = navbatga qo'yildi; birinchi javob `firstResponseAt`, NEW → IN_PROGRESS. `internal=true` — faqat xodimlar uchun, yuborilmaydi. Javob — `Message` |
+| `GET /api/appeals/counts` | SA, A | `{new, inProgress}` — joriy xodim ko'radiganlari (sidebar badge) |
+| `GET /api/appeals/stats?from&to` | SA, A | Standart — oxirgi 30 kun. `{from, to, total, byType: {SUGGESTION: n, …}, byStatus: {NEW: n, …}, responded, avgFirstResponseMinutes, resolved, avgResolutionMinutes}` (o'rtachalar — `null` agar yo'q). A — faqat o'ziniki |
+| `GET /api/app/appeals`, `POST /api/app/appeals`, `POST /api/app/appeals/{id}/messages` | app JWT | [miniapp-api.md](../design/miniapp-api.md) §7b. 429 `appeal.limit` |
+| `POST /api/admin/telegram/set-webhook` | SA | `allowedUpdates` endi `["message", "callback_query"]` — **deploydan keyin qayta chaqiring** |
+
+Qo'ng'iroqcha turlari: `APPEAL_NEW`, `APPEAL_MESSAGE` (havola `/appeals/{id}`, `entityType = APPEAL`) — [notifications.md](../design/notifications.md) §4.
+
 ## Yangilanishlar (2026-11-19, jadvalda yopiq guruhlar, lid yopilganda vazifalar, to'lovni qabul qilgan xodim)
 
 > Prod bug: dars jadvalida COMPLETED/CANCELLED guruhlar ko'rinardi. Sabab: guruh holati o'zgarganda (`GroupService.updateStatus`)

@@ -206,7 +206,7 @@ class TelegramBotWebhookTest extends MiniAppItBase {
         assertThat(botApi.webhookCalls).singleElement().satisfies(c -> {
             assertThat(c.url()).isEqualTo("https://api.example.test/api/telegram/webhook");
             assertThat(c.secretToken()).isEqualTo(WEBHOOK_SECRET);
-            assertThat(c.allowedUpdates()).containsExactly("message");
+            assertThat(c.allowedUpdates()).containsExactly("message", "callback_query");
         });
     }
 

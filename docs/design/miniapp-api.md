@@ -409,6 +409,26 @@ Bot xabarlari (hammasi server flag'i bilan, standart o'chiq; foydalanuvchi sozla
 "kutilayotgan to'lovlar" bilan bir xil (`payment_due_soon`), dars eslatmasi — 2 soat oldin, tunda yuborilmaydi
 (`lesson`), e'lon (`notice`). Tugmalar: `/#/payments`, `/#/schedule`, `/#/attendance`, e'lon — `/#/notices`.
 
+## 7b. Taklif va shikoyatlar — murojaatlar (V89, [telegram-platform.md](telegram-platform.md) §12)
+
+"O'zi" — Telegram chat bo'yicha (shaxsiy chat id = Telegram user id): botdan yuborilganlari ham, **anonimlari ham**
+ro'yxatda (ular faqat shu chatga bog'langan). Xodimlarning ichki izohlari va xodim ismi chiqmaydi.
+
+| Endpoint | Javob | Izoh |
+|---|---|---|
+| `GET /api/app/appeals` | `{enabled, dailyLimit, remainingToday, textMax, types: [..], teachers: [{id, name}], items: [AppItem]}` | `items` — yangilari oldin. `teachers` — o'quvchi(lar)ning ochiq guruhlaridagi o'qituvchilar (TEACHER turi uchun tanlov). `enabled=false` — "Yangi murojaat" tugmasini yashiring |
+| `POST /api/app/appeals` `{type, text, anonymous?, studentId?, teacherId?}` | `AppItem` | `type`: `SUGGESTION` \| `COMPLAINT` \| `TEACHER` \| `SERVICE` \| `PAYMENT` \| `OTHER`. `anonymous=true` — yuboruvchi (identity, o'quvchi, ota-ona) **saqlanmaydi**, javob baribir botga keladi. `studentId` — bir nechta farzand bo'lsa qaysi biri haqida (IDOR: begona — 403 `app.student.forbidden`); bitta bo'lsa — avtomatik. `teacherId` — faqat `TEACHER` turida va `teachers` ro'yxatidan |
+| `POST /api/app/appeals/{id}/messages` `{text}` | `AppItem` (xabarlar bilan) | Qo'shimcha xabar; yopilgan murojaat qayta ochiladi (`IN_PROGRESS`). Begona / yo'q — **404** `appeal.notFound` |
+
+`AppItem`: `{id, number: "MRJ-00012", type, status: NEW|IN_PROGRESS|RESOLVED|REJECTED, anonymous, text, teacher: {id, name}|null, createdAt, resolvedAt, messages: [{id, authorType: SENDER|STAFF, text, createdAt}]}`.
+
+Xatolar: 400 `appeal.type.required` / `appeal.type.invalid` / `appeal.text.required` / `appeal.text.tooLong` (> 3000) /
+`appeal.teacher.typeMismatch` / `appeal.teacher.notFound`; **429** `appeal.limit` (bir Telegram hisobi — kuniga 5 ta,
+bot bilan umumiy); 403 `appeal.disabled` (server flag'i o'chiq).
+
+**Botda** (Mini App'siz ham, ulanmagan foydalanuvchi uchun ham): `/start` menyusida "✍️ Taklif / shikoyat" tugmasi,
+`/taklif` buyrug'i. Xodim javobi botga keladi — **reply** qilish yoki "✍️ Javob yozish" tugmasi bilan javob beriladi.
+
 ## 8. CRM endpointlari (xodim JWT, admin panel uchun)
 
 | Endpoint | Rollar | Izoh |
@@ -419,6 +439,7 @@ Bot xabarlari (hammasi server flag'i bilan, standart o'chiq; foydalanuvchi sozla
 | `GET /api/absence-notices?groupId&date` | SA, A, T | T — o'z guruhi yoki shu kungi o'rinbosar (aks holda 403). Faol bildirishlar: `{id, studentId, studentName, groupId, groupName, lessonDate, type, comment, status, submittedAs, createdAt}` |
 | `GET /api/attendance/group/{id}?date` | (o'zgarmagan) | har qatorda `absenceNotice` (yuqoridagi shakl) yoki `null` |
 | `GET /api/chat/conversations` va boshqa `/api/chat/**`, STOMP | (o'zgarmagan) | `type: "EXTERNAL"` suhbatlar: `title` — "Ota-ona: …", `externalTarget`, `externalStatus`; app xabarida `senderType: "APP"`, `senderId: null`, `senderAppIdentityId`. Xodim javobi — mavjud `/app/chat.send` |
+| `/api/appeals/**` (murojaatlar: ro'yxat, `{id}`, PATCH, `{id}/messages`, `counts`, `stats`) | SA (hammasi), A (faqat mas'ul bo'lganlari) | [api-inventory.md](../audit/api-inventory.md), [telegram-platform.md](telegram-platform.md) §12.4. Anonimda `sender = null`; `telegram_chat_id` hech qachon chiqmaydi |
 | `GET /api/notifications/me`, `…/me/unread-count`, `POST /api/notifications/{id}/read`, `/read-all`; STOMP `/user/queue/notifications` | barcha xodimlar (o'zinikini) | CRM qo'ng'iroqchasi — batafsil [api-inventory.md](../audit/api-inventory.md). Ilovadan: `APP_LINK_REQUEST` (yangi qo'lda so'rov → SA, A, SH), `CHAT_EXTERNAL` (ilovadan xabar → suhbatning xodim a'zolari; o'qilmagani yangilanadi), `ABSENCE_NOTICE` (→ guruh o'qituvchisi va o'rinbosar) |
 
 ---
@@ -428,7 +449,7 @@ Bot xabarlari (hammasi server flag'i bilan, standart o'chiq; foydalanuvchi sozla
 | Endpoint | Kim | Izoh |
 |---|---|---|
 | `POST /api/telegram/webhook` | Telegram | `X-Telegram-Bot-Api-Secret-Token` = `TELEGRAM_WEBHOOK_SECRET`, aks holda 401. `update_id` bo'yicha takror tashlanadi |
-| `POST /api/admin/telegram/set-webhook` | SUPER_ADMIN | Tanasiz. `setWebhook(url = TELEGRAM_WEBHOOK_URL, secret_token = TELEGRAM_WEBHOOK_SECRET, allowed_updates = ["message"])`. Javob: `{url, allowedUpdates, description}`. Xatolar: 503 `telegram.notConfigured`, 400 `telegram.webhookSecret.invalid` / `telegram.webhookUrl.invalid`, 502 `telegram.setWebhook.failed` |
+| `POST /api/admin/telegram/set-webhook` | SUPER_ADMIN | Tanasiz. `setWebhook(url = TELEGRAM_WEBHOOK_URL, secret_token = TELEGRAM_WEBHOOK_SECRET, allowed_updates = ["message", "callback_query"])` — `callback_query` V89 (murojaatlar) bilan qo'shildi, **deploydan keyin qayta chaqiring**. Javob: `{url, allowedUpdates, description}`. Xatolar: 503 `telegram.notConfigured`, 400 `telegram.webhookSecret.invalid` / `telegram.webhookUrl.invalid`, 502 `telegram.setWebhook.failed` |
 
 Env'lar — [../ops/env.md](../ops/env.md). Ishga tushirish: env'larni qo'yish → restart → V66 (V68–V70) → SA `set-webhook` → BotFather: Mini App domeni `webapp.adizone.uz` (va ixtiyoriy Menu button).
 

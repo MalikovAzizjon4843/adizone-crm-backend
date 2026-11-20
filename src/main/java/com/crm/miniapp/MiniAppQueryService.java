@@ -212,7 +212,7 @@ public class MiniAppQueryService {
     // ── Yordamchilar: yozilmalar, guruh kartasi ─────────────────────────
 
     /** Ochiq yozilmalar (faol yoki muzlatilgan — {@link BillingStatusService#isOpen}), yangilari oldin. */
-    List<StudentGroup> openEnrollments(Long studentId) {
+    public List<StudentGroup> openEnrollments(Long studentId) {
         return studentGroupRepository.findByStudentIdOrderByJoinDateDesc(studentId).stream()
             .filter(BillingStatusService::isOpen)
             .toList();

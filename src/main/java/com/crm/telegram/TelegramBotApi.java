@@ -32,6 +32,14 @@ public interface TelegramBotApi {
     }
 
     /**
+     * {@code answerCallbackQuery} — inline tugma bosilganini tasdiqlash ({@code text} — qisqa bildirishnoma,
+     * null bo'lishi mumkin). Xatoni yutadi. Standart: hech narsa qilmaydi.
+     */
+    default boolean answerCallbackQuery(String callbackQueryId, String text) {
+        return true;
+    }
+
+    /**
      * {@code setWebhook}. Telegram javobi ({@code {"ok":..,"description":..}}) qaytadi; tarmoq xatosi —
      * {@link IllegalStateException}.
      */

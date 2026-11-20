@@ -282,7 +282,7 @@ public class MiniAppLinkService {
     }
 
     /** {@code +998901234567} → [+998901234567, 998901234567, 901234567]. */
-    static List<String> variants(String canonical) {
+    public static List<String> variants(String canonical) {
         String digits = canonical.substring(1);
         return List.of(canonical, digits, digits.substring(3));
     }

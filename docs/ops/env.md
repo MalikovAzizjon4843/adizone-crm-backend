@@ -27,6 +27,12 @@ sirsiz yoki eski sir bilan jimgina ishga tushib qolmasin.
 | `APP_NOTIFY_LESSON_REMINDER_ENABLED` | `app.notify.lesson-reminder.enabled` | Dars eslatmasi (`LESSON_REMINDER`, har 15 daqiqa; sokin soatda yuborilmaydi) | Ha, **default `false`** |
 | `APP_NOTIFY_LESSON_REMINDER_MINUTES_BEFORE` | `app.notify.lesson-reminder.minutes-before` | Dars boshlanishidan shuncha daqiqa oldin | Ha, default `120` |
 | `APP_NOTIFY_NOTICE_TO_STUDENTS_ENABLED` | `app.notify.notice-to-students.enabled` | E'lon auditoriyasida STUDENT / PARENT bo'lsa — ulangan o'quvchi / ota-onaga bot (`NOTICE_APP`). Mini App ro'yxatiga ta'sir qilmaydi | Ha, **default `false`** |
+| `APP_APPEALS_ENABLED` | `app.appeals.enabled` | Taklif va shikoyatlar (V89, telegram-platform §12): bot tugmasi / `/taklif` va Mini App'da yangi murojaat. `false` — qabul yo'q, CRM'da ko'rish va javob ishlaydi | Ha, default `true` |
+| `APP_APPEALS_DAILY_LIMIT` | `app.appeals.daily-limit` | Bir Telegram hisobi — kuniga shuncha yangi murojaat (bot + Mini App) | Ha, default `5` |
+| `APP_APPEALS_TEXT_MAX` | `app.appeals.text-max` | Murojaat / xabar matni chegarasi (bazada CHECK ≤ 3000) | Ha, default `3000` |
+| `APP_APPEALS_STATE_TTL_MINUTES` | `app.appeals.state-ttl-minutes` | Bot suhbat holati shuncha daqiqada eskiradi | Ha, default `30` |
+| `APP_APPEALS_NUMBER_PREFIX` | `app.appeals.number-prefix` | Murojaat raqami prefiksi (`MRJ-00012`) | Ha, default `MRJ` |
+| `APP_APPEALS_NOTIFY_SENDER_ON_CLOSE` | `app.appeals.notify-sender-on-close` | RESOLVED / REJECTED bo'lganda yuboruvchiga bot xabari | Ha, default `true` |
 | `DIRECTOR_DIGEST_ENABLED` | `app.dashboard.digest.enabled` | Direktor kunlik xulosasi (20:00, bot outbox orqali) | Ha, default `false` |
 | `DIRECTOR_DIGEST_CHAT_IDS` | `app.dashboard.digest.chat-ids` | Xulosa yuboriladigan chat id lar (vergul bilan, raqam) | Ha — bo'sh bo'lsa hech kimga |
 

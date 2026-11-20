@@ -7,3 +7,5 @@ CREATE TABLE IF NOT EXISTS contract_number_counters (
     contract_year INTEGER PRIMARY KEY,
     last_value    BIGINT  NOT NULL CHECK (last_value >= 0)
 );
+-- Murojaat raqami (MRJ-00001): prodda db/migration/V89__appeals.sql yaratadi.
+CREATE SEQUENCE IF NOT EXISTS appeal_number_seq START WITH 1;

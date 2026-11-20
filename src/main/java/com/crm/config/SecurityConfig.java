@@ -235,6 +235,10 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_HEAD")
                 .requestMatchers(HttpMethod.GET, "/api/absence-notices", "/api/absence-notices/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "TEACHER")
+                // Murojaatlar (taklif / shikoyat, telegram-platform §12): SA — hammasi, ADMIN — faqat mas'ul bo'lganlari
+                // (AppealCrmService); TEACHER va boshqalar — 403
+                .requestMatchers("/api/appeals", "/api/appeals/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 // O'z onboarding holati (ko'rilgan turlar) — har qanday xodim, faqat o'z yozuvlari
                 // (UserOnboardingController). "/api/users/**" va "DELETE /api/**" dan OLDIN.
                 .requestMatchers("/api/users/me/onboarding", "/api/users/me/onboarding/**")

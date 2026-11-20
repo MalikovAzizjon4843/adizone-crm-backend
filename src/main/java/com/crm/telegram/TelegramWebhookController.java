@@ -63,7 +63,11 @@ public class TelegramWebhookController {
         }
         // Commit'dan keyin: bot javobi yetmasa ham bog'lash saqlanib qoladi
         for (TelegramUpdateHandler.Outgoing reply : replies) {
-            botApi.sendMessage(reply.chatId(), reply.html(), reply.replyMarkup());
+            if (reply.isCallbackAnswer()) {
+                botApi.answerCallbackQuery(reply.callbackQueryId(), reply.html());
+            } else {
+                botApi.sendMessage(reply.chatId(), reply.html(), reply.replyMarkup());
+            }
         }
         return ResponseEntity.ok().build();
     }

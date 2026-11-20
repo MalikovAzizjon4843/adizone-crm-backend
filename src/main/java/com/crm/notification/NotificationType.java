@@ -35,6 +35,13 @@ public enum NotificationType {
     TASK_DUE_SOON(true),
     /** Ochiq vazifa muddati o'tdi → egasi. */
     TASK_OVERDUE(true),
+    /**
+     * Yangi murojaat (taklif / shikoyat, V89) → SA va mas'ul (variant {@code assigned} — yangi mas'ulga). TEACHER
+     * turida predmet o'qituvchi olmaydi. Kalit {@code appeal:new:{id}}.
+     */
+    APPEAL_NEW(true),
+    /** Yuboruvchi murojaatga yangi xabar yozdi → SA va mas'ul. Kalit {@code appeal:msg:{xabarId}}. */
+    APPEAL_MESSAGE(true),
 
     /** O'quvchi darsga kelmadi (ABSENT) → ulangan ota-ona va o'quvchining o'zi (bot). */
     STUDENT_ABSENT(false),

@@ -87,6 +87,24 @@ public class HttpTelegramBotApi implements TelegramBotApi {
     }
 
     @Override
+    public boolean answerCallbackQuery(String callbackQueryId, String text) {
+        if (!properties.isEnabled() || !properties.hasBotToken() || callbackQueryId == null) {
+            return false;
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("callback_query_id", callbackQueryId);
+        if (text != null && !text.isBlank()) {
+            body.put("text", text.length() > 200 ? text.substring(0, 200) : text);
+        }
+        try {
+            return call("answerCallbackQuery", body).path("ok").asBoolean(false);
+        } catch (RuntimeException e) {
+            log.warn("Telegram answerCallbackQuery xatosi: {}", safe(e));
+            return false;
+        }
+    }
+
+    @Override
     public JsonNode setWebhook(String url, String secretToken, List<String> allowedUpdates) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("url", url);

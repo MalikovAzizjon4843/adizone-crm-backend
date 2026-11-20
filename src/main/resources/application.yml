@@ -99,6 +99,16 @@ app:
     # E'lon auditoriyasida STUDENT / PARENT bo'lsa — ulangan o'quvchi / ota-onaga bot
     notice-to-students:
       enabled: ${APP_NOTIFY_NOTICE_TO_STUDENTS_ENABLED:false}
+  # Taklif va shikoyatlar — murojaatlar (AppealProperties, docs/design/telegram-platform.md §12). Buyurtmachi hali
+  # tasdiqlamagan standartlar. enabled=false: bot tugmasi va /taklif yo'q, Mini App'da yangi murojaat/xabar 403;
+  # CRM'da mavjudlarini ko'rish va javob berish ishlaydi.
+  appeals:
+    enabled: ${APP_APPEALS_ENABLED:true}
+    daily-limit: ${APP_APPEALS_DAILY_LIMIT:5}
+    text-max: ${APP_APPEALS_TEXT_MAX:3000}
+    state-ttl-minutes: ${APP_APPEALS_STATE_TTL_MINUTES:30}
+    number-prefix: ${APP_APPEALS_NUMBER_PREFIX:MRJ}
+    notify-sender-on-close: ${APP_APPEALS_NOTIFY_SENDER_ON_CLOSE:true}
   # Direktor dashboardi (docs/design/director-dashboard.md). Qolgan sozlamalar — DashboardProperties default'lari.
   dashboard:
     digest:

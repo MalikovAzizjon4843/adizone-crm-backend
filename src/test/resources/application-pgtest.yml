@@ -69,6 +69,7 @@ spring:
         - classpath:db/migration/V86__cash_registers_access_categories_handover.sql
         - classpath:db/migration/V87__books_inventory.sql
         - classpath:db/migration/V88__salary_rule_kpi_metric_inclusive.sql
+        - classpath:db/migration/V89__appeals.sql
         - classpath:pgtest-schema.sql
 
 app:

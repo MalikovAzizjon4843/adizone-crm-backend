@@ -34,6 +34,7 @@
 - §9 Bosqichlar
 - §10 Ochiq savollar (taklif bilan)
 - §11 Bosqich 3 — qo'lda ulash, sabab bildirish, chat ko'prigi, o'qituvchi rejimi (qarorlar, 2026-10-03)
+- §12 Taklif va shikoyatlar — murojaatlar (V89, 2026-11-20; buyurtmachi hali tasdiqlamagan standartlar)
 
 ---
 
@@ -696,3 +697,63 @@ Bildirish davomatni **o'zgartirmaydi** — o'qituvchi o'zi belgilaydi (sababli /
 
 ### 11.7 Testlar
 IDOR: begona o'quvchi / guruh / suhbat / bildirish / o'qituvchi guruhi → 403. Qo'lda ulash: 404, limit, tasdiq → identity va bot xabari, rad. Sabab: sana oynasi, dars yo'q kun, takror, bekor qilish, o'qituvchiga push. Chat: kontaktlar, yaratish (takror — o'sha), matn / rasm, xodim javobi → push (sokin soatda 08:00), CRM ro'yxatida EXTERNAL. O'qituvchi: today, davomat o'qish / yozish, o'tgan kun → 403 `attendance.locked`, ochish so'rovi.
+
+---
+
+## §12. Taklif va shikoyatlar — murojaatlar (V89, 2026-11-20)
+
+> **Holat:** qurildi. Buyurtmachi hali tasdiqlamagan — quyidagi qiymatlar **standart** va `app.appeals.*` (env) orqali
+> o'zgaradi. Mavjud mexanizmlar qayta ishlatilgan: o'quvchi boti (@adizonestudents_bot, shu webhook), Mini App JWT,
+> `NotificationService.dispatch` (xodim qo'ng'iroqchasi + xodim boti), `telegram_outbox` (yuboruvchiga javob).
+
+### 12.1 Qarorlar (standartlar)
+
+| # | Qaror | Sozlama |
+|---|---|---|
+| A1 | Qabul — botda ("✍️ Taklif / shikoyat" inline tugmasi `/start` menyusida, `/taklif`, `/start taklif` deep-link, tugma matni) va Mini App'da; ulangan va ulanmagan foydalanuvchilar | `app.appeals.enabled` (true) |
+| A2 | Turlar: `SUGGESTION`, `COMPLAINT`, `TEACHER`, `SERVICE`, `PAYMENT`, `OTHER`; `TEACHER` turida o'qituvchi ixtiyoriy — faqat yuboruvchi o'quvchilarining ochiq guruhlaridagi o'qituvchilardan | — |
+| A3 | Anonimlik: anonim murojaatda `app_identity_id`, `student_id`, `parent_id`, `contact_*` **saqlanmaydi** (servisda majburlanadi + bazada CHECK). Faqat yetkazish kaliti `telegram_chat_id` qoladi — hech bir API javobida yo'q | — |
+| A4 | Ulanmagan va anonim emas — ism (2–150) va telefon (`request_contact` yoki yozilgan, `PhoneUtils.canonical`). Kontakt hisobni ULAMAYDI | — |
+| A5 | Limit: bir chat (Telegram foydalanuvchi) — kuniga 5 ta yangi murojaat (Toshkent kuni; bot + Mini App umumiy) | `daily-limit` (5) |
+| A6 | Matn ≤ 3000 (bazada CHECK); bot holati 30 daqiqa harakatsizlikdan keyin eskiradi | `text-max`, `state-ttl-minutes` |
+| A7 | Raqam `MRJ-00012` — `appeal_number_seq` (rollback raqamni "yeydi", bo'shliq me'yor) | `number-prefix` (MRJ) |
+| A8 | Yuboruvchining yangi xabari yopilgan (RESOLVED / REJECTED) murojaatni `IN_PROGRESS` ga qaytaradi (`resolved_at` tozalanadi) | — |
+| A9 | RESOLVED / REJECTED bo'lganda yuboruvchiga bot xabari ("hal qilindi" / "yopildi", reply qilish mumkin) | `notify-sender-on-close` (true) |
+| A10 | Ruxsat: SA — hammasi; ADMIN — faqat mas'ul bo'lganlari (boshqasi 404); TEACHER va boshqalar — 403. TEACHER turidagi murojaat predmeti bo'lgan o'qituvchining useri uni **hech qachon** ko'rmaydi (SA / ADMIN / mas'ul bo'lsa ham; unga biriktirib ham bo'lmaydi) va bildirishnoma olmaydi | — |
+| A11 | Mas'ulni faqat SA o'zgartiradi; mas'ul — faol SA yoki ADMIN | — |
+
+### 12.2 Bot oqimi (`appeal/AppealBotFlow`, holat — `bot_conversations`)
+
+```
+/taklif | "✍️ Taklif / shikoyat" | inline apl:new
+  → TYPE (inline apl:t:<TUR>)
+  → [TEACHER (inline apl:th:<id> | apl:th:0 "Ko'rsatmayman") — faqat TEACHER turi, ulangan va o'qituvchilari bo'lsa]
+  → ANON (inline apl:a:1 | apl:a:0)
+  → [NAME → PHONE (request_contact yoki matn) — faqat ulanmagan va anonim emas]
+  → TEXT (≤ 3000) → CONFIRM (inline apl:ok) → "✅ Qabul qilindi, №MRJ-00012"
+Bekor: inline apl:x | reply-klaviaturadagi "❌ Bekor qilish" | /cancel | /bekor; /start — holat tashlanadi
+```
+- Holat: `bot_conversations (chat_id PK, flow, step, data JSON, updated_at)`; `updated_at` 30 daqiqadan eski — yo'q hisoblanadi (o'qishda o'chiriladi), `TelegramCleanupJob` kechasi tozalaydi.
+- Eskirgan / boshqa qadamdagi tugma — `answerCallbackQuery("Eskirgan")` + "/taklif bilan qaytadan boshlang".
+- Limit oqim boshida va yuborishda tekshiriladi.
+- Til: ulangan — `AppIdentity.language`, aks holda Telegram `language_code`; `uz` / `ru` (en — zaxira). Matnlar `messages*.properties` → `appeal.bot.*`, `appeal.type.*`.
+- **Javob (SENDER xabari):** (a) xodim javobiga Telegram **reply** — botning xabaridagi `MRJ-…` raqami va shu chat bo'yicha topiladi (begona chat reply qilsa — oddiy `/start`); (b) "✍️ Javob yozish" (`apl:r:<id>`, faqat shu chatning murojaati) → keyingi matn. Yopilgan murojaatga ham (A8).
+- Webhook: `allowed_updates = ["message", "callback_query"]` — **deploydan keyin `POST /api/admin/telegram/set-webhook` qayta chaqirilsin**. Har callback'ga `answerCallbackQuery` (`TelegramBotApi.answerCallbackQuery`).
+- Tartib (`TelegramUpdateHandler.handle`): `callback_query` → kontakt (PHONE qadamida — murojaatga, aks holda hisob ulash) → `/stop` → `/taklif` → `/start` (holatni tashlaydi) → murojaatga reply → ochiq qadam → `/start` javobi.
+- Tranzaksiya: hamma tekshiruv (limit, matn) `AppealService` ning tranzaksiyali metodlaridan OLDIN — ichida xato bo'lsa webhook tranzaksiyasi rollback-only bo'lardi.
+
+### 12.3 Mini App — [miniapp-api.md](miniapp-api.md) §7b
+`GET /api/app/appeals` (o'zinikilar — chat bo'yicha, anonimlari ham; ichki izohlarsiz; limit, turlar, o'qituvchi tanlovi), `POST /api/app/appeals`, `POST /api/app/appeals/{id}/messages`.
+
+### 12.4 CRM — `/api/appeals` ([api-inventory.md](../audit/api-inventory.md))
+Ro'yxat (status, type, assigneeId, from, to, q — raqam / matn / kontakt ismi / telefon; sahifalash), `GET {id}` (xabarlar bilan, ichki izohlar ham; anonimda `sender = null`), `PATCH {id}` (status, assigneeUserId, teacherId), `POST {id}/messages` (STAFF javobi → outbox MANUAL, "✍️ Javob yozish" tugmasi bilan, `delivered = navbatga qo'yildi`; `internal=true` — yuborilmaydi), `GET /counts` (badge), `GET /stats?from&to`.
+- Xodim javobi: birinchi javob `first_response_at`, NEW → IN_PROGRESS. Outbox kaliti `appeal:reply:<xabarId>`, `event_code = APPEAL_REPLY`; yopilish xabari — `appeal:closed:<id>:<ms>`, `APPEAL_CLOSED`.
+
+### 12.5 Bildirishnomalar — [notifications.md](notifications.md) §4
+`APPEAL_NEW` (yangi murojaat; variant `assigned` — yangi mas'ulga), `APPEAL_MESSAGE` (yuboruvchining yangi xabari) → faol SA lar va mas'ul: qo'ng'iroqcha + xodim boti (`staffTelegram`, AUTOMATIC — sokin soatlarda 08:00 gacha). Havola `/appeals/{id}`, `entityType = APPEAL`. Matnda yuboruvchi ismi yo'q (tur va matn boshi).
+
+### 12.6 Migratsiya — `V89__appeals.sql`
+`appeal_number_seq`; `appeals` (CHECK: tur, holat, manba "= … OR …"; matn 1–3000; anonim → yuboruvchi maydonlari NULL; `teacher_id` faqat TEACHER; `resolved_at` ⇔ RESOLVED/REJECTED; FK lar ON DELETE SET NULL); `appeal_messages` (CHECK: SENDER — ichki emas va xodimsiz; ichki — `delivered = false`; FK CASCADE); `bot_conversations`. Idempotent, qo'lda; tekshiruv — `docs/ops/prod-schema-check.sql` (V89).
+
+### 12.7 Testlar — `miniapp/AppealTest`
+Bot: ulanmagan (ism, telefon, begona kontakt rad, HTML escape), ulangan anonim (hech narsa saqlanmaydi, API va qidiruvda sizmaydi), ulangan ismli (identity, o'quvchi), bekor qilish (inline, tugma, `/cancel`, `/start`, eskirgan tugma), 30 daqiqada eskirish, limit (bot + Mini App, ertasi kun), uzun matn. Ruxsat: TEACHER/ACCOUNTANT/SALES — 403, ADMIN — faqat mas'ul (404), mas'ulni faqat SA, NEW ga qaytmaydi; TEACHER turi — predmet o'qituvchi (SA yoki ADMIN) ko'rmaydi, unga biriktirilmaydi, qo'ng'iroqcha olmaydi. Javob outbox'ga (tugma bilan), ichki — yo'q; reply va "Javob yozish" → SENDER, yopilgan qayta ochiladi, begona chat — yo'q. Mini App: validatsiya, begona 404, o'qituvchi tanlovi. Hisobot: tur / holat, o'rtacha vaqtlar.

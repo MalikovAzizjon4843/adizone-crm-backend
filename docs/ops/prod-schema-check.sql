@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V88 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V89 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V88 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V89 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
@@ -23,7 +23,7 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V88 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V89 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
@@ -434,7 +434,38 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V87', 'constraint', 'cash_transactions', 'fk_cash_transactions_book_sale'),
     ('V88', 'column', 'salary_rules', 'kpi_metric'),
     ('V88', 'constraint', 'salary_rules', 'salary_rules_kpi_metric_chk'),
-    ('V88', 'column', 'salary_rule_kpi_tiers', 'inclusive')
+    ('V88', 'column', 'salary_rule_kpi_tiers', 'inclusive'),
+    ('V89', 'sequence', NULL, 'appeal_number_seq'),
+    ('V89', 'table', 'appeals', NULL),
+    ('V89', 'column', 'appeals', 'language'),
+    ('V89', 'column', 'appeals', 'updated_at'),
+    ('V89', 'index', 'appeals', 'ux_appeals_number'),
+    ('V89', 'index', 'appeals', 'idx_appeals_status_created'),
+    ('V89', 'index', 'appeals', 'idx_appeals_assignee'),
+    ('V89', 'index', 'appeals', 'idx_appeals_chat_created'),
+    ('V89', 'index', 'appeals', 'idx_appeals_teacher'),
+    ('V89', 'constraint', 'appeals', 'ck_appeals_type'),
+    ('V89', 'constraint', 'appeals', 'ck_appeals_status'),
+    ('V89', 'constraint', 'appeals', 'ck_appeals_source'),
+    ('V89', 'constraint', 'appeals', 'ck_appeals_text_len'),
+    ('V89', 'constraint', 'appeals', 'ck_appeals_anonymous_no_sender'),
+    ('V89', 'constraint', 'appeals', 'ck_appeals_teacher_type'),
+    ('V89', 'constraint', 'appeals', 'ck_appeals_resolved_at'),
+    ('V89', 'constraint', 'appeals', 'fk_appeals_identity'),
+    ('V89', 'constraint', 'appeals', 'fk_appeals_student'),
+    ('V89', 'constraint', 'appeals', 'fk_appeals_parent'),
+    ('V89', 'constraint', 'appeals', 'fk_appeals_teacher'),
+    ('V89', 'constraint', 'appeals', 'fk_appeals_assignee'),
+    ('V89', 'table', 'appeal_messages', NULL),
+    ('V89', 'index', 'appeal_messages', 'idx_appeal_messages_appeal'),
+    ('V89', 'constraint', 'appeal_messages', 'ck_appeal_messages_author_type'),
+    ('V89', 'constraint', 'appeal_messages', 'ck_appeal_messages_sender'),
+    ('V89', 'constraint', 'appeal_messages', 'ck_appeal_messages_internal'),
+    ('V89', 'constraint', 'appeal_messages', 'ck_appeal_messages_text_len'),
+    ('V89', 'constraint', 'appeal_messages', 'fk_appeal_messages_appeal'),
+    ('V89', 'constraint', 'appeal_messages', 'fk_appeal_messages_author'),
+    ('V89', 'table', 'bot_conversations', NULL),
+    ('V89', 'index', 'bot_conversations', 'idx_bot_conversations_updated')
 ), checked AS (
     SELECT w.*,
            CASE w.kind

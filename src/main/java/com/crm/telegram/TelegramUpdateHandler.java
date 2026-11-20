@@ -1,5 +1,6 @@
 package com.crm.telegram;
 
+import com.crm.appeal.AppealBotFlow;
 import com.crm.entity.AppIdentity;
 import com.crm.entity.Student;
 import com.crm.entity.TelegramUpdate;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -51,9 +53,25 @@ public class TelegramUpdateHandler {
     private final CenterSettingsService centerSettingsService;
     private final TelegramProperties properties;
     private final Clock billingClock;
+    private final AppealBotFlow appealFlow;
 
-    /** Yuboriladigan javob. */
-    public record Outgoing(long chatId, String html, Map<String, Object> replyMarkup) {
+    /**
+     * Yuboriladigan javob. {@code callbackQueryId} berilgan bo'lsa — bu xabar emas, {@code answerCallbackQuery}
+     * ({@code html} — qisqa matn, null bo'lishi mumkin).
+     */
+    public record Outgoing(long chatId, String html, Map<String, Object> replyMarkup, String callbackQueryId) {
+
+        public Outgoing(long chatId, String html, Map<String, Object> replyMarkup) {
+            this(chatId, html, replyMarkup, null);
+        }
+
+        public static Outgoing answer(String callbackQueryId, String text) {
+            return new Outgoing(0, text, null, callbackQueryId);
+        }
+
+        public boolean isCallbackAnswer() {
+            return callbackQueryId != null;
+        }
     }
 
     /**
@@ -79,6 +97,10 @@ public class TelegramUpdateHandler {
 
     @Transactional
     public List<Outgoing> handle(JsonNode update) {
+        JsonNode callback = update.path("callback_query");
+        if (!callback.isMissingNode() && !callback.isNull()) {
+            return handleCallback(callback);
+        }
         JsonNode message = update.path("message");
         if (message.isMissingNode() || message.isNull()) {
             return List.of();
@@ -96,14 +118,56 @@ public class TelegramUpdateHandler {
         }
 
         JsonNode contact = message.path("contact");
-        if (!contact.isMissingNode() && !contact.isNull()) {
+        boolean hasContact = !contact.isMissingNode() && !contact.isNull();
+        if (hasContact && !appealFlow.awaitingContact(chatId)) {
             return handleContact(chatId, from, contact);
         }
         String text = message.path("text").asText("").trim();
         if (text.toLowerCase(Locale.ROOT).startsWith("/stop")) {
             return handleStop(chatId, fromId);
         }
+        // Murojaatlar (§12): yangi oqim → murojaat xabariga reply → ochiq suhbat qadami
+        if (appealFlow.isStartCommand(text)) {
+            return appealFlow.start(chatId, from);
+        }
+        if (text.toLowerCase(Locale.ROOT).startsWith("/start")) {
+            // /start — ochiq murojaat suhbati tashlanadi (matn sifatida qabul qilinmasin)
+            appealFlow.reset(chatId);
+            return handleStart(chatId, fromId);
+        }
+        Optional<List<Outgoing>> reply = appealFlow.onReplyTo(chatId, message);
+        if (reply.isPresent()) {
+            return reply.get();
+        }
+        List<Outgoing> step = appealFlow.onMessage(chatId, from, message);
+        if (step != null) {
+            return step;
+        }
         return handleStart(chatId, fromId);
+    }
+
+    /**
+     * Inline tugma ({@code callback_query}) — faqat shaxsiy chat va {@code apl:*} (murojaatlar, §12). Har doim
+     * {@code answerCallbackQuery} (aks holda tugmada "yuklanmoqda" qoladi).
+     */
+    private List<Outgoing> handleCallback(JsonNode callback) {
+        String id = callback.path("id").asText(null);
+        if (id == null) {
+            return List.of();
+        }
+        JsonNode from = callback.path("from");
+        JsonNode chat = callback.path("message").path("chat");
+        String data = callback.path("data").asText("");
+        if (!"private".equals(chat.path("type").asText()) || from.path("is_bot").asBoolean(false)
+                || !from.path("id").canConvertToLong() || chat.path("id").asLong() != from.path("id").asLong()
+                || !data.startsWith(AppealBotFlow.CB)) {
+            return List.of(Outgoing.answer(id, null));
+        }
+        AppealBotFlow.CallbackResult result = appealFlow.onCallback(chat.path("id").asLong(), from, data);
+        List<Outgoing> out = new ArrayList<>();
+        out.add(Outgoing.answer(id, result.answer()));
+        out.addAll(result.messages());
+        return out;
     }
 
     private List<Outgoing> handleStart(long chatId, long fromId) {
@@ -114,13 +178,13 @@ public class TelegramUpdateHandler {
             out.add(new Outgoing(chatId,
                 "👋 <b>Adizone</b> mini ilovasiga xush kelibsiz!\n\nHisobingiz ulangan. "
                     + "Dars jadvali, davomat va to'lovlarni ilovada ko'ring.",
-                openAppMarkup()));
+                withAppealRow(openAppMarkup(), identity.getLanguage())));
             return out;
         }
         out.add(new Outgoing(chatId,
             "👋 <b>Adizone</b> mini ilovasiga xush kelibsiz!\n\n"
                 + "Dars jadvali, davomat va to'lovlarni shu yerda ko'rasiz.",
-            openAppMarkup()));
+            withAppealRow(openAppMarkup(), null)));
         out.add(new Outgoing(chatId,
             "Hisobingizni ulash uchun markazda ro'yxatdan o'tgan telefon raqamingizni yuboring — "
                 + "pastdagi «" + BTN_SEND_PHONE + "» tugmasini bosing.",
@@ -191,6 +255,21 @@ public class TelegramUpdateHandler {
         }
         return Map.of("inline_keyboard",
             List.of(List.of(Map.of("text", BTN_OPEN_APP, "web_app", Map.of("url", url)))));
+    }
+
+    /** Inline klaviaturaga "✍️ Taklif / shikoyat" qatori (flag o'chiq — o'zgarmaydi). */
+    @SuppressWarnings(value = "unchecked")
+    private Map<String, Object> withAppealRow(Map<String, Object> markup, String language) {
+        List<Map<String, Object>> row = appealFlow.menuRow(language);
+        if (row == null) {
+            return markup;
+        }
+        List<List<Map<String, Object>>> rows = new ArrayList<>();
+        if (markup != null && markup.get("inline_keyboard") instanceof List<?> existing) {
+            rows.addAll((List<List<Map<String, Object>>>) existing);
+        }
+        rows.add(row);
+        return Map.of("inline_keyboard", rows);
     }
 
     private static Map<String, Object> contactKeyboard() {

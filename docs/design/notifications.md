@@ -104,6 +104,8 @@ bo'lmasa Telegram `language_code`.
 | `PAYMENT_DUE_SOON` | ulangan ota-ona + o'quvchi | bot, `/#/payments` | `PaymentDueSoonJob`, cron `app.notify.payment-due-soon.cron` (10:00): keyingi to'lov = bugun + `days-before` (3). Ro'yxat va summa — `DebtorService.expected` (kutilayotgan to'lovlar, R2) bilan AYNAN bir xil: oldindan to'langan davr sanani suradi, oxirgi davr darslar bo'yicha bo'lsa — o'sha summa (+ dars soni, variant `lessons`); summa 0 — yo'q; bir o'quvchi — bitta xabar (guruhlar yig'indisi). Kalit `due:{studentId}:{sana}` | `service/PaymentDueSoonJob` |
 | `LESSON_REMINDER` | shu kuni faol yozilmalar (sinov ham; muzlatilgan / chiqqan — yo'q) | bot, `/#/schedule` | `LessonReminderJob` har 15 daqiqa: boshlanishiga `minutes-before` (120) qolgan darslar, oyna `(now+M−15, now+M]`; ACTIVE guruh, bayram va CANCELLED / MOVED (asl kun) — yo'q, EXTRA / ko'chirilgan kun — bor (`GroupScheduleService.hasLessonOn`). Yuborish payti sokin soatga (21:00–08:00) to'g'ri kelsa — **umuman yuborilmaydi**. Kalit `lesson:{groupId}:{sana}:{studentId}` | `service/LessonReminderJob` |
 | `NOTICE_APP` | e'lon auditoriyasida `STUDENT` → o'quvchilar (SELF), `PARENT` → ota-onalar | bot | e'lon ko'rinadigan bo'lganda (NOTICE_NEW bilan bir paytda); "hamma" (bo'sh) auditoriya — o'quvchilarga yo'q. Kalit `notice-app:{id}` | `NoticeService` |
+| `APPEAL_NEW` | faol SA lar + mas'ul; TEACHER turida predmet o'qituvchining useri — **yo'q** | qo'ng'iroqcha + ulangan xodim boti (AUTOMATIC) | yangi murojaat (bot / Mini App), kalit `appeal:new:{id}`; variant `assigned` — SA mas'ul tayinlaganda yangi mas'ulga (o'zini tayinlasa — yo'q). Matnda yuboruvchi ismi yo'q (raqam, tur, matn boshi). Havola `/appeals/{id}` | `appeal/AppealService.create`, `AppealCrmService.patch` |
+| `APPEAL_MESSAGE` | o'sha | o'sha | yuboruvchining yangi xabari (reply, "Javob yozish", Mini App), kalit `appeal:msg:{xabarId}` | `AppealService.addSenderMessage` |
 
 Flag: `app.tasks.reminder.enabled` (env `APP_TASK_REMINDER_ENABLED`, standart `true`), cron `app.tasks.reminder.cron`.
 
@@ -122,6 +124,8 @@ bo'lsa outbox'ga yozilmaydi, `log.debug` (job'lar aylanish xulosasini `info` da 
 `PaymentReminderService.Summary.disabled`). Xodimlar qo'ng'iroqchasi va xodim boti flag'ga bog'liq emas. Flag
 yoqilganda eski hodisalar qayta yuborilmaydi — faqat yoqilgandan keyingilari.
 Avvalgi turlar (`APP_LINK_REQUEST`, `CHAT_EXTERNAL`, `ABSENCE_NOTICE`, `ATTENDANCE_UNLOCK_*`, `LEAVE_*`) o'zgarmagan.
+
+Murojaatlar (V89, [telegram-platform.md](telegram-platform.md) §12): `APPEAL_*` — xodim kanali, flag `app.appeals.enabled` (standart `true`) faqat qabulni o'chiradi. Yuboruvchiga javob `dispatch` orqali emas — to'g'ridan outbox'ga (MANUAL: darhol, sokin soatda ovozsiz; `event_code` `APPEAL_REPLY` / `APPEAL_CLOSED`).
 
 ## 5. Telegram xatolari (`TelegramOutboxWorker`)
 
