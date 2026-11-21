@@ -34,6 +34,15 @@ public interface TaskRepository extends JpaRepository<Task, Long>, JpaSpecificat
         """)
     List<Task> findOpenByLeadIds(@Param("leadIds") List<Long> leadIds);
 
+    /** O'quvchiga bog'langan ochiq vazifalar, muddati yaqini oldin (calls: kiruvchi qo'ng'iroq kartasi). */
+    @Query(value = """
+        SELECT t FROM Task t
+        WHERE t.student.id IN :studentIds
+          AND t.status = com.crm.entity.enums.TaskStatus.OPEN
+        ORDER BY t.dueAt ASC
+        """)
+    List<Task> findOpenByStudentIds(@Param(value = "studentIds") List<Long> studentIds);
+
     /**
      * Ro'yxat so'rovlari uchun mas'ul/muallif/lid/o'quvchi bir so'rovda keladi.
      * Hammasi ManyToOne — sahifalash bazada qoladi, xotirada emas.

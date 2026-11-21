@@ -49,4 +49,11 @@ public interface TeacherRepository extends JpaRepository<Teacher, Long>, JpaSpec
 
     @Query("SELECT t.status, COUNT(t) FROM Teacher t GROUP BY t.status")
     List<Object[]> countByStatus();
+
+    /** calls: faol o'qituvchi raqami — xodim raqami sifatida sinxron qilinmaydi. */
+    @Query(value = """
+        SELECT COUNT(t) > 0 FROM Teacher t
+        WHERE t.phone IN :phones AND t.status = 'ACTIVE' AND (t.isActive IS NULL OR t.isActive = true)
+        """)
+    boolean existsActiveByPhoneIn(@Param(value = "phones") java.util.Collection<String> phones);
 }

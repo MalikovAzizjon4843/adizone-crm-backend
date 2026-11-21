@@ -1,7 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════════════
 -- Prod sxema tekshiruvi — FAQAT O'QIYDI (docs/audit/phase5-audit.md X-01, §12.1 #10).
 --
--- Nima uchun: Flyway yo'q, V25–V89 qo'lda bajariladi va qaysi bazada qaysi bo'lak
+-- Nima uchun: Flyway yo'q, V25–V90 qo'lda bajariladi va qaysi bazada qaysi bo'lak
 -- qo'llangani noma'lum. Bu skript hech narsani o'zgartirmaydi: butun ish READ ONLY
 -- tranzaksiyada va oxirida ROLLBACK. Natijani ko'rib, yetishmaganini tegishli
 -- V__*.sql faylidan (ular idempotent) alohida, kelishilgan oynada qo'llang.
@@ -11,7 +11,7 @@
 --   psql -h <host> -U <user> -d adizone -X -v ON_ERROR_STOP=1 -f docs/ops/prod-schema-check.sql
 --
 -- Bo'limlar:
---   1. V25–V89 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
+--   1. V25–V90 bo'laklari (V78 — faqat ma'lumot, invarianti 2-bo'limda): jadval/ustun/indeks/cheklov/sequence — faqat YO'QLARI + xulosa
 --      (V64 faqat olib tashlaydi — uning tekshiruvi 2-bo'limda)
 --   2. Ma'noviy invariantlar (nomidan qat'i nazar): UNIQUE juftliklar, NOT NULL, sequence
 --   3. Dublikat FK lar (bir ustunda bir nechta FK, ON DELETE har xil)
@@ -23,7 +23,7 @@
 
 BEGIN TRANSACTION READ ONLY;
 
--- ── 1. V25–V89 bo'laklari ────────────────────────────────────────────────────────────
+-- ── 1. V25–V90 bo'laklari ────────────────────────────────────────────────────────────
 -- kind: table | column | index | constraint | sequence. Ro'yxat migratsiya fayllaridan olingan.
 -- V40 dagi uk_payroll_user_month_year ro'yxatda yo'q — V54 uni *_active bilan almashtiradi.
 -- V58 dagi ux_exam_registrations_exam_student ham yo'q — V62 uni qisman ux_exam_registrations_active bilan almashtiradi.
@@ -465,7 +465,80 @@ WITH want(mig, kind, tbl, obj) AS (VALUES
     ('V89', 'constraint', 'appeal_messages', 'fk_appeal_messages_appeal'),
     ('V89', 'constraint', 'appeal_messages', 'fk_appeal_messages_author'),
     ('V89', 'table', 'bot_conversations', NULL),
-    ('V89', 'index', 'bot_conversations', 'idx_bot_conversations_updated')
+    ('V89', 'index', 'bot_conversations', 'idx_bot_conversations_updated'),
+    ('V90', 'table', 'call_devices', NULL),
+    ('V90', 'column', 'call_devices', 'fcm_token'),
+    ('V90', 'column', 'call_devices', 'perm_call_log'),
+    ('V90', 'column', 'call_devices', 'perm_recordings'),
+    ('V90', 'column', 'call_devices', 'perm_battery_opt'),
+    ('V90', 'column', 'call_devices', 'last_sync_at'),
+    ('V90', 'column', 'call_devices', 'revoked_by'),
+    ('V90', 'index', 'call_devices', 'ux_call_devices_token_hash'),
+    ('V90', 'index', 'call_devices', 'ux_call_devices_user_active'),
+    ('V90', 'index', 'call_devices', 'ux_call_devices_uid_active'),
+    ('V90', 'index', 'call_devices', 'idx_call_devices_user'),
+    ('V90', 'constraint', 'call_devices', 'ck_call_devices_token_hash'),
+    ('V90', 'constraint', 'call_devices', 'ck_call_devices_uid'),
+    ('V90', 'constraint', 'call_devices', 'fk_call_devices_user'),
+    ('V90', 'constraint', 'call_devices', 'fk_call_devices_revoked_by'),
+    ('V90', 'table', 'calls', NULL),
+    ('V90', 'column', 'calls', 'contact_type'),
+    ('V90', 'column', 'calls', 'auto_lead_created'),
+    ('V90', 'column', 'calls', 'parent_id'),
+    ('V90', 'column', 'calls', 'result_by'),
+    ('V90', 'column', 'calls', 'result_at'),
+    ('V90', 'index', 'calls', 'ux_calls_device_key'),
+    ('V90', 'index', 'calls', 'idx_calls_user_started'),
+    ('V90', 'index', 'calls', 'idx_calls_started'),
+    ('V90', 'index', 'calls', 'idx_calls_phone_started'),
+    ('V90', 'index', 'calls', 'idx_calls_lead'),
+    ('V90', 'index', 'calls', 'idx_calls_student'),
+    ('V90', 'constraint', 'calls', 'ck_calls_direction'),
+    ('V90', 'constraint', 'calls', 'ck_calls_contact_type'),
+    ('V90', 'constraint', 'calls', 'ck_calls_contact_ids'),
+    ('V90', 'constraint', 'calls', 'ck_calls_auto_lead'),
+    ('V90', 'constraint', 'calls', 'ck_calls_duration'),
+    ('V90', 'constraint', 'calls', 'ck_calls_result_code'),
+    ('V90', 'constraint', 'calls', 'ck_calls_result_at'),
+    ('V90', 'constraint', 'calls', 'ck_calls_key'),
+    ('V90', 'constraint', 'calls', 'fk_calls_device'),
+    ('V90', 'constraint', 'calls', 'fk_calls_user'),
+    ('V90', 'constraint', 'calls', 'fk_calls_lead'),
+    ('V90', 'constraint', 'calls', 'fk_calls_student'),
+    ('V90', 'constraint', 'calls', 'fk_calls_parent'),
+    ('V90', 'constraint', 'calls', 'fk_calls_result_by'),
+    ('V90', 'table', 'call_recordings', NULL),
+    ('V90', 'column', 'call_recordings', 'deleted_at'),
+    ('V90', 'index', 'call_recordings', 'ux_call_recordings_call'),
+    ('V90', 'index', 'call_recordings', 'idx_call_recordings_live'),
+    ('V90', 'constraint', 'call_recordings', 'ck_call_recordings_size'),
+    ('V90', 'constraint', 'call_recordings', 'ck_call_recordings_sha256'),
+    ('V90', 'constraint', 'call_recordings', 'ck_call_recordings_path'),
+    ('V90', 'constraint', 'call_recordings', 'fk_call_recordings_call'),
+    ('V90', 'table', 'call_requests', NULL),
+    ('V90', 'column', 'call_requests', 'device_id'),
+    ('V90', 'column', 'call_requests', 'delivered_at'),
+    ('V90', 'column', 'call_requests', 'dialed_at'),
+    ('V90', 'column', 'call_requests', 'closed_at'),
+    ('V90', 'index', 'call_requests', 'idx_call_requests_user_status'),
+    ('V90', 'index', 'call_requests', 'idx_call_requests_open'),
+    ('V90', 'constraint', 'call_requests', 'ck_call_requests_status'),
+    ('V90', 'constraint', 'call_requests', 'ck_call_requests_target'),
+    ('V90', 'constraint', 'call_requests', 'ck_call_requests_expires'),
+    ('V90', 'constraint', 'call_requests', 'ck_call_requests_closed_at'),
+    ('V90', 'constraint', 'call_requests', 'fk_call_requests_user'),
+    ('V90', 'constraint', 'call_requests', 'fk_call_requests_device'),
+    ('V90', 'constraint', 'call_requests', 'fk_call_requests_lead'),
+    ('V90', 'constraint', 'call_requests', 'fk_call_requests_student'),
+    ('V90', 'constraint', 'call_requests', 'fk_call_requests_created_by'),
+    ('V90', 'table', 'call_exclusions', NULL),
+    ('V90', 'column', 'call_exclusions', 'label'),
+    ('V90', 'index', 'call_exclusions', 'ux_call_exclusions_user_phone'),
+    ('V90', 'constraint', 'call_exclusions', 'fk_call_exclusions_user'),
+    ('V90', 'index', 'students', 'idx_students_phone'),
+    ('V90', 'index', 'students', 'idx_students_parent_phone'),
+    ('V90', 'index', 'parents', 'idx_parents_phone'),
+    ('V90', 'index', 'users', 'idx_users_phone')
 ), checked AS (
     SELECT w.*,
            CASE w.kind

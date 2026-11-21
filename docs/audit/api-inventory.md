@@ -10,6 +10,45 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-11-21, "Adizone Qo'ng'iroqlar" — xodim telefonidagi qo'ng'iroqlar CRM'da, V90)
+
+> Android ilova (Kotlin, keyingi bosqich) xodimning o'z SIM raqamidagi qo'ng'iroqlarni sinxron qiladi, kiruvchi qo'ng'iroqda CRM
+> kartasini ko'rsatadi, natijani lid timeline'iga yozadi, yozuvni yuklaydi, CRM'dan "qo'ng'iroq qil" so'rovini oladi.
+> To'liq shartnoma (JSON namunalari, xato kodlari, sinxron/idempotentlik, ops): [calls.md](../design/calls.md).
+> Kod: `calls/*` — `CallAppController` (ilova), `CallDeviceController`, `CallCrmController`. Migratsiya `V90__calls.sql`.
+> Sozlamalar `app.calls.*` (avto-lid yoqiq, yozuv ≤ 50 MB, retention 180 kun, FCM o'chiq). Yangi lid manbasi `PHONE_CALL` ("Qo'ng'iroq").
+
+**Ruxsat:** ilova va CRM — SA, A, SH, SM (boshqalar **403**). SM — faqat o'z qo'ng'iroqlari (boshqasi **404**, ro'yxatda filtr
+majburan o'zi); qarz summasi — faqat SA/A. Qurilmalar ro'yxati / revoke — faqat SA.
+**Ilova avtorizatsiyasi:** `/api/calls/app/**` — alohida zanjir (`CallsSecurityConfig`, `@Order(2)`), sarlavha `X-Device-Token`
+(admin JWT u yerda **401**). `X-App-Version` < `min-supported` → **426** `calls.app.upgradeRequired`.
+
+| Endpoint | Rol | Tafsilot |
+|---|---|---|
+| `POST /api/calls/devices/register` `{deviceUid, model, androidVersion, appVersion, fcmToken?}` | SA, A, SH, SM (JWT) | **201** `{deviceId, deviceToken (bir marta!), user, syncFrom, settings}`. Bazada faqat SHA-256. Xodimning boshqa faol qurilmasi va shu telefondagi boshqa hisob revoke |
+| `GET /api/calls/devices` | SA | `[{id, user, deviceUid, model, androidVersion, appVersion, active, createdAt, lastSeenAt, lastSyncAt, revokedAt, permissions, pushRegistered}]` |
+| `DELETE /api/calls/devices/{id}` | SA | Revoke (qator qoladi) — ilova keyingi so'rovda **401** `calls.device.revoked` |
+| `POST /api/calls/app/sync` `{calls: [{key, direction, phone, startedAt, durationSec}]}` | qurilma | ≤ 200; idempotent (`UNIQUE (device_id, device_call_key)`). Har element: `CREATED \| DUPLICATE \| SKIPPED (EXCLUDED, STAFF, NO_NUMBER, TOO_OLD) \| REJECTED`, `callId`, `contact {type, leadId, studentId, parentId, name, autoLeadCreated}`. Notanish raqamdan IN/MISSED → avtomatik lid (mas'ul — egasi, telefon bo'yicha dedupe) |
+| `POST /api/calls/app/calls/{id}/recording` (multipart `file`, `sha256`, `durationSec?`) | qurilma | ≤ 50 MB audio; SHA-256 tekshiruvi (400 `calls.recording.sha256Mismatch`); takror o'sha hash — 200 `duplicate: true`; boshqa hash — **409** `calls.recording.exists` |
+| `GET /api/calls/app/lookup?phone=` | qurilma | Kiruvchi qo'ng'iroq kartasi: `type` LEAD\|STUDENT\|PARENT\|UNKNOWN, `lead` / `student` (guruhlar, `debtor`, `debtDays`, `debtAmount` — faqat SA/A) / `children`, `lastCall`, `openTask`, `crmPath`; SM uchun boshqa operator lidi — `restricted: true`. Kesh 30 s |
+| `PATCH /api/calls/app/calls/{id}/result` `{resultCode, note?, leadStageId?, nextTask?}` | qurilma | Lid: timeline izohi (`LeadService.addComment`), bosqich (`updateStatus`, V79 qoidalari), vazifa; o'quvchi: `calls.note` + o'quvchi vazifasi. Begona lidda bosqich/vazifa — **403** `calls.result.leadForbidden` |
+| `GET /api/calls/app/requests/pending`, `POST /api/calls/app/requests/{id}/ack {status}` | qurilma | CRM so'rovlari; `DELIVERED \| DIALED \| CANCELLED`, takror — 200, yopilgan/eskirgan — **409** |
+| `GET/PUT /api/calls/app/exclusions` | qurilma | Shaxsiy raqamlar (≤ 500), sinxron qilinmaydi |
+| `GET /api/calls/app/lead-stages` | qurilma | `GET /api/lead-stages` bilan bir xil — natija ekrani uchun |
+| `GET /api/calls/app/version` | ochiq | `{latest, minSupported, apkUrl}` (env) |
+| `POST /api/calls/app/heartbeat`, `POST /api/calls/app/logout` | qurilma | Ruxsatlar holati, FCM token; o'zini revoke |
+| `POST /api/calls/requests` `{phone?, leadId?, studentId?, userId?}` | SA, A, SH, SM | **201** PENDING (TTL 120 s); faol qurilma yo'q — **409** `calls.request.noDevice`; boshqa xodimga — faqat SA/A/SH. FCM — `app.calls.fcm.enabled` (standart o'chiq) |
+| `GET /api/calls/requests/{id}`, `POST /api/calls/requests/{id}/cancel` | SA, A, SH, SM | Holatni kuzatish / bekor qilish |
+| `GET /api/calls?userId&from&to&direction&contactType&phone&page&size` | SA, A, SH, SM | `PageResponse<CallItem>` (yozuv holati bilan) |
+| `GET /api/calls/{id}` | SA, A, SH, SM | `CallItem` |
+| `GET /api/leads/{id}/calls`, `GET /api/students/{id}/calls` | SA, A, SH, SM | Lid / o'quvchi kartasi (lidga ruxsat ham tekshiriladi). TEACHER/ACC — **403** |
+| `GET /api/calls/{id}/recording` | SA, A, SH, SM | Oqim, `Range` → **206**; retention o'chirgan — **410** `calls.recording.deleted` |
+| `GET /api/calls/{id}/recording/link` → `GET /api/calls/recordings/stream?callId&exp&sig` | SA, A, SH, SM → ochiq | `<audio src>` uchun 10 daqiqalik HMAC havola |
+| `GET /api/calls/stats?from&to` | SA, A, SH, SM | Xodim bo'yicha `total, incoming, outgoing, missed, rejected, talkSeconds, missedNotCalledBack` + `totals`; SM — faqat o'zi |
+
+Ops: nginx'da yozuv yo'li uchun `client_max_body_size 55m` (hozir 10m), `spring.servlet.multipart.max-file-size` 50MB;
+yozuvlar `/opt/crm/uploads/calls/yyyy/MM/` (ochiq `/api/files/**` bermaydi), retention har kecha 04:10 — [calls.md](../design/calls.md) §10.
+
 ## Yangilanishlar (2026-11-20, taklif va shikoyatlar — murojaatlar, V89)
 
 > O'quvchi boti (@adizonestudents_bot) va Mini App orqali qabul, CRM'da ko'rib chiqish, javob yuboruvchiga bot orqali.

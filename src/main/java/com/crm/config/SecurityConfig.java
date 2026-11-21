@@ -207,6 +207,19 @@ public class SecurityConfig {
                     .hasAnyRole("SUPER_ADMIN", "ADMIN")
                 .requestMatchers("/api/bonus-penalties", "/api/bonus-penalties/**")
                     .hasAnyRole("SUPER_ADMIN", "ADMIN", "ACCOUNTANT")
+                // "Adizone Qo'ng'iroqlar" (docs/design/calls.md). /api/calls/app/** bu zanjirda emas —
+                // CallsSecurityConfig (@Order 2, qurilma tokeni). Imzolangan yozuv havolasi — tokensiz
+                // (<audio src>), himoya — HMAC imzo va muddat (CallRecordingService).
+                .requestMatchers(HttpMethod.GET, "/api/calls/recordings/stream").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/calls/devices/register")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_HEAD", "SALES_MANAGER")
+                .requestMatchers("/api/calls/devices", "/api/calls/devices/**").hasRole("SUPER_ADMIN")
+                .requestMatchers("/api/calls", "/api/calls/**")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_HEAD", "SALES_MANAGER")
+                // O'quvchi qo'ng'iroqlari — umumiy "GET /api/students/** — barcha xodimlar" dan OLDIN
+                // (TEACHER / ACCOUNTANT ko'rmaydi)
+                .requestMatchers(HttpMethod.GET, "/api/students/*/calls")
+                    .hasAnyRole("SUPER_ADMIN", "ADMIN", "SALES_HEAD", "SALES_MANAGER")
                 // Lid mas'ulini o'zgartirish — faqat SUPER_ADMIN va SALES_HEAD (buyurtmachi 11.10.2026).
                 // Umumiy lid qoidasidan OLDIN; controllerdagi @PreAuthorize bilan aynan bir xil.
                 .requestMatchers(HttpMethod.PATCH, "/api/leads/*/assign")

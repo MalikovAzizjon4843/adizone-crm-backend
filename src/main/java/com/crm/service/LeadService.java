@@ -203,6 +203,35 @@ public class LeadService {
     }
 
     /**
+     * "Adizone Qo'ng'iroqlar": notanish raqamdan kiruvchi / javobsiz qo'ng'iroq → avtomatik lid (docs/design/calls.md
+     * §4.2). Manba {@link SourceCatalog#PHONE_CALL}, mas'ul va yaratuvchi — qurilma egasi, format aniqlanmagan (null —
+     * sayt formasidagi kabi). Kanban tez qo'shishi bilan bir xil yon ta'sirlar: funnel tarixi va vazifa majburiyligi (V79).
+     * Telefon bo'yicha dedupe — chaqiruvchida ({@code CallContactMatcher}).
+     */
+    @Transactional
+    @Audited(action = AuditAction.CREATE, entity = "Lead",
+        summary = "'Yangi lid (qo''ng''iroq): ' + #result.fullName",
+        entityId = "#result.id",
+        label = "#result.fullName")
+    public Lead createFromCall(String fullName, String phone, User owner, String notes) {
+        Lead lead = Lead.builder()
+                .fullName(fullName)
+                .phone(phone)
+                .source(SourceCatalog.PHONE_CALL)
+                .notes(notes)
+                .status(Lead.DEFAULT_STATUS)
+                .assignedUser(owner)
+                .assignedAt(owner != null ? leadFunnelTracker.now() : null)
+                .createdBy(owner)
+                .converted(false)
+                .build();
+        Lead saved = leadRepository.save(lead);
+        leadFunnelTracker.onCreated(saved, owner);
+        taskService.createInitialTaskIfRequired(saved, owner);
+        return saved;
+    }
+
+    /**
      * Yangi lid uchun operatorni aniqlaydi.
      *
      * <p>Berilmasa: SALES_MANAGER o'ziga oladi (aks holda o'zi yaratgan lidni
@@ -1478,6 +1507,7 @@ public class LeadService {
             case "FACEBOOK" -> "Facebook";
             case "TARGET" -> "Target";
             case "SELF_CALL" -> "O'zi qo'ng'iroq";
+            case "PHONE_CALL" -> "Qo'ng'iroq";
             case "FORMER_STUDENT" -> "Avvalgi o'quvchi";
             case "REFERRAL" -> "Tavsiya";
             case "WALK_IN" -> "Kelib ko'rgan";

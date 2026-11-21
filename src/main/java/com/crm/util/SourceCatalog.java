@@ -26,6 +26,12 @@ public final class SourceCatalog {
 
     public static final int MAX_LENGTH = 30;
 
+    /**
+     * "Adizone Qo'ng'iroqlar" avtomatik lidi (V90, docs/design/calls.md §4.2) — yorlig'i "Qo'ng'iroq". Faqat lid manbasi:
+     * {@link #STUDENT_SOURCES} da yo'q (konvertatsiyada {@link #fromLead} baribir aynan ko'chiradi).
+     */
+    public static final String PHONE_CALL = "PHONE_CALL";
+
     public static final Set<String> STUDENT_SOURCES = Collections.unmodifiableSet(new LinkedHashSet<>(List.of(
         "WEBSITE", "INSTAGRAM", "FACEBOOK", "TELEGRAM", "YOUTUBE", "TARGET", "SELF_CALL",
         "FORMER_STUDENT", "OFFLINE", "LEAD", "REFERRAL", "WALK_IN", "OTHER")));

@@ -29,8 +29,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // /api/app/** — Mini App zanjiri (AppJwtFilter, boshqa kalit). Bu filtr @Component bo'lgani uchun
         // servlet darajasida ham ishlaydi: app tokenini admin kaliti bilan ochishga urinib, har so'rovda
         // ERROR log yozmasin.
+        // /api/calls/app/** — qo'ng'iroqlar ilovasi zanjiri (CallDeviceFilter, X-Device-Token) — xuddi shu sabab.
         return "OPTIONS".equalsIgnoreCase(request.getMethod())
-            || request.getRequestURI().startsWith(request.getContextPath() + "/api/app/");
+            || request.getRequestURI().startsWith(request.getContextPath() + "/api/app/")
+            || request.getRequestURI().startsWith(request.getContextPath() + "/api/calls/app/");
     }
 
     @Override

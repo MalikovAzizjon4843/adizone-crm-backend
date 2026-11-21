@@ -33,6 +33,14 @@ sirsiz yoki eski sir bilan jimgina ishga tushib qolmasin.
 | `APP_APPEALS_STATE_TTL_MINUTES` | `app.appeals.state-ttl-minutes` | Bot suhbat holati shuncha daqiqada eskiradi | Ha, default `30` |
 | `APP_APPEALS_NUMBER_PREFIX` | `app.appeals.number-prefix` | Murojaat raqami prefiksi (`MRJ-00012`) | Ha, default `MRJ` |
 | `APP_APPEALS_NOTIFY_SENDER_ON_CLOSE` | `app.appeals.notify-sender-on-close` | RESOLVED / REJECTED bo'lganda yuboruvchiga bot xabari | Ha, default `true` |
+| `APP_CALLS_AUTO_LEAD` | `app.calls.auto-lead` | "Adizone Qo'ng'iroqlar" (V90, calls.md): notanish raqamdan kiruvchi / javobsiz qo'ng'iroq → avtomatik lid | Ha, default `true` |
+| `APP_CALLS_RECORDING_DIR` | `app.calls.recording-dir` | Qo'ng'iroq yozuvlari katalogi | Ha, default `${app.upload.dir}/calls` |
+| `APP_CALLS_RECORDING_MAX_BYTES` | `app.calls.recording-max-bytes` | Bitta yozuv chegarasi (multipart va nginx bundan kichik bo'lmasin) | Ha, default `52428800` |
+| `APP_CALLS_RECORDING_RETENTION_DAYS` | `app.calls.recording-retention-days` | Yozuv fayli shuncha kundan keyin o'chadi (metama'lumot qoladi); `0` — hech qachon | Ha, default `180` |
+| `APP_CALLS_SYNC_MAX_AGE_DAYS` | `app.calls.sync-max-age-days` | Bundan eski qo'ng'iroq sinxron qilinmaydi | Ha, default `30` |
+| `APP_CALLS_REQUEST_TTL_SECONDS` / `APP_CALLS_REQUEST_POLL_SECONDS` | `app.calls.request-ttl-seconds` / `request-poll-seconds` | CRM'dan qo'ng'iroq so'rovi muddati / ilova so'rash oralig'i | Ha, `120` / `15` |
+| `APP_CALLS_APP_LATEST_VERSION` / `APP_CALLS_APP_MIN_VERSION` / `APP_CALLS_APP_APK_URL` | `app.calls.app.*` | Ilova versiyalari va APK havolasi (`GET /api/calls/app/version`); min dan past — 426 | Ha, `1.0.0` / `1.0.0` / bo'sh |
+| `APP_CALLS_FCM_ENABLED` / `APP_CALLS_FCM_PROJECT_ID` / `APP_CALLS_FCM_CREDENTIALS_FILE` | `app.calls.fcm.*` | FCM push (qo'ng'iroq so'rovi). Credentials — Firebase service account JSON fayli (**sir**, `chmod 600`, repoda emas) | Ha, default `false` |
 | `DIRECTOR_DIGEST_ENABLED` | `app.dashboard.digest.enabled` | Direktor kunlik xulosasi (20:00, bot outbox orqali) | Ha, default `false` |
 | `DIRECTOR_DIGEST_CHAT_IDS` | `app.dashboard.digest.chat-ids` | Xulosa yuboriladigan chat id lar (vergul bilan, raqam) | Ha — bo'sh bo'lsa hech kimga |
 

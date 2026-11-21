@@ -24,6 +24,8 @@ public class LeadAssignment {
     public static final String KIND_STATUS = "STATUS";
     public static final String KIND_TASK = "TASK";
     public static final String KIND_COMMENT = "COMMENT";
+    /** Telefon qo'ng'irog'i — "Adizone Qo'ng'iroqlar" ilovasi (V90): chiquvchi yoki javob berilgan kiruvchi. */
+    public static final String KIND_CALL = "CALL";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

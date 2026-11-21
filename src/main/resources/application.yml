@@ -7,8 +7,10 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 4MB
-      max-request-size: 8MB
+      # 50MB — qo'ng'iroq yozuvi (app.calls.recording-max-bytes, docs/design/calls.md §10). Boshqa yuklashlar o'z
+      # chegarasini servisda tekshiradi (FileStorageService.MAX_BYTES = 4MB) — bu yerdagi qiymat faqat yuqori to'siq.
+      max-file-size: 50MB
+      max-request-size: 52MB
 
   datasource:
     url: jdbc:postgresql://localhost:5432/adizone
@@ -109,6 +111,32 @@ app:
     state-ttl-minutes: ${APP_APPEALS_STATE_TTL_MINUTES:30}
     number-prefix: ${APP_APPEALS_NUMBER_PREFIX:MRJ}
     notify-sender-on-close: ${APP_APPEALS_NOTIFY_SENDER_ON_CLOSE:true}
+  # "Adizone Qo'ng'iroqlar" — xodimlar telefonidagi qo'ng'iroqlar CRM'da (CallsProperties, docs/design/calls.md §9)
+  calls:
+    # Notanish raqamdan kiruvchi / javobsiz qo'ng'iroq → avtomatik lid (manba PHONE_CALL, mas'ul — qurilma egasi)
+    auto-lead: ${APP_CALLS_AUTO_LEAD:true}
+    # Yozuvlar katalogi — ochiq /api/files/** pastki katalogni bermaydi
+    recording-dir: ${APP_CALLS_RECORDING_DIR:${app.upload.dir}/calls}
+    recording-max-bytes: ${APP_CALLS_RECORDING_MAX_BYTES:52428800}
+    # Fayl qo'ng'iroqdan shuncha kun o'tib o'chadi, metama'lumot qoladi; 0 — hech qachon
+    recording-retention-days: ${APP_CALLS_RECORDING_RETENTION_DAYS:180}
+    retention-cron: "0 10 4 * * *"
+    sync-max-batch: 200
+    sync-max-age-days: ${APP_CALLS_SYNC_MAX_AGE_DAYS:30}
+    request-ttl-seconds: ${APP_CALLS_REQUEST_TTL_SECONDS:120}
+    request-poll-seconds: ${APP_CALLS_REQUEST_POLL_SECONDS:15}
+    lookup-cache-seconds: 30
+    recording-link-ttl-seconds: 600
+    app:
+      latest-version: ${APP_CALLS_APP_LATEST_VERSION:1.0.0}
+      min-supported-version: ${APP_CALLS_APP_MIN_VERSION:1.0.0}
+      apk-url: ${APP_CALLS_APP_APK_URL:}
+    # FCM push (CRM'dan qo'ng'iroq so'rovi) — standart O'CHIQ: ilova pending'ni so'rab turadi.
+    # credentials-file — Firebase service account JSON (sir, repoda emas).
+    fcm:
+      enabled: ${APP_CALLS_FCM_ENABLED:false}
+      project-id: ${APP_CALLS_FCM_PROJECT_ID:}
+      credentials-file: ${APP_CALLS_FCM_CREDENTIALS_FILE:}
   # Direktor dashboardi (docs/design/director-dashboard.md). Qolgan sozlamalar — DashboardProperties default'lari.
   dashboard:
     digest:

@@ -30,6 +30,11 @@ app:
     reminder:
       # Testlar TaskDeadlineReminderJob.run ni o'zi chaqiradi — fon aylanishi aralashmasin
       enabled: false
+  calls:
+    # Qo'ng'iroq yozuvlari (CallRecordingTest) — test artefaktlari target/ ichida
+    recording-dir: target/test-uploads/calls
+    # Testlar natijani darhol ko'radi
+    lookup-cache-seconds: 1
 
 meta:
   enabled: false

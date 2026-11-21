@@ -58,4 +58,14 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
                OR EXISTS (SELECT 1 FROM Teacher t WHERE t.user = u AND t.phone IN :phones))
         """)
     List<User> findActiveByRoleAndPhoneIn(@Param("role") UserRole role, @Param("phones") Collection<String> phones);
+
+    /**
+     * Xodim raqami (calls: bunday qo'ng'iroq sinxron qilinmaydi) — faol foydalanuvchining {@code users.phone} i yoki
+     * faol o'qituvchi profilining telefoni.
+     */
+    @Query(value = """
+        SELECT COUNT(u) > 0 FROM User u
+        WHERE u.isActive = true AND u.phone IN :phones
+        """)
+    boolean existsActiveByPhoneIn(@Param(value = "phones") Collection<String> phones);
 }

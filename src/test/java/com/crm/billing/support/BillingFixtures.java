@@ -64,6 +64,7 @@ public class BillingFixtures {
         "app_notification_prefs", "app_notice_reads", "app_identity_students", "app_identities", "app_link_attempts", "telegram_updates",
         "student_parents", "parents",
         "appeal_messages", "appeals", "bot_conversations",
+        "call_recordings", "call_requests", "calls", "call_exclusions", "call_devices",
         "absence_notices", "app_link_requests", "telegram_outbox",
         "message_attachments", "messages", "conversation_participants", "conversations", "user_notifications");
 
