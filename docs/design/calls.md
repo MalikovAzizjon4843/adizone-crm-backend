@@ -45,7 +45,9 @@ qo'ng'iroqdan keyingi natija → CRM'dan qo'ng'iroq so'rovi; CRM — lid / o'quv
 | `call_exclusions` | `user_id`, `phone_normalized`, `label` | UNIQUE (user, raqam) — bu raqamlar sinxron qilinmaydi |
 
 Qo'shimcha indekslar: `students(phone)`, `students(parent_phone)`, `parents(phone)`, `users(phone)` (lookup < 200 ms).
-Lid manbasi yangi kod: **`PHONE_CALL`** (yorlig'i "Qo'ng'iroq", `source.PHONE_CALL`).
+Lid manbasi yangi kod: **`PHONE_CALL`** — yorlig'i "Qo'ng'iroq (ilova)" / "Звонок (приложение)" / "Phone call (app)"
+(`source.PHONE_CALL`), ikonka kodi `smartphone` (lucide). Ro'yxat va nomlar — `GET /api/enums/lead-sources`; analitika
+("Manbalar", overview `bySource[].label`) xuddi shu nom bilan.
 
 ---
 
@@ -99,8 +101,11 @@ faqat SUPER_ADMIN / ADMIN ga.
 ```json
 {"autoLead": true, "syncMaxBatch": 200, "syncMaxAgeDays": 30, "recordingMaxBytes": 52428800,
  "recordingRetentionDays": 180, "requestPollSeconds": 15, "fcmEnabled": false,
- "latestVersion": "1.0.0", "minSupportedVersion": "1.0.0"}
+ "latestVersion": "1.0.0", "minSupportedVersion": "1.0.0", "crmWebUrl": "https://admin.adizone.uz"}
 ```
+`crmWebUrl` (env `APP_CRM_WEB_URL`, standart `https://admin.adizone.uz`) — "CRM'da ochish": brauzerda
+`crmWebUrl + crmPath` (lookup javobidagi `crmPath`, masalan `/leads?lead=1207`, `/students/44`). `GET/PUT app/settings`
+va register'dagi `device` ham `crmWebUrl` ni qaytaradi.
 
 ### 3.3 Qurilma sinxron sozlamasi (V91) — `sync_mode`, `sync_from`
 
@@ -118,7 +123,7 @@ Xodim ilovani **shaxsiy telefoniga** o'rnatsa, oilaviy / shaxsiy qo'ng'iroqlari 
 * Shu xodim + shu `deviceUid` qayta kirsa — saqlangan sozlama qoladi (so'rovdagisi e'tiborsiz).
 * V91 dan oldingi qurilmalar: `ALL`, `syncFrom = null` (chegara yo'q) — xatti-harakat o'zgarmaydi.
 
-`GET /api/calls/app/settings` → `{"syncMode": "ALL", "syncFrom": "2026-11-22T09:30:00"}`
+`GET /api/calls/app/settings` → `{"syncMode": "ALL", "syncFrom": "2026-11-22T09:30:00", "crmWebUrl": "https://admin.adizone.uz"}`
 
 `PUT /api/calls/app/settings` `{"syncMode": "KNOWN_ONLY", "syncFrom": "2026-11-15T00:00:00+05:00"}` — berilmagan
 maydon o'zgarmaydi; javob — yangi holat. 400: `calls.settings.syncModeInvalid`, `calls.settings.syncFromFuture`
@@ -356,7 +361,8 @@ FCM: `app.calls.fcm.enabled=false` (standart). Yoqish: Firebase loyihasi + servi
 
 | Endpoint | Tafsilot |
 |---|---|
-| `GET /api/calls?userId&from&to&direction&contactType&phone&page&size` | `PageResponse<CallItem>`, yangilari oldin. `from/to` — `startedAt` sanasi (ISO). `direction` IN\|OUT\|MISSED\|REJECTED, `contactType` LEAD\|STUDENT\|PARENT\|UNKNOWN (noto'g'ri — 400 `calls.filter.*`). SM — `userId` e'tiborsiz, faqat o'zi |
+| `GET /api/calls?userId&from&to&direction&contactType&phone&recorded&page&size` | `PageResponse<CallItem>`, yangilari oldin. `from/to` — `startedAt` sanasi (ISO). `direction` IN\|OUT\|MISSED\|REJECTED, `contactType` LEAD\|STUDENT\|PARENT\|UNKNOWN (noto'g'ri — 400 `calls.filter.*`). `recorded=true` — yozuvi mavjud (retention o'chirmagan), `false` — yozuvsiz; filtr **serverda** (sahifalash va `totalElements` to'g'ri). SM — `userId` e'tiborsiz, faqat o'zi |
+| `GET /api/calls/users` | "Xodim" filtri: faol qurilmasi **yoki** kamida bitta qo'ng'irog'i bor xodimlar (har qanday rol, SALES_HEAD ham), ism bo'yicha. `[{id, name, role, active, activeDevice, lastCallAt}]`. Ruxsat — ro'yxat bilan bir xil: SA, A, SH — hammasi; SM — faqat o'zi; boshqalar — 403 |
 | `GET /api/calls/{id}` | `CallItem` |
 | `GET /api/leads/{id}/calls?page&size` | Lid kartasi. Lidga ruxsat (`LeadAccessService`) + SM faqat o'z qo'ng'iroqlari |
 | `GET /api/students/{id}/calls?page&size` | O'quvchi kartasi (o'zi va ota-ona qo'ng'iroqlari — `student_id`). TEACHER / ACCOUNTANT — 403 |
@@ -398,7 +404,7 @@ javob berilgan kiruvchi bo'lmagan.
 
 | Endpoint | Tafsilot |
 |---|---|
-| `GET /api/calls/devices` | `[{id, user, deviceUid, model, androidVersion, appVersion, active, createdAt, lastSeenAt, lastSyncAt, revokedAt, permissions: {callLog, recordingsFolder, batteryOptimizationIgnored}, pushRegistered}]` — faollari oldin |
+| `GET /api/calls/devices` | `[{id, user, deviceUid, model, androidVersion, appVersion, active, createdAt, lastSeenAt, lastSyncAt, revokedAt, permissions: {callLog, recordingsFolder, batteryOptimizationIgnored}, pushRegistered, syncMode, syncFrom, lastHeartbeatAt}]` — faollari oldin. `permissions` — oxirgi heartbeat'dagi holat, `lastHeartbeatAt` — o'sha vaqt (V92; null — heartbeat hali kelmagan). `syncMode` / `syncFrom` — §3.3 |
 | `DELETE /api/calls/devices/{id}` | Revoke (qator o'chmaydi, qo'ng'iroqlar qoladi). Ilova keyingi so'rovda 401 `calls.device.revoked` |
 
 ---

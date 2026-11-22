@@ -67,6 +67,7 @@ public class AnalyticsOverviewService {
     private final FunnelMetricsService funnel;
     private final RetentionMetricsService retention;
     private final Clock billingClock;
+    private final com.crm.config.Messages messages;
 
     /** Davr va guruhlash — tekshirilgan; {@code from/to} berilmasa joriy oy boshidan bugungacha. */
     public record Range(LocalDate from, LocalDate to, GroupBy groupBy) {
@@ -211,7 +212,8 @@ public class AnalyticsOverviewService {
                 c[2]++;
             }
         }
-        bySource.forEach((src, c) -> s.bySource.add(new LeadSource(src, c[0], c[1], Ratios.percent(c[1], c[0]), c[2])));
+        bySource.forEach((src, c) -> s.bySource.add(new LeadSource(src,
+            messages.getOrDefault("source." + src, src), c[0], c[1], Ratios.percent(c[1], c[0]), c[2])));
         s.bySource.sort(Comparator.comparingLong(LeadSource::leads).reversed().thenComparing(LeadSource::source));
         return s;
     }

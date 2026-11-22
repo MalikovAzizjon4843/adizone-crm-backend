@@ -68,7 +68,9 @@ public final class AnalyticsDtos {
     public record StudentsBySource(LocalDate asOf, long total, List<StudentSourceRow> rows) {
     }
 
-    public record LeadSource(String source, long leads, long converted, BigDecimal conversionRate, long firstPayments) {
+    /** {@code label} — manba nomi joriy tilda ({@code source.*}, "Manbalar" sahifasi bilan bir xil). */
+    public record LeadSource(String source, String label, long leads, long converted, BigDecimal conversionRate,
+                             long firstPayments) {
     }
 
     public record Leads(Metric created, Metric converted, BigDecimal conversionRate, BigDecimal previousConversionRate,

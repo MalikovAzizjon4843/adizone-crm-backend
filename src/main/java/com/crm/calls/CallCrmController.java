@@ -44,10 +44,19 @@ public class CallCrmController {
             @RequestParam(name = "direction", required = false) String direction,
             @RequestParam(name = "contactType", required = false) String contactType,
             @RequestParam(name = "phone", required = false) String phone,
+            @RequestParam(name = "recorded", required = false) Boolean recorded,
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "20") int size) {
         return ApiResponse.success(queryService.list(
-            new CallQueryService.Filter(userId, from, to, direction, contactType, phone, null, null), page, size));
+            new CallQueryService.Filter(userId, from, to, direction, contactType, phone, null, null, recorded), page,
+            size));
+    }
+
+    /** "Xodim" filtri: faol qurilmasi yoki qo'ng'irog'i bor xodimlar; ruxsat — ro'yxat bilan bir xil (SM — faqat o'zi). */
+    @GetMapping(value = "/api/calls/users")
+    @PreAuthorize(value = STAFF)
+    public ApiResponse<java.util.List<CallDtos.CallUserItem>> users() {
+        return ApiResponse.success(queryService.users());
     }
 
     @GetMapping(value = "/api/calls/stats")

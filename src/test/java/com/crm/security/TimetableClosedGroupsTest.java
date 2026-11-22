@@ -4,6 +4,8 @@ import com.crm.entity.Timetable;
 import com.crm.entity.User;
 import com.crm.entity.enums.GroupStatus;
 import com.crm.entity.enums.UserRole;
+import com.crm.entity.Classroom;
+import com.crm.repository.ClassroomRepository;
 import com.crm.repository.GroupRepository;
 import com.crm.repository.TeacherRepository;
 import com.crm.repository.TimetableRepository;
@@ -20,6 +22,7 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -32,6 +35,7 @@ class TimetableClosedGroupsTest extends Phase5ItBase {
     @Autowired TimetableRepository timetableRepository;
     @Autowired GroupRepository groupRepository;
     @Autowired TeacherRepository teacherRepository;
+    @Autowired ClassroomRepository classroomRepository;
 
     private User admin;
     private User teacherUser;
@@ -145,5 +149,63 @@ class TimetableClosedGroupsTest extends Phase5ItBase {
             .containsExactlyInAnyOrder(active, forming, endsNextWeekend);
         assertThat(groupIds(admin, "/api/timetable/teacher/" + teacherId + "?includeClosed=true", "$.data[*].groupId"))
             .hasSize(6);
+    }
+    // ── To'qnashuv tekshiruvi (assertNoConflicts) — jadval bilan bir xil qoida ──
+
+    private org.springframework.test.web.servlet.ResultActions createLesson(Long groupId, Long teacher, Long roomId,
+                                                                            int hour) throws Exception {
+        return mvc.perform(post("/api/timetable").with(as(admin))
+            .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+            .content("{\"groupId\":" + groupId + ",\"teacherId\":" + teacher
+                + (roomId != null ? ",\"classroomId\":" + roomId : "")
+                + ",\"dayOfWeek\":\"TUESDAY\",\"startTime\":\"" + String.format("%02d:00", hour)
+                + "\",\"endTime\":\"" + String.format("%02d:50", hour) + "\"}"));
+    }
+
+    @Test
+    void conflicts_teacher_ignoreClosedAndEndedGroups() throws Exception {
+        Long fresh = fixtures.group(fixtures.course(500_000), GroupStatus.ACTIVE, teacherId);
+        // 11:00 — COMPLETED, 12:00 — CANCELLED, 13:00 — 10.09 da tugagan: o'qituvchi band emas
+        createLesson(fresh, teacherId, null, 11).andExpect(status().isCreated());
+        createLesson(fresh, teacherId, null, 12).andExpect(status().isCreated());
+        createLesson(fresh, teacherId, null, 13).andExpect(status().isCreated());
+        // 09:00 — ACTIVE, 10:00 — FORMING, 14:00 — 18.09 da tugaydi (hali ochiq): band
+        for (int hour : new int[]{9, 10, 14}) {
+            createLesson(fresh, teacherId, null, hour)
+                .andExpect(status().isBadRequest())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.message")
+                    .value(org.hamcrest.Matchers.containsString("o'qituvchi band")));
+        }
+    }
+
+    @Test
+    void conflicts_room_ignoreClosedGroups() throws Exception {
+        Long roomId = inTx(() -> classroomRepository.save(Classroom.builder()
+            .roomName("Xona " + System.nanoTime()).roomNumber("R" + (System.nanoTime() % 100_000)).build()).getId());
+        Long otherTeacher = fixtures.teacher();
+        Long anotherTeacher = fixtures.teacher();
+        // Yopiq guruh shu xonada 16:00 da, ochiq guruh 17:00 da
+        Long closedGroup = fixtures.group(fixtures.course(500_000), GroupStatus.COMPLETED, otherTeacher);
+        createLessonRaw(closedGroup, otherTeacher, roomId, 16);
+        createLesson(active, teacherId, roomId, 15).andExpect(status().isCreated());
+
+        Long fresh = fixtures.group(fixtures.course(500_000), GroupStatus.ACTIVE, anotherTeacher);
+        createLesson(fresh, anotherTeacher, roomId, 16).andExpect(status().isCreated());
+        createLesson(fresh, anotherTeacher, roomId, 15)
+            .andExpect(status().isBadRequest())
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.message")
+                .value(org.hamcrest.Matchers.containsString("band")));
+    }
+
+    /** Tekshiruvsiz (yopiq guruhga dars — tarixiy holat). */
+    private void createLessonRaw(Long groupId, Long teacher, Long roomId, int hour) {
+        inTx(() -> {
+            timetableRepository.save(Timetable.builder()
+                .group(groupRepository.findById(groupId).orElseThrow())
+                .teacher(teacherRepository.findById(teacher).orElseThrow())
+                .classroom(classroomRepository.findById(roomId).orElseThrow())
+                .dayOfWeek("TUESDAY").startTime(LocalTime.of(hour, 0)).endTime(LocalTime.of(hour, 50))
+                .build());
+        });
     }
 }

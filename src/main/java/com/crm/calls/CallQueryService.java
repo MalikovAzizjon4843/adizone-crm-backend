@@ -58,6 +58,7 @@ public class CallQueryService {
 
     private final PhoneCallRepository callRepository;
     private final CallRecordingRepository recordingRepository;
+    private final com.crm.repository.CallDeviceRepository deviceRepository;
     private final UserRepository userRepository;
     private final LeadRepository leadRepository;
     private final StudentRepository studentRepository;
@@ -65,8 +66,9 @@ public class CallQueryService {
     private final LeadAccessService leadAccessService;
     private final Clock billingClock;
 
+    /** {@code recorded}: true — yozuvi mavjud (retention o'chirmagan), false — yozuvsiz, null — hammasi. */
     public record Filter(Long userId, LocalDate from, LocalDate to, String direction, String contactType,
-                         String phone, Long leadId, Long studentId) {
+                         String phone, Long leadId, Long studentId, Boolean recorded) {
     }
 
     @Transactional(readOnly = true)
@@ -97,8 +99,9 @@ public class CallQueryService {
             throw CodedException.badRequest("calls.phone.invalid");
         }
 
+        // recorded — serverda (EXISTS), sahifalash va totalElements to'g'ri
         Specification<PhoneCall> spec = spec(userId, filter.from(), filter.to(), direction, contactType, phone,
-            filter.leadId(), filter.studentId());
+            filter.leadId(), filter.studentId()).and(recordedSpec(filter.recorded()));
         int pageSize = Math.max(1, Math.min(size, MAX_PAGE_SIZE));
         Page<PhoneCall> result = callRepository.findAll(spec, PageRequest.of(Math.max(page, 0), pageSize,
             Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id"))));
@@ -122,15 +125,8 @@ public class CallQueryService {
         if (from != null && to != null && to.isBefore(from)) {
             throw CodedException.badRequest("calls.filter.dateRange");
         }
-        Specification<PhoneCall> spec = spec(userId, from, to, null, null, null, null, null);
-        if (recorded != null) {
-            spec = spec.and((root, query, cb) -> {
-                var sub = query.subquery(Long.class);
-                var r = sub.from(CallRecording.class);
-                sub.select(r.get("id")).where(cb.equal(r.get("callId"), root.get("id")), cb.isNull(r.get("deletedAt")));
-                return recorded ? cb.exists(sub) : cb.not(cb.exists(sub));
-            });
-        }
+        Specification<PhoneCall> spec = spec(userId, from, to, null, null, null, null, null)
+            .and(recordedSpec(recorded));
         int pageSize = Math.max(1, Math.min(size, MAX_PAGE_SIZE));
         Page<PhoneCall> result = callRepository.findAll(spec, PageRequest.of(Math.max(page, 0), pageSize,
             Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id"))));
@@ -150,7 +146,7 @@ public class CallQueryService {
             throw new ResourceNotFoundException("Lead", leadId);
         }
         leadAccessService.assertCanAccessLead(leadId);
-        return list(new Filter(null, null, null, null, null, null, leadId, null), page, size);
+        return list(new Filter(null, null, null, null, null, null, leadId, null, null), page, size);
     }
 
     @Transactional(readOnly = true)
@@ -158,7 +154,7 @@ public class CallQueryService {
         if (!studentRepository.existsById(studentId)) {
             throw new ResourceNotFoundException("Student", studentId);
         }
-        return list(new Filter(null, null, null, null, null, null, null, studentId), page, size);
+        return list(new Filter(null, null, null, null, null, null, null, studentId, null), page, size);
     }
 
     /** Bitta qo'ng'iroq — ruxsat bilan (SALES_MANAGER: faqat o'ziniki, aks holda 404). */
@@ -170,6 +166,39 @@ public class CallQueryService {
             throw CodedException.notFound("calls.notFound");
         }
         return call;
+    }
+
+    // ── "Xodim" filtri ───────────────────────────────────────────────────
+
+    /**
+     * {@code GET /api/calls/users}: faol qurilmasi yoki kamida bitta qo'ng'irog'i bor xodimlar (har qanday rol,
+     * SALES_HEAD ham). Ruxsat — {@link #list} bilan bir xil: SA, ADMIN, SALES_HEAD — hammasi; SALES_MANAGER — faqat
+     * o'zi (qurilmasi / qo'ng'irog'i bo'lsa); boshqalar — 403. Tartib: ism bo'yicha.
+     */
+    @Transactional(readOnly = true)
+    public List<CallDtos.CallUserItem> users() {
+        User viewer = leadAccessService.getCurrentUserOrThrow();
+        Long only = scopeUserId(viewer, null);
+        Map<Long, LocalDateTime> lastCall = new HashMap<>();
+        for (Object[] row : callRepository.lastCallByUser()) {
+            lastCall.put((Long) row[0], (LocalDateTime) row[1]);
+        }
+        Set<Long> withDevice = deviceRepository.findByRevokedAtIsNull().stream()
+            .map(com.crm.entity.CallDevice::getUserId).collect(Collectors.toSet());
+        Set<Long> ids = new java.util.HashSet<>(lastCall.keySet());
+        ids.addAll(withDevice);
+        if (only != null) {
+            ids.retainAll(Set.of(only));
+        }
+        return userRepository.findAllById(ids).stream()
+            .map(u -> {
+                CallDtos.UserRef ref = CallDtos.UserRef.of(u);
+                return new CallDtos.CallUserItem(u.getId(), ref.name(), ref.role(), Boolean.TRUE.equals(u.getIsActive()),
+                    withDevice.contains(u.getId()), lastCall.get(u.getId()));
+            })
+            .sorted(Comparator.comparing((CallDtos.CallUserItem i) -> i.name() == null ? "" : i.name(),
+                String.CASE_INSENSITIVE_ORDER).thenComparing(CallDtos.CallUserItem::id))
+            .toList();
     }
 
     // ── Statistika ───────────────────────────────────────────────────────
@@ -267,6 +296,19 @@ public class CallQueryService {
             return viewer.getId();
         }
         throw CodedException.forbidden("calls.forbidden");
+    }
+
+    /** Yozuvi mavjud (o'chirilmagan) / yo'q; {@code null} — shartsiz. */
+    private static Specification<PhoneCall> recordedSpec(Boolean recorded) {
+        return (root, query, cb) -> {
+            if (recorded == null) {
+                return cb.conjunction();
+            }
+            var sub = query.subquery(Long.class);
+            var r = sub.from(CallRecording.class);
+            sub.select(r.get("id")).where(cb.equal(r.get("callId"), root.get("id")), cb.isNull(r.get("deletedAt")));
+            return recorded ? cb.exists(sub) : cb.not(cb.exists(sub));
+        };
     }
 
     private static Specification<PhoneCall> spec(Long userId, LocalDate from, LocalDate to,

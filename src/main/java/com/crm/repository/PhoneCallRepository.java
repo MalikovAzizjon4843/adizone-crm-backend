@@ -34,6 +34,10 @@ public interface PhoneCallRepository extends JpaRepository<PhoneCall, Long>, Jpa
     List<PhoneCall> findLast(@Param(value = "phone") String phone, Pageable pageable);
 
     /** Davr ichidagi qo'ng'iroqlar (statistika) — barcha xodimlar. */
+    /** Har xodimning oxirgi qo'ng'irog'i: {@code [userId, maxStartedAt]} ({@code GET /api/calls/users}). */
+    @Query(value = "SELECT c.userId, MAX(c.startedAt) FROM PhoneCall c GROUP BY c.userId")
+    List<Object[]> lastCallByUser();
+
     List<PhoneCall> findByStartedAtGreaterThanEqualAndStartedAtLessThan(LocalDateTime from, LocalDateTime to);
 
     List<PhoneCall> findByUserIdAndStartedAtGreaterThanEqualAndStartedAtLessThan(Long userId, LocalDateTime from,

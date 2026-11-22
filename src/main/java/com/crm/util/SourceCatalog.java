@@ -4,6 +4,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -27,7 +28,7 @@ public final class SourceCatalog {
     public static final int MAX_LENGTH = 30;
 
     /**
-     * "Adizone Qo'ng'iroqlar" avtomatik lidi (V90, docs/design/calls.md §4.2) — yorlig'i "Qo'ng'iroq". Faqat lid manbasi:
+     * "Adizone Qo'ng'iroqlar" avtomatik lidi (V90, docs/design/calls.md §4.2) — yorlig'i "Qo'ng'iroq (ilova)". Faqat lid manbasi:
      * {@link #STUDENT_SOURCES} da yo'q (konvertatsiyada {@link #fromLead} baribir aynan ko'chiradi).
      */
     public static final String PHONE_CALL = "PHONE_CALL";
@@ -36,7 +37,36 @@ public final class SourceCatalog {
         "WEBSITE", "INSTAGRAM", "FACEBOOK", "TELEGRAM", "YOUTUBE", "TARGET", "SELF_CALL",
         "FORMER_STUDENT", "OFFLINE", "LEAD", "REFERRAL", "WALK_IN", "OTHER")));
 
+    /**
+     * Lid manbalari ro'yxati ({@code GET /api/enums/lead-sources}): o'quvchi manbalari + {@link #PHONE_CALL}. Erkin matn
+     * bo'lgani uchun bazada boshqa qiymat ham bo'lishi mumkin — ro'yxat filtr / tanlov uchun, cheklov emas.
+     */
+    public static final Set<String> LEAD_SOURCES;
+
+    static {
+        LinkedHashSet<String> lead = new LinkedHashSet<>(STUDENT_SOURCES);
+        lead.add(PHONE_CALL);
+        LEAD_SOURCES = Collections.unmodifiableSet(lead);
+    }
+
+    /**
+     * Ikonka kodi (frontend uni o'z ikonka to'plamiga moslaydi): lucide nomi. Ro'yxatda bo'lmagan / noma'lum — {@code tag}.
+     */
+    private static final Map<String, String> ICONS = Map.ofEntries(
+        Map.entry("WEBSITE", "globe"), Map.entry("INSTAGRAM", "instagram"), Map.entry("FACEBOOK", "facebook"),
+        Map.entry("TELEGRAM", "send"), Map.entry("YOUTUBE", "youtube"), Map.entry("TARGET", "target"),
+        Map.entry("SELF_CALL", "phone-call"), Map.entry("FORMER_STUDENT", "graduation-cap"),
+        Map.entry("OFFLINE", "megaphone"), Map.entry("LEAD", "user-plus"), Map.entry("REFERRAL", "users"),
+        Map.entry("WALK_IN", "footprints"), Map.entry("OTHER", "tag"), Map.entry(PHONE_CALL, "smartphone"),
+        Map.entry(UNKNOWN, "circle-help"));
+
     private SourceCatalog() {
+    }
+
+    /** Manba ikonka kodi (lucide nomi); tanilmasa {@code tag}. */
+    public static String icon(String source) {
+        String key = normalize(source);
+        return key == null ? ICONS.get(UNKNOWN) : ICONS.getOrDefault(key, "tag");
     }
 
     /** Katta harf, chetlari kesilgan; bo'sh bo'lsa null. */

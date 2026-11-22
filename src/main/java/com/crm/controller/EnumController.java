@@ -52,16 +52,29 @@ public class EnumController {
         return ResponseEntity.ok(ApiResponse.success(options));
     }
 
-    /** O'quvchi manbasi qiymatlari (V79) — nomi joriy til bo'yicha ({@code Accept-Language}). */
+    /** O'quvchi manbasi qiymatlari (V79) — nomi joriy til bo'yicha ({@code Accept-Language}), {@code icon} — lucide nomi. */
     @GetMapping("/student-sources")
     public ResponseEntity<ApiResponse<List<EnumOptionDto>>> getStudentSources() {
-        List<EnumOptionDto> options = SourceCatalog.STUDENT_SOURCES.stream()
+        return ResponseEntity.ok(ApiResponse.success(sourceOptions(SourceCatalog.STUDENT_SOURCES)));
+    }
+
+    /**
+     * Lid manbalari — o'quvchi manbalari + {@code PHONE_CALL} ("Qo'ng'iroq (ilova)", avto-lid). Frontend ro'yxat va
+     * nomlarni qo'lda takrorlamasin; {@code icon} — lucide nomi ({@code SourceCatalog.icon}).
+     */
+    @GetMapping(value = "/lead-sources")
+    public ResponseEntity<ApiResponse<List<EnumOptionDto>>> getLeadSources() {
+        return ResponseEntity.ok(ApiResponse.success(sourceOptions(SourceCatalog.LEAD_SOURCES)));
+    }
+
+    private List<EnumOptionDto> sourceOptions(java.util.Collection<String> codes) {
+        return codes.stream()
             .map(s -> EnumOptionDto.builder()
                 .value(s)
                 .label(messages.getOrDefault("source." + s, s))
+                .icon(SourceCatalog.icon(s))
                 .build())
             .toList();
-        return ResponseEntity.ok(ApiResponse.success(options));
     }
 
     @GetMapping("/task-statuses")

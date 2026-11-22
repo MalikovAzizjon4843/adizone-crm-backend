@@ -10,6 +10,21 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-11-22, 2-qism): manba PHONE_CALL, qo'ng'iroqlar CRM filtrlari, crmWebUrl, jadval to'qnashuvi (V92)
+
+| Endpoint | Rol | Tafsilot |
+|---|---|---|
+| `GET /api/enums/lead-sources` | barcha xodimlar | **YANGI.** Lid manbalari `[{value, label, icon}]` — o'quvchi manbalari + `PHONE_CALL` ("Qo'ng'iroq (ilova)" / "Звонок (приложение)" / "Phone call (app)", `Accept-Language`). `icon` — lucide nomi (`smartphone`, `globe`, `instagram` …; noma'lum — `tag`). Frontend `KNOWN_SOURCES` konstantasi o'rniga |
+| `GET /api/enums/student-sources` | barcha xodimlar | Endi `icon` ham (lucide nomi). Ro'yxat o'zgarmagan (PHONE_CALL yo'q — faqat lid manbasi) |
+| `GET /api/analytics/overview` → `leads.bySource[]` | SA, A | Yangi `label` (joriy tilda, `source.*` — "Manbalar" sahifasidagi `label` bilan bir xil). `GET /api/analytics/sources` `rows[].label` — PHONE_CALL endi "Qo'ng'iroq (ilova)" |
+| `GET /api/calls?…&recorded=` | SA, A, SH, SM | **YANGI parametr.** `true` — yozuvi mavjud (o'chirilmagan), `false` — yozuvsiz. Serverda (EXISTS) — sahifalash / `totalElements` to'g'ri |
+| `GET /api/calls/users` | SA, A, SH, SM | **YANGI.** "Xodim" filtri: faol qurilmasi yoki qo'ng'irog'i bor xodimlar (SALES_HEAD ham) — `[{id, name, role, active, activeDevice, lastCallAt}]`, ism bo'yicha. SM — faqat o'zi; TEACHER/ACC — 403 |
+| `GET /api/calls/devices` | SA | Yangi: `syncMode`, `syncFrom`, `lastHeartbeatAt` (V92). `permissions` — oxirgi heartbeat'dagi holat |
+| `POST /api/calls/devices/register`, `POST /api/calls/app/heartbeat` → `settings`; `GET/PUT /api/calls/app/settings`; register `device` | qurilma | Yangi `crmWebUrl` (env `APP_CRM_WEB_URL`, standart `https://admin.adizone.uz`) — ilovada "CRM'da ochish": `crmWebUrl + lookup.crmPath` |
+| `POST /api/timetable`, `PUT /api/timetable/{id}` | SA, A | To'qnashuv tekshiruvi (xona va o'qituvchi) endi yopiq (COMPLETED/CANCELLED) va `end_date` i bugundan oldin tugagan guruh darslarini **hisobga olmaydi** — dars jadvali (`GET /api/timetable*`) bilan bir xil qoida |
+
+Migratsiya `V92__call_device_heartbeat.sql` (`call_devices.last_heartbeat_at`) — V91 dan keyin, jar dan oldin qo'lda.
+
 ## Yangilanishlar (2026-11-22): lidni o'chirish, lid bosqich filtri, "Sinov → to'lov" tuzatishi, qo'ng'iroqlar ilovasi (V91)
 
 **Lidni butunlay o'chirish** — `LeadHardDeleteService`; mantiq `docs/ops/lead-hard-delete.sql` bilan aynan bir xil

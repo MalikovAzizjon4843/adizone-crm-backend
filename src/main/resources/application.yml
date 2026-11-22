@@ -115,6 +115,8 @@ app:
   calls:
     # Notanish raqamdan kiruvchi / javobsiz qo'ng'iroq → avtomatik lid (manba PHONE_CALL, mas'ul — qurilma egasi)
     auto-lead: ${APP_CALLS_AUTO_LEAD:true}
+    # Ilovada "CRM'da ochish": crm-web-url + lookup.crmPath (register / heartbeat settings, app/settings)
+    crm-web-url: ${APP_CRM_WEB_URL:https://admin.adizone.uz}
     # Yozuvlar katalogi — ochiq /api/files/** pastki katalogni bermaydi
     recording-dir: ${APP_CALLS_RECORDING_DIR:${app.upload.dir}/calls}
     recording-max-bytes: ${APP_CALLS_RECORDING_MAX_BYTES:52428800}

@@ -14,6 +14,9 @@ import org.springframework.stereotype.Component;
 @Setter
 public class CallsProperties {
 
+    /** CRM web manzili — ilovada "CRM'da ochish": {@code crmWebUrl + crmPath} (lookup). Env {@code APP_CRM_WEB_URL}. */
+    private String crmWebUrl = "https://admin.adizone.uz";
+
     /** Notanish raqamdan kiruvchi / javobsiz qo'ng'iroq → avtomatik lid (manba {@code PHONE_CALL}). */
     private boolean autoLead = true;
 

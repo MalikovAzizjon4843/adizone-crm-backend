@@ -35,9 +35,10 @@ public final class CallDtos {
     public record Ref(Long id, String name) {
     }
 
+    /** {@code crmWebUrl} — "CRM'da ochish": {@code crmWebUrl + lookup.crmPath} ({@code app.calls.crm-web-url}). */
     public record AppSettings(boolean autoLead, int syncMaxBatch, int syncMaxAgeDays, long recordingMaxBytes,
                               int recordingRetentionDays, int requestPollSeconds, boolean fcmEnabled,
-                              String latestVersion, String minSupportedVersion) {
+                              String latestVersion, String minSupportedVersion, String crmWebUrl) {
     }
 
     // ── Qurilma ──────────────────────────────────────────────────────────
@@ -60,8 +61,11 @@ public final class CallDtos {
                                    AppSettings settings, DeviceSettings device) {
     }
 
-    /** Qurilma sinxron sozlamasi ({@code GET/PUT app/settings}): {@code syncMode} — ALL | KNOWN_ONLY. */
-    public record DeviceSettings(String syncMode, LocalDateTime syncFrom) {
+    /**
+     * Qurilma sinxron sozlamasi ({@code GET/PUT app/settings}): {@code syncMode} — ALL | KNOWN_ONLY;
+     * {@code crmWebUrl} — "CRM'da ochish" ({@link AppSettings#crmWebUrl} bilan bir xil).
+     */
+    public record DeviceSettings(String syncMode, LocalDateTime syncFrom, String crmWebUrl) {
     }
 
     /** {@code PUT app/settings}: berilmagan maydon o'zgarmaydi. {@code syncFrom} — zona bilan. */
@@ -78,10 +82,24 @@ public final class CallDtos {
                                     boolean upgradeRequired, AppSettings settings) {
     }
 
+    /**
+     * SA qurilmalar ro'yxati. {@code permissions} — oxirgi heartbeat'dagi holat ({@code lastHeartbeatAt}; null —
+     * heartbeat hali kelmagan), {@code syncMode} / {@code syncFrom} — qurilma sinxron sozlamasi (§3.3).
+     */
     public record DeviceItem(Long id, UserRef user, String deviceUid, String model, String androidVersion,
                              String appVersion, boolean active, LocalDateTime createdAt, LocalDateTime lastSeenAt,
                              LocalDateTime lastSyncAt, LocalDateTime revokedAt, Permissions permissions,
-                             boolean pushRegistered) {
+                             boolean pushRegistered, String syncMode, LocalDateTime syncFrom,
+                             LocalDateTime lastHeartbeatAt) {
+    }
+
+    /**
+     * {@code GET /api/calls/users} — "Xodim" filtri: faol qurilmasi yoki qo'ng'irog'i bor xodimlar.
+     * {@code activeDevice} — hozir faol qurilmasi bor; {@code lastCallAt} — oxirgi qo'ng'irog'i (yo'q — null);
+     * {@code active} — hisob faol.
+     */
+    public record CallUserItem(Long id, String name, String role, boolean active, boolean activeDevice,
+                               LocalDateTime lastCallAt) {
     }
 
     public record VersionResponse(String latest, String minSupported, String apkUrl) {

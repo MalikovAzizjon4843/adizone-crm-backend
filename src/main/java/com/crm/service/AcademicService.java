@@ -613,11 +613,17 @@ public class AcademicService {
         return t;
     }
 
+    /**
+     * Xona va o'qituvchi to'qnashuvi. Yopiq (COMPLETED/CANCELLED) va {@code end_date} i bugundan oldin tugagan guruh
+     * darslari hisobga OLINMAYDI — dars jadvali bilan bir xil qoida ({@link #isOpenOn}): ular jadvalda ko'rinmaydi,
+     * xona va o'qituvchini band qilmaydi.
+     */
     private void assertNoConflicts(Timetable candidate, Long excludeId) {
         if (candidate.getStartTime() == null || candidate.getEndTime() == null
                 || candidate.getDayOfWeek() == null) {
             return;
         }
+        LocalDate today = LocalDate.now(billingClock);
         if (!candidate.getStartTime().isBefore(candidate.getEndTime())) {
             throw new BadRequestException("Boshlanish vaqti tugashdan oldin bo'lishi kerak");
         }
@@ -626,7 +632,7 @@ public class AcademicService {
             List<Timetable> roomEntries = timetableRepository.findByClassroom_IdAndDayOfWeek(
                 candidate.getClassroom().getId(), candidate.getDayOfWeek());
             for (Timetable existing : roomEntries) {
-                if (excludeId != null && excludeId.equals(existing.getId())) {
+                if ((excludeId != null && excludeId.equals(existing.getId())) || !isOpenOn(existing, today)) {
                     continue;
                 }
                 if (timesOverlap(candidate.getStartTime(), candidate.getEndTime(),
@@ -649,7 +655,7 @@ public class AcademicService {
         if (teacherId != null) {
             List<Timetable> dayEntries = timetableRepository.findByDayOfWeek(candidate.getDayOfWeek());
             for (Timetable existing : dayEntries) {
-                if (excludeId != null && excludeId.equals(existing.getId())) {
+                if ((excludeId != null && excludeId.equals(existing.getId())) || !isOpenOn(existing, today)) {
                     continue;
                 }
                 Long existingTeacherId = resolveTimetableTeacherId(existing);

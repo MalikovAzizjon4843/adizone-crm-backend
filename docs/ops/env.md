@@ -33,6 +33,7 @@ sirsiz yoki eski sir bilan jimgina ishga tushib qolmasin.
 | `APP_APPEALS_STATE_TTL_MINUTES` | `app.appeals.state-ttl-minutes` | Bot suhbat holati shuncha daqiqada eskiradi | Ha, default `30` |
 | `APP_APPEALS_NUMBER_PREFIX` | `app.appeals.number-prefix` | Murojaat raqami prefiksi (`MRJ-00012`) | Ha, default `MRJ` |
 | `APP_APPEALS_NOTIFY_SENDER_ON_CLOSE` | `app.appeals.notify-sender-on-close` | RESOLVED / REJECTED bo'lganda yuboruvchiga bot xabari | Ha, default `true` |
+| `APP_CRM_WEB_URL` | `app.calls.crm-web-url` | Qo'ng'iroqlar ilovasida "CRM'da ochish" — admin panel manzili (`crmWebUrl + crmPath`) | Ha, default `https://admin.adizone.uz` |
 | `APP_CALLS_AUTO_LEAD` | `app.calls.auto-lead` | "Adizone Qo'ng'iroqlar" (V90, calls.md): notanish raqamdan kiruvchi / javobsiz qo'ng'iroq → avtomatik lid | Ha, default `true` |
 | `APP_CALLS_RECORDING_DIR` | `app.calls.recording-dir` | Qo'ng'iroq yozuvlari katalogi | Ha, default `${app.upload.dir}/calls` |
 | `APP_CALLS_RECORDING_MAX_BYTES` | `app.calls.recording-max-bytes` | Bitta yozuv chegarasi (multipart va nginx bundan kichik bo'lmasin) | Ha, default `52428800` |

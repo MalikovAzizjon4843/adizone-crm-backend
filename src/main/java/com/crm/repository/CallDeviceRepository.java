@@ -20,6 +20,8 @@ public interface CallDeviceRepository extends JpaRepository<CallDevice, Long> {
 
     List<CallDevice> findAllByOrderByRevokedAtAscLastSeenAtDescIdDesc();
 
+    List<CallDevice> findByRevokedAtIsNull();
+
     /** Shu telefonda (device_uid) shu xodimning eng oxirgi sinxron qilingan qo'ng'irog'i — qayta ro'yxatdan o'tishda. */
     @Query(value = """
         SELECT MAX(c.startedAt) FROM PhoneCall c, CallDevice d

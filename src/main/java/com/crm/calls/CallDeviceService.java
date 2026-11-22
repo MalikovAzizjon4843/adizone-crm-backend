@@ -148,8 +148,8 @@ public class CallDeviceService {
         return deviceSettings(device);
     }
 
-    static CallDtos.DeviceSettings deviceSettings(CallDevice d) {
-        return new CallDtos.DeviceSettings(d.effectiveSyncMode().name(), d.getSyncFrom());
+    CallDtos.DeviceSettings deviceSettings(CallDevice d) {
+        return new CallDtos.DeviceSettings(d.effectiveSyncMode().name(), d.getSyncFrom(), properties.getCrmWebUrl());
     }
 
     private static CallDevice.SyncMode parseSyncMode(String raw) {
@@ -218,6 +218,7 @@ public class CallDeviceService {
         CallDevice device = requireActive(principal.deviceId());
         LocalDateTime now = LocalDateTime.now(billingClock);
         device.setLastSeenAt(now);
+        device.setLastHeartbeatAt(now);
         if (request != null) {
             if (request.appVersion() != null) {
                 device.setAppVersion(cut(request.appVersion(), 30));
@@ -284,7 +285,7 @@ public class CallDeviceService {
         return new CallDtos.AppSettings(properties.isAutoLead(), properties.getSyncMaxBatch(),
             properties.getSyncMaxAgeDays(), properties.getRecordingMaxBytes(), properties.getRecordingRetentionDays(),
             properties.getRequestPollSeconds(), properties.getFcm().isEnabled(), app.getLatestVersion(),
-            app.getMinSupportedVersion());
+            app.getMinSupportedVersion(), properties.getCrmWebUrl());
     }
 
     private void revoke(CallDevice device, LocalDateTime now, Long by) {
@@ -298,7 +299,7 @@ public class CallDeviceService {
             d.getModel(), d.getAndroidVersion(), d.getAppVersion(), d.isActive(), d.getCreatedAt(), d.getLastSeenAt(),
             d.getLastSyncAt(), d.getRevokedAt(),
             new CallDtos.Permissions(d.getPermCallLog(), d.getPermRecordings(), d.getPermBatteryOpt()),
-            d.getFcmToken() != null);
+            d.getFcmToken() != null, d.effectiveSyncMode().name(), d.getSyncFrom(), d.getLastHeartbeatAt());
     }
 
     static String newToken() {

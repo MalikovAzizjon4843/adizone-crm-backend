@@ -82,6 +82,10 @@ public class CallDevice {
     @Column(name = "sync_from")
     private LocalDateTime syncFrom;
 
+    /** V92: oxirgi heartbeat vaqti — {@code perm_*} shu paytdagi holat ({@code last_seen_at} har so'rovda yangilanadi). */
+    @Column(name = "last_heartbeat_at")
+    private LocalDateTime lastHeartbeatAt;
+
     public enum SyncMode { ALL, KNOWN_ONLY }
 
     public boolean isActive() {
