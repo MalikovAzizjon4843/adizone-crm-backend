@@ -34,11 +34,11 @@ qo'ng'iroqdan keyingi natija → CRM'dan qo'ng'iroq so'rovi; CRM — lid / o'quv
 
 ---
 
-## 1. Ma'lumot modeli (V90)
+## 1. Ma'lumot modeli (V90, V91)
 
 | Jadval | Asosiy ustunlar | Qoidalar |
 |---|---|---|
-| `call_devices` | `user_id`, `device_uid`, `model`, `android_version`, `app_version`, `token_hash` (SHA-256 hex), `fcm_token`, `perm_call_log`, `perm_recordings`, `perm_battery_opt`, `created_at`, `last_seen_at`, `last_sync_at`, `revoked_at`, `revoked_by` | Token o'zi saqlanmaydi. Bitta xodim — **bitta faol** qurilma; bitta `device_uid` — bitta faol hisob (qisman UNIQUE) |
+| `call_devices` | `user_id`, `device_uid`, `model`, `android_version`, `app_version`, `token_hash` (SHA-256 hex), `fcm_token`, `perm_call_log`, `perm_recordings`, `perm_battery_opt`, `created_at`, `last_seen_at`, `last_sync_at`, `revoked_at`, `revoked_by`, **V91:** `sync_mode` (ALL \| KNOWN_ONLY), `sync_from` | Token o'zi saqlanmaydi. Sinxron sozlamasi — §3.3. Bitta xodim — **bitta faol** qurilma; bitta `device_uid` — bitta faol hisob (qisman UNIQUE) |
 | `calls` | `device_id`, `user_id`, `direction` (IN \| OUT \| MISSED \| REJECTED), `phone_raw`, `phone_normalized`, `started_at`, `duration_sec`, `device_call_key`, `contact_type` (LEAD \| STUDENT \| PARENT \| UNKNOWN), `lead_id`, `student_id`, `parent_id`, `auto_lead_created`, `result_code`, `note` (≤ 2000), `result_by`, `result_at`, `created_at` | **UNIQUE (device_id, device_call_key)** — takror yuborishda dublikat yo'q. PARENT: `student_id` — farzandi, `parent_id` — `parents` da bo'lsa |
 | `call_recordings` | `call_id` (UNIQUE), `path`, `mime`, `size_bytes`, `duration_sec`, `sha256`, `uploaded_at`, `deleted_at` | Retention: `path = NULL`, `deleted_at` — metama'lumot qoladi |
 | `call_requests` | `user_id`, `device_id`, `phone`, `lead_id` / `student_id`, `status` (PENDING \| DELIVERED \| DIALED \| CANCELLED \| EXPIRED), `created_by`, `created_at`, `expires_at`, `delivered_at`, `dialed_at`, `closed_at` | Xodimda bitta ochiq so'rov |
@@ -72,8 +72,9 @@ faqat SUPER_ADMIN / ADMIN ga.
      → 200 data: {accessToken (JWT), refreshToken, userId, username, firstName, lastName, role, expiresIn}
      → 401 "Invalid username or password";  403 code auth.roleNotAllowed (STUDENT/PARENT)
 2) POST /api/calls/devices/register   Authorization: Bearer <accessToken>
-     {deviceUid, model, androidVersion, appVersion, fcmToken?}
-     → 201 data: {deviceId, deviceToken: "cd_…", user: {id, name, role}, syncFrom, settings}
+     {deviceUid, model, androidVersion, appVersion, fcmToken?, syncMode?, syncFrom?}
+     → 201 data: {deviceId, deviceToken: "cd_…", user: {id, name, role}, syncFrom, settings,
+                  device: {syncMode, syncFrom}}
 3) Bundan keyin hamma so'rov: X-Device-Token: cd_…   (JWT va refresh endi kerak emas — ularni saqlamang)
 ```
 
@@ -82,8 +83,10 @@ faqat SUPER_ADMIN / ADMIN ga.
   shifrlangan joyda saqlaydi. Muddati yo'q — revoke qilinmaguncha amal qiladi.
 * Qayta ro'yxat: shu xodim + shu `deviceUid` → o'sha qurilma, **yangi token** (eskisi darhol yaroqsiz). Boshqa
   `deviceUid` → xodimning eski qurilmasi revoke. Shu telefonda boshqa xodim kirsa → oldingi hisob revoke.
-* `syncFrom` — shu telefonda shu xodimning eng oxirgi sinxron qilingan qo'ng'irog'i (`null` — hali yo'q): qayta
-  o'rnatishdan keyin CallLog'ni shu vaqtdan (−1 soat zaxira bilan) o'qing; takrorlar baribir DUPLICATE bo'ladi.
+* `syncFrom` (javob) — sinxronni shu vaqtdan davom ettiring: shu telefonda shu xodimning eng oxirgi sinxron qilingan
+  qo'ng'irog'i va qurilmaning `device.syncFrom` idan **kechrog'i** (`null` — ikkalasi yo'q): qayta o'rnatishdan keyin
+  CallLog'ni shu vaqtdan (−1 soat zaxira bilan) o'qing; takrorlar baribir DUPLICATE bo'ladi.
+* `syncMode` / `syncFrom` (so'rov) — §3.3; faqat **yangi** qurilma qatorida qo'llanadi.
 * Ilova so'rovlariga 401 kelsa, `code` bo'yicha:
 
 | `code` | Ma'nosi | Ilova |
@@ -98,6 +101,29 @@ faqat SUPER_ADMIN / ADMIN ga.
  "recordingRetentionDays": 180, "requestPollSeconds": 15, "fcmEnabled": false,
  "latestVersion": "1.0.0", "minSupportedVersion": "1.0.0"}
 ```
+
+### 3.3 Qurilma sinxron sozlamasi (V91) — `sync_mode`, `sync_from`
+
+Xodim ilovani **shaxsiy telefoniga** o'rnatsa, oilaviy / shaxsiy qo'ng'iroqlari CRM'ga tushmasligi kerak.
+
+| Maydon | Qiymat | Ma'nosi |
+|---|---|---|
+| `syncMode` | `ALL` (standart) | Hamma qo'ng'iroq (istisnolar §5 dan tashqari); notanish raqamdan IN / MISSED → avto-lid |
+| | `KNOWN_ONLY` | Faqat CRM'dagi lid / o'quvchi / ota-onaga mos kelgan qo'ng'iroq saqlanadi. Mos kelmagani (xorijiy raqam ham) — `SKIPPED`, `reason: UNKNOWN_CONTACT`, bazaga **hech narsa yozilmaydi**, avto-lid **ochilmaydi** |
+| `syncFrom` | vaqt (zona bilan yuboriladi, server Toshkent vaqtida saqlaydi) | Bundan oldingi qo'ng'iroq — `SKIPPED`, `reason: BEFORE_SYNC_FROM`. `syncMaxAgeDays` (30) baribir amal qiladi |
+
+* **Birinchi kirish** (yangi qurilma qatori): `syncFrom` — ilova tanlagan vaqt (masalan "oxirgi 7 kun" → hozir − 7 kun),
+  berilmasa **hozir** — ya'ni eski qo'ng'iroqlar olinmaydi. `syncMode` berilmasa `ALL`.
+  Ilova kirish ekranida so'rashi tavsiya etiladi: "Bu telefon ishchimi yoki shaxsiymi?" → `ALL` / `KNOWN_ONLY`.
+* Shu xodim + shu `deviceUid` qayta kirsa — saqlangan sozlama qoladi (so'rovdagisi e'tiborsiz).
+* V91 dan oldingi qurilmalar: `ALL`, `syncFrom = null` (chegara yo'q) — xatti-harakat o'zgarmaydi.
+
+`GET /api/calls/app/settings` → `{"syncMode": "ALL", "syncFrom": "2026-11-22T09:30:00"}`
+
+`PUT /api/calls/app/settings` `{"syncMode": "KNOWN_ONLY", "syncFrom": "2026-11-15T00:00:00+05:00"}` — berilmagan
+maydon o'zgarmaydi; javob — yangi holat. 400: `calls.settings.syncModeInvalid`, `calls.settings.syncFromFuture`
+(> 10 daqiqa kelajakda). `syncFrom` ni orqaga surish — eski qo'ng'iroqlarni qayta yuborish imkoniyati (dublikat bo'lmaydi).
+O'zgarish retroaktiv emas: avval saqlangan qo'ng'iroqlar o'chmaydi (kerak bo'lsa — §4.8).
 
 ---
 
@@ -137,9 +163,9 @@ Kanonik raqam bo'yicha (bazadagi `+998…`, `998…`, `9 xonali` yozilishlar ham
 | `direction` | `CallLog.TYPE` → `INCOMING_TYPE`=IN, `OUTGOING_TYPE`=OUT, `MISSED_TYPE`=MISSED, `REJECTED_TYPE`/`BLOCKED_TYPE`=REJECTED. `VOICEMAIL` — yubormang |
 | `durationSec` | 0–86400; MISSED / REJECTED da server 0 qiladi. Chiquvchi javobsiz — OUT, `durationSec = 0` |
 | Element natijasi | `CREATED` \| `DUPLICATE` \| `SKIPPED` (bazaga yozilmaydi, `reason`) \| `REJECTED` (`reason` = xato kodi). Har element alohida — bittasining xatosi partiyani yiqitmaydi |
-| SKIPPED `reason` | `EXCLUDED` (shaxsiy raqam, §5), `STAFF` (faol xodim / o'qituvchi raqami), `NO_NUMBER` (yashirin raqam), `TOO_OLD` (`syncMaxAgeDays` dan eski) |
+| SKIPPED `reason` | `EXCLUDED` (shaxsiy raqam, §5), `STAFF` (faol xodim / o'qituvchi raqami), `NO_NUMBER` (yashirin raqam), `TOO_OLD` (`syncMaxAgeDays` dan eski), `BEFORE_SYNC_FROM` (qurilma `syncFrom` idan oldin, §3.3), `UNKNOWN_CONTACT` (`KNOWN_ONLY` da CRM'ga mos kelmagan, §3.3) |
 | REJECTED `reason` | `calls.sync.invalidKey`, `calls.sync.invalidDirection`, `calls.sync.invalidStartedAt` (yo'q yoki kelajakda > 10 daq), `calls.sync.invalidDuration` |
-| Avtomatik lid | `app.calls.auto-lead=true` (standart) va **UNKNOWN** O'zbekiston raqamidan **IN / MISSED** → lid: ism `Qo'ng'iroq +998…`, manba `PHONE_CALL`, mas'ul va yaratuvchi — qurilma egasi, bosqich `NEW`, izoh "Javobsiz qo'ng'iroq — 21.11.2026 10:15 (avtomatik lid)". Vazifa majburiyligi (V79) — "Yangi lid: bog'lanish" vazifasi egaga. **Dedupe**: shu raqamli istalgan lid bo'lsa — yangisi yaratilmaydi; bir raqam uchun parallel sinxronlar navbatda |
+| Avtomatik lid | `app.calls.auto-lead=true` (standart), qurilma `syncMode = ALL` va **UNKNOWN** O'zbekiston raqamidan **IN / MISSED** → lid: ism `Qo'ng'iroq +998…`, manba `PHONE_CALL`, mas'ul va yaratuvchi — qurilma egasi, bosqich `NEW`, izoh "Javobsiz qo'ng'iroq — 21.11.2026 10:15 (avtomatik lid)". Vazifa majburiyligi (V79) — "Yangi lid: bog'lanish" vazifasi egaga. **Dedupe**: shu raqamli istalgan lid bo'lsa — yangisi yaratilmaydi; bir raqam uchun parallel sinxronlar navbatda |
 | Qayta sinxron davri | Ilova oxirgi muvaffaqiyatli `startedAt` ni eslab qoladi va keyingi safar undan (−1 soat) o'qiydi. WorkManager: har 15 daqiqa + qo'ng'iroq tugaganda (PhoneStateListener / CallLog ContentObserver) |
 
 Chiquvchi yoki javob berilgan kiruvchi qo'ng'iroq lid uchun **operator javobi** sifatida direktor dashboardiga tushadi
@@ -239,7 +265,48 @@ yangilanadi va timeline'ga yangi izoh. Boshqa xodimning qo'ng'irog'i — 404.
 `RequestItem`: `{id, userId, phone, status, lead: {id, name}|null, student: {id, name}|null, contactName, createdBy,
 createdAt, expiresAt, deliveredAt, dialedAt, closedAt}`.
 
-### 4.7 Boshqa
+### 4.7 `GET /search?q=` — terish ekrani qidiruvi
+
+Lid / o'quvchi / ota-ona — ism yoki telefon bo'yicha. `q` — kamida **2** belgi (aks holda 400 `calls.search.tooShort`),
+natija ko'pi bilan **20** ta. `q` da harf bo'lmasa — telefon qidiruvi: raqamlari telefon ichida (9 dan ko'p bo'lsa oxirgi
+9 tasi, ya'ni `+998 90 123…` ham, `90123…` ham topadi). Ism — registrsiz, qism bo'yicha.
+
+```json
+[{"type": "LEAD", "leadId": 1207, "name": "Jasur Toshmatov", "phone": "+998901234567", "subtitle": "Bog'lanildi",
+  "restricted": false, "owner": {"id": 7, "name": "Dilnoza K.", "role": "SALES_MANAGER"}},
+ {"type": "LEAD", "name": "Jasur Aliyev", "restricted": true, "owner": {"id": 9, "name": "Aziz M.", "role": "SALES_MANAGER"}},
+ {"type": "STUDENT", "studentId": 44, "name": "Jasur Karimov", "phone": "+998935556677", "subtitle": "ACTIVE",
+  "restricted": false},
+ {"type": "PARENT", "studentId": 44, "parentId": 12, "name": "Malika Karimova", "phone": "+998977001122",
+  "subtitle": "Jasur Karimov", "restricted": false}]
+```
+
+* Ruxsat — `lookup` bilan bir xil: SALES_MANAGER boshqa operatorning lidini faqat "kimniki" darajasida ko'radi
+  (`restricted: true` — `leadId`, `phone`, `subtitle` yo'q). Arxivlangan o'quvchi chiqmaydi.
+* Tartib: ochiq lidlar → o'quvchilar → ota-onalar (`parents` va `students.parent_phone`) → yopiq lidlar.
+* Ota-ona `parents` jadvalida bo'lmasa (faqat `students.parent_phone`) — `parentId` yo'q, nom "Farzand (ota-ona)".
+
+### 4.8 O'z qo'ng'iroqlari, yozuvi, o'chirish
+
+| Endpoint | Tafsilot |
+|---|---|
+| `GET /calls?recorded&from&to&page&size` | Qurilma egasining serverdagi qo'ng'iroqlari, yangidan eskiga, `PageResponse<CallItem>` (CRM `GET /api/calls` bilan bir xil shakl). `recorded=true` — yozuvi mavjud (retention o'chirmagan), `false` — yozuvsiz, yo'q — hammasi. `from`/`to` — `yyyy-MM-dd` (Toshkent), `size` ≤ 100 |
+| `GET /calls/{id}/recording` | Yozuv oqimi, `Range` → **206**. Faqat o'z qo'ng'irog'i — boshqasiniki **404** `calls.notFound`; yozuv yo'q — 404 `calls.recording.notFound`; retention o'chirgan — **410** `calls.recording.deleted` |
+| `DELETE /calls/{id}` | Noto'g'ri yuborilgan (shaxsiy) qo'ng'iroq — **yozuvi bilan** (fayl diskdan COMMIT dan keyin). Faqat o'ziniki (**404**), serverga tushganidan (`created_at`) **7 kun** ichida (**409** `calls.delete.tooOld`) |
+
+`DELETE /calls/{id}` → 200
+```json
+{"callId": 815, "recordingDeleted": true, "leadId": 1207, "leadDeleted": true}
+```
+* Qo'ng'iroq **avto-lid** ochgan bo'lsa (`autoLeadCreated`) va lidda boshqa faollik bo'lmasa — lid ham butunlay o'chadi
+  (`LeadHardDeleteService` — `DELETE /api/leads/{id}` bilan bir xil mantiq va audit `LEAD_DELETED`, `mode: CALL_APP`).
+* **Faollik** (lid qoladi, `leadKeptReason: "HAS_ACTIVITY"`): shu lidga boshqa qo'ng'iroq (istalgan xodim), izoh,
+  eslatma, bosqich tarixi, qayta biriktirish, CRM so'rovi, qo'lda yaratilgan yoki yopilgan vazifa (avtomatik
+  "Yangi lid: bog'lanish" ochiq turgani — faollik emas), bosqich / ism / summa o'zgargan.
+* Boshqa sabablar: `NOT_AUTO_LEAD` (qo'ng'iroq mavjud lidga bog'langan), `lead.delete.*` (konvert / to'lov — lid qoladi).
+  Lidga bog'lanmagan qo'ng'iroqda `leadId` va `leadKeptReason` yo'q.
+
+### 4.9 Boshqa
 
 | Endpoint | Tafsilot |
 |---|---|
@@ -340,11 +407,11 @@ javob berilgan kiruvchi bo'lmagan.
 
 | HTTP | `code` |
 |---|---|
-| 400 | `calls.device.uidInvalid`, `calls.phone.invalid`, `calls.sync.tooMany`, `calls.recording.*` (`sha256Invalid`, `sha256Mismatch`, `empty`, `tooLarge`, `type`, `duration`, `tooOld`), `calls.result.*` (`codeInvalid`, `noteTooLong`, `notLead`, `stageInvalid`, `taskInvalid`), `calls.request.targetSingle`, `calls.request.ackInvalid`, `calls.exclusions.*`, `calls.filter.*`, `lead.task.required`, `task.dueAt.future` |
+| 400 | `calls.device.uidInvalid`, `calls.phone.invalid`, `calls.settings.syncModeInvalid`, `calls.settings.syncFromFuture`, `calls.search.tooShort`, `calls.sync.tooMany`, `calls.recording.*` (`sha256Invalid`, `sha256Mismatch`, `empty`, `tooLarge`, `type`, `duration`, `tooOld`), `calls.result.*` (`codeInvalid`, `noteTooLong`, `notLead`, `stageInvalid`, `taskInvalid`), `calls.request.targetSingle`, `calls.request.ackInvalid`, `calls.exclusions.*`, `calls.filter.*`, `lead.task.required`, `task.dueAt.future` |
 | 401 | `calls.device.unauthorized`, `calls.device.revoked`, `calls.device.userInactive` |
 | 403 | `calls.role.notAllowed`, `calls.forbidden`, `calls.result.leadForbidden`, `calls.request.otherUserForbidden`, `calls.recording.linkInvalid` |
 | 404 | `calls.notFound`, `calls.recording.notFound`, `calls.request.notFound` |
-| 409 | `calls.recording.exists`, `calls.recording.deleted`, `calls.request.noDevice`, `calls.request.invalidTransition`, `calls.request.expired` |
+| 409 | `calls.delete.tooOld`, `calls.recording.exists`, `calls.recording.deleted`, `calls.request.noDevice`, `calls.request.invalidTransition`, `calls.request.expired` |
 | 410 | `calls.recording.deleted` (tinglashda) |
 | 426 | `calls.app.upgradeRequired` |
 

@@ -265,6 +265,18 @@ public class LeadService {
             int page, int size, String status, String search,
             Long assignedUserId, Boolean unassigned,
             String fromDate, String toDate, String source) {
+        return getAll(page, size, status, search, assignedUserId, unassigned, fromDate, toDate, source, null);
+    }
+
+    /**
+     * {@code stageIds} — bosqich id lari ({@code ?stageId=3&stageId=5} yoki {@code ?stageId=3,5}); bir nechtasi — YOKI.
+     * {@code status} (kodlar) bilan birga berilsa — ikkalasi ham bajarilishi kerak (VA).
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<LeadResponse> getAll(
+            int page, int size, String status, String search,
+            Long assignedUserId, Boolean unassigned,
+            String fromDate, String toDate, String source, List<Long> stageIds) {
         // SALES_MANAGER uchun operator filtri majburlab qo'yiladi: so'rovdagi
         // assignedUserId ham, unassigned ham e'tiborga olinmaydi.
         Optional<Long> scope = leadAccessService.resolveOperatorScope();
@@ -276,6 +288,12 @@ public class LeadService {
         Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by("createdAt").descending());
         Specification<Lead> spec = buildLeadSpec(
             status, search, effectiveUserId, effectiveUnassigned, fromDate, toDate, source);
+        List<Long> ids = stageIds == null ? List.of()
+            : stageIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (!ids.isEmpty()) {
+            List<String> codes = leadStageService.codesByIds(ids);
+            spec = spec.and((root, query, cb) -> codes.isEmpty() ? cb.disjunction() : root.get("status").in(codes));
+        }
         Page<Lead> leads = leadRepository.findAll(spec, pageable);
         return toPageResponse(leads);
     }

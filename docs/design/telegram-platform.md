@@ -16,7 +16,7 @@
 >
 > **Kod ishidan oldin bajariladigan qadamlar:**
 > 1. `@BotFather` → `/revoke` — yangi token olinadi.
-> 2. `application.yml` → `bot-token: ${TELEGRAM_BOT_TOKEN:}`, `enabled: ${TELEGRAM_ENABLED:false}`.
+> 2. `application.yml` → `bot-token: ${TELEGRAMgit status --short_BOT_TOKEN:}`, `enabled: ${TELEGRAM_ENABLED:false}`.
 > 3. Yangi token faqat `crm.env` da saqlanadi.
 >
 > Git tarixini tozalash (`git filter-repo`) — ixtiyoriy: token bekor qilingach eski qiymat zararsiz. Bu hujjatda token qiymati keltirilmagan.

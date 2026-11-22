@@ -112,6 +112,38 @@ public class CallQueryService {
             .build();
     }
 
+    /**
+     * Ilova: qurilma egasining o'z qo'ng'iroqlari ({@code GET /api/calls/app/calls}). {@code recorded}: true — yozuvi
+     * mavjud (o'chirilmagan), false — yozuvsiz (yoki retention o'chirgan), null — hammasi.
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<CallDtos.CallItem> listForOwner(Long userId, Boolean recorded, LocalDate from, LocalDate to,
+                                                       int page, int size) {
+        if (from != null && to != null && to.isBefore(from)) {
+            throw CodedException.badRequest("calls.filter.dateRange");
+        }
+        Specification<PhoneCall> spec = spec(userId, from, to, null, null, null, null, null);
+        if (recorded != null) {
+            spec = spec.and((root, query, cb) -> {
+                var sub = query.subquery(Long.class);
+                var r = sub.from(CallRecording.class);
+                sub.select(r.get("id")).where(cb.equal(r.get("callId"), root.get("id")), cb.isNull(r.get("deletedAt")));
+                return recorded ? cb.exists(sub) : cb.not(cb.exists(sub));
+            });
+        }
+        int pageSize = Math.max(1, Math.min(size, MAX_PAGE_SIZE));
+        Page<PhoneCall> result = callRepository.findAll(spec, PageRequest.of(Math.max(page, 0), pageSize,
+            Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id"))));
+        return PageResponse.<CallDtos.CallItem>builder()
+            .content(toItems(result.getContent()))
+            .pageNumber(result.getNumber())
+            .pageSize(result.getSize())
+            .totalElements(result.getTotalElements())
+            .totalPages(result.getTotalPages())
+            .last(result.isLast())
+            .build();
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<CallDtos.CallItem> forLead(Long leadId, int page, int size) {
         if (!leadRepository.existsById(leadId)) {

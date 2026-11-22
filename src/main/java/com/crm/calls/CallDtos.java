@@ -42,16 +42,30 @@ public final class CallDtos {
 
     // ── Qurilma ──────────────────────────────────────────────────────────
 
+    /**
+     * {@code syncMode} — ALL | KNOWN_ONLY (standart ALL); {@code syncFrom} — sinxron qaysi vaqtdan (zona bilan;
+     * standart — hozir, ya'ni eski qo'ng'iroqlar olinmaydi). Ikkalasi faqat YANGI qurilma qatorida qo'llanadi —
+     * o'sha xodim + o'sha telefon qayta kirsa saqlangan sozlama qoladi (o'zgartirish — {@code PUT app/settings}).
+     */
     public record RegisterRequest(String deviceUid, String model, String androidVersion, String appVersion,
-                                  String fcmToken) {
+                                  String fcmToken, String syncMode, OffsetDateTime syncFrom) {
     }
 
     /**
-     * {@code deviceToken} — FAQAT shu javobda. {@code syncFrom} — shu telefonda shu xodimning eng oxirgi sinxron
-     * qilingan qo'ng'irog'i (qayta o'rnatishdan keyin shu vaqtdan davom etish; yo'q bo'lsa {@code null}).
+     * {@code deviceToken} — FAQAT shu javobda. {@code syncFrom} — sinxronni shu vaqtdan davom ettirish: shu telefonda
+     * shu xodimning eng oxirgi sinxron qilingan qo'ng'irog'i va qurilma {@code device.syncFrom} idan kechrog'i
+     * (ikkalasi yo'q bo'lsa {@code null}). {@code device} — qurilma sinxron sozlamasi.
      */
     public record RegisterResponse(Long deviceId, String deviceToken, UserRef user, LocalDateTime syncFrom,
-                                   AppSettings settings) {
+                                   AppSettings settings, DeviceSettings device) {
+    }
+
+    /** Qurilma sinxron sozlamasi ({@code GET/PUT app/settings}): {@code syncMode} — ALL | KNOWN_ONLY. */
+    public record DeviceSettings(String syncMode, LocalDateTime syncFrom) {
+    }
+
+    /** {@code PUT app/settings}: berilmagan maydon o'zgarmaydi. {@code syncFrom} — zona bilan. */
+    public record DeviceSettingsRequest(String syncMode, OffsetDateTime syncFrom) {
     }
 
     public record Permissions(Boolean callLog, Boolean recordingsFolder, Boolean batteryOptimizationIgnored) {
@@ -96,7 +110,7 @@ public final class CallDtos {
 
     /**
      * {@code status}: CREATED | DUPLICATE | SKIPPED | REJECTED. {@code reason}: SKIPPED — EXCLUDED | STAFF | NO_NUMBER |
-     * TOO_OLD; REJECTED — xato kodi ({@code calls.sync.*}).
+     * TOO_OLD | BEFORE_SYNC_FROM | UNKNOWN_CONTACT (KNOWN_ONLY); REJECTED — xato kodi ({@code calls.sync.*}).
      */
     @JsonInclude(value = JsonInclude.Include.NON_NULL)
     public record SyncResult(String key, String status, Long callId, String reason, ContactRef contact) {
@@ -185,6 +199,27 @@ public final class CallDtos {
     }
 
     public record ExclusionsRequest(List<ExclusionItem> items) {
+    }
+
+    // ── Ilova: qidiruv, o'z qo'ng'iroqlari, o'chirish ────────────────────
+
+    /**
+     * Terish ekrani qidiruvi ({@code GET app/search?q=}). {@code type}: LEAD | STUDENT | PARENT. {@code restricted}
+     * — boshqa operatorning lidi (SALES_MANAGER): faqat {@code type}, {@code name}, {@code owner} (lookup bilan bir xil).
+     * {@code subtitle} — lid bosqichi / o'quvchi holati / "ota-ona: farzand".
+     */
+    @JsonInclude(value = JsonInclude.Include.NON_NULL)
+    public record SearchItem(String type, Long leadId, Long studentId, Long parentId, String name, String phone,
+                             String subtitle, boolean restricted, UserRef owner) {
+    }
+
+    /**
+     * {@code DELETE app/calls/{id}}: {@code leadDeleted} — qo'ng'iroq tufayli ochilgan avto-lid ham o'chdi;
+     * aks holda {@code leadKeptReason}: NOT_AUTO_LEAD | HAS_ACTIVITY | xato kodi ({@code lead.delete.*}).
+     */
+    @JsonInclude(value = JsonInclude.Include.NON_NULL)
+    public record DeleteCallResponse(Long callId, boolean recordingDeleted, Long leadId, boolean leadDeleted,
+                                     String leadKeptReason) {
     }
 
     // ── CRM ro'yxati va statistika ───────────────────────────────────────

@@ -10,6 +10,33 @@
 > - 3-bo'lim → §9.9
 > - 4-bo'lim → §9.10
 
+## Yangilanishlar (2026-11-22): lidni o'chirish, lid bosqich filtri, "Sinov → to'lov" tuzatishi, qo'ng'iroqlar ilovasi (V91)
+
+**Lidni butunlay o'chirish** — `LeadHardDeleteService`; mantiq `docs/ops/lead-hard-delete.sql` bilan aynan bir xil
+(o'sha jadvallar, o'sha tartib, o'sha himoyalar). Bitta lid — bitta tranzaksiya; qo'ng'iroq yozuvi fayllari diskdan
+COMMIT dan keyin. Audit: `action = LEAD_DELETED`, `entity_type = Lead`, `entity_id`, `details_json`
+`{leadId, source, mode: SINGLE|BULK|CALL_APP, tasks, calls}` — ism / telefon **yozilmaydi**.
+
+| Endpoint | Rol | Tafsilot |
+|---|---|---|
+| `DELETE /api/leads/{id}` | **SA** (A, SH, SM — 403) | **YANGI.** 200 `data: null`. **404** `lead.delete.notFound`; **409** `lead.delete.converted` (converted / converted_at / student_id / `students.converted_from_lead_id` / CONVERTED bosqichi hozir yoki tarixda), `lead.delete.hasPayment` (`amount`, summa talab qiladigan bosqich hozir yoki tarixda, "To'lov qabul qilindi…" izohi), `lead.delete.blocked` (skript bilmaydigan FK — hech narsa o'chmaydi). O'chadi: `user_notifications` (Lead/Task entity, `/leads?lead=ID`, `/tasks?task=ID`, `task:ID:` dedupe), `telegram_outbox` (vazifa eslatmalari; LEAD_ASSIGNED — matnida lid ismi), `audit_logs` (Lead + vazifalari), `call_requests`, `call_recordings` + fayl, `calls`, `meta_webhook_events`, `lead_assignments`, `lead_comments`, `lead_notes`, `lead_status_history`, `tasks`, `leads` |
+| `POST /api/leads/bulk-delete` `{leadIds: [..]}` | **SA** | **YANGI.** 1–200 ta (takrorlar bitta; bo'sh — **400** `lead.bulkDelete.empty`, > 200 — **400** `lead.bulkDelete.tooMany`). Har lid alohida tranzaksiyada. Javob: `{requested, deletedCount, deleted: [id..], skipped: [{leadId, reason}]}` — `reason` — yuqoridagi xato kodlari |
+| `GET /api/leads?stageId=` | SA, A, SH, SM | **YANGI parametr.** Bosqich **id** lari, ko'p qiymatli: `?stageId=3&stageId=5` yoki `?stageId=3,5` (YOKI). `status` (kodlar) bilan birga — VA. Noma'lum id — hech narsa topilmaydi (bosqich faqat lidsiz bo'lsa o'chiriladi). SM doirasi saqlanadi. Avvalgi `status=CODE1,CODE2` o'zgarmagan |
+| `GET /api/dashboard/director` → `trials`, `GET /api/dashboard/director/trials/enrollments` | SA, A | Javob shakli o'zgarmagan. **Tuzatish:** sinov boshlanishi endi `trial_started_at` → yozilmaning birinchi PRESENT/LATE darsi (`join_date` dan to'lovliga o'tgan kungacha) → to'lovliga o'tgan bo'lsa `join_date` (`estimated: true`). Sinov yozilmasi — `trial_outcome IS NOT NULL OR is_trial`. Eski to'lovlar (`cash_amount` NULL) — `amount` bo'yicha. Diagnoz: `docs/ops/trial-dashboard-diag.sql`; ixtiyoriy backfill: `docs/ops/trial-start-backfill.sql` |
+
+**Qo'ng'iroqlar ilovasi** (`X-Device-Token`; to'liq: [calls.md](../design/calls.md) §3.3, §4.7, §4.8). Migratsiya
+`V91__call_device_sync_settings.sql` (`call_devices.sync_mode`, `sync_from`) — **jar dan oldin qo'lda**.
+
+| Endpoint | Tafsilot |
+|---|---|
+| `POST /api/calls/devices/register` | So'rovga `syncMode?` (ALL \| KNOWN_ONLY, standart ALL), `syncFrom?` (zona bilan; standart — **hozir**, eski qo'ng'iroqlar olinmaydi) — faqat yangi qurilma qatorida. Javobga `device: {syncMode, syncFrom}`; `syncFrom` (davom ettirish nuqtasi) = oxirgi qo'ng'iroq va `device.syncFrom` dan kechrog'i |
+| `GET /api/calls/app/settings`, `PUT /api/calls/app/settings` `{syncMode?, syncFrom?}` | **YANGI.** `{syncMode, syncFrom}`. 400 `calls.settings.syncModeInvalid`, `calls.settings.syncFromFuture` |
+| `POST /api/calls/app/sync` | Yangi SKIPPED sabablari: `BEFORE_SYNC_FROM`, `UNKNOWN_CONTACT` (`KNOWN_ONLY`: CRM'ga mos kelmagan — saqlanmaydi, avto-lid ochilmaydi) |
+| `GET /api/calls/app/search?q=` | **YANGI.** Lid / o'quvchi / ota-ona — ism yoki telefon; `q` ≥ 2 belgi (400 `calls.search.tooShort`), ≤ 20 natija. `[{type, leadId?, studentId?, parentId?, name, phone?, subtitle?, restricted, owner?}]`; SM — boshqa operator lidi `restricted` (lookup bilan bir xil) |
+| `GET /api/calls/app/calls?recorded&from&to&page&size` | **YANGI.** Qurilma egasining qo'ng'iroqlari, `PageResponse<CallItem>` |
+| `GET /api/calls/app/calls/{id}/recording` | **YANGI.** Oqim, `Range` → 206; faqat o'ziniki (boshqasi — 404) |
+| `DELETE /api/calls/app/calls/{id}` | **YANGI.** O'z qo'ng'irog'i yozuvi bilan, `created_at` dan 7 kun ichida (409 `calls.delete.tooOld`). Avto-lid shu qo'ng'iroq tufayli ochilgan va boshqa faollik yo'q — lid ham `LeadHardDeleteService` orqali o'chadi. `{callId, recordingDeleted, leadId?, leadDeleted, leadKeptReason?}` |
+
 ## Yangilanishlar (2026-11-21, "Adizone Qo'ng'iroqlar" — xodim telefonidagi qo'ng'iroqlar CRM'da, V90)
 
 > Android ilova (Kotlin, keyingi bosqich) xodimning o'z SIM raqamidagi qo'ng'iroqlarni sinxron qiladi, kiruvchi qo'ng'iroqda CRM

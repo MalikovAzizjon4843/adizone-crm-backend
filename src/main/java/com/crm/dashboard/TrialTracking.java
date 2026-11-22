@@ -16,9 +16,24 @@ public final class TrialTracking {
     private TrialTracking() {
     }
 
-    /** Sinovda birinchi PRESENT/LATE: eng erta sana saqlanadi (orqaga sanalangan davomat ham). */
+    /**
+     * Sinovda birinchi PRESENT/LATE: eng erta sana saqlanadi (orqaga sanalangan davomat ham).
+     *
+     * <p>Yozilma hali sinovda ({@code is_trial}) YOKI allaqachon to'lovliga o'tgan, lekin dars sanasi o'tgan kundan
+     * keyin emas: qabulxonada darsdan oldin to'lab, o'qituvchi davomatni keyin belgilasa ham sinov darsi hisoblanadi
+     * (avval bunday holatda {@code trial_started_at} bo'sh qolardi va dashboard "Sinov → to'lov" 0 ko'rsatardi).
+     * {@code join_date} dan oldingi dars (o'sha guruhdagi eski yozilma) hisobga olinmaydi.
+     */
     public static boolean markAttended(StudentGroup sg, LocalDate lessonDate) {
-        if (!Boolean.TRUE.equals(sg.getIsTrial()) || lessonDate == null) {
+        if (lessonDate == null) {
+            return false;
+        }
+        boolean convertedTrial = sg.getTrialOutcome() == TrialOutcome.CONVERTED && sg.getTrialConvertedAt() != null
+            && !lessonDate.isAfter(sg.getTrialConvertedAt());
+        if (!Boolean.TRUE.equals(sg.getIsTrial()) && !convertedTrial) {
+            return false;
+        }
+        if (sg.getJoinDate() != null && lessonDate.isBefore(sg.getJoinDate())) {
             return false;
         }
         if (sg.getTrialStartedAt() != null && !lessonDate.isBefore(sg.getTrialStartedAt())) {

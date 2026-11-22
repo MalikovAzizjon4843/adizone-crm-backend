@@ -39,7 +39,9 @@ import java.util.stream.Collectors;
  * butun partiyani yiqitmaydi; parallel ikki so'rov bir kalitni yozsa — UNIQUE, yutqazgani DUPLICATE qaytaradi.
  *
  * <p><b>Sinxron qilinmaydi</b> (SKIPPED, bazaga hech narsa yozilmaydi): xodimning shaxsiy raqami (exclusion), xodim
- * raqami, yashirin raqam, {@code app.calls.sync-max-age-days} dan eski qo'ng'iroq.
+ * raqami, yashirin raqam, {@code app.calls.sync-max-age-days} dan eski qo'ng'iroq, qurilma {@code sync_from} idan
+ * oldingi qo'ng'iroq (BEFORE_SYNC_FROM) va {@code sync_mode = KNOWN_ONLY} da CRM'ga mos kelmagan raqam
+ * (UNKNOWN_CONTACT — avto-lid ham ochilmaydi; xodimning shaxsiy telefoni).
  *
  * <p><b>Avtomatik lid</b> ({@code app.calls.auto-lead}): notanish O'zbekiston raqamidan IN / MISSED → lid (manba
  * PHONE_CALL, mas'ul — qurilma egasi). Dedupe: avval {@link CallContactMatcher} (har qanday lid bo'lsa — yangisi
@@ -164,6 +166,9 @@ public class CallSyncService {
         if (startedAt.isBefore(oldest)) {
             return skipped(key, "TOO_OLD");
         }
+        if (device.getSyncFrom() != null && startedAt.isBefore(device.getSyncFrom())) {
+            return skipped(key, "BEFORE_SYNC_FROM");
+        }
         String normalized = CallContactMatcher.normalize(item.phone());
         if (normalized == null) {
             return skipped(key, "NO_NUMBER");
@@ -176,6 +181,14 @@ public class CallSyncService {
             return skipped(key, "STAFF");
         }
 
+        if (device.effectiveSyncMode() == CallDevice.SyncMode.KNOWN_ONLY) {
+            CallContactMatcher.Match known = canonical == null ? CallContactMatcher.Match.UNKNOWN
+                : matchCache.computeIfAbsent(canonical, matcher::match);
+            if (known.type() == PhoneCall.ContactType.UNKNOWN) {
+                return skipped(key, "UNKNOWN_CONTACT");
+            }
+        }
+
         final int dur = duration;
         final String raw = CallDeviceService.cut(item.phone(), 40);
         try {
@@ -184,6 +197,7 @@ public class CallSyncService {
                     : matchCache.computeIfAbsent(canonical, matcher::match);
                 boolean autoLead = false;
                 if (match.type() == PhoneCall.ContactType.UNKNOWN && canonical != null && properties.isAutoLead()
+                        && device.effectiveSyncMode() == CallDevice.SyncMode.ALL
                         && (direction == PhoneCall.Direction.IN || direction == PhoneCall.Direction.MISSED)) {
                     Lead lead = leadService.createFromCall(AUTO_LEAD_NAME + " " + canonical, canonical, owner,
                         autoLeadNote(direction, startedAt));

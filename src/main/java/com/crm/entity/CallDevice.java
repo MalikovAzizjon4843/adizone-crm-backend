@@ -70,7 +70,25 @@ public class CallDevice {
     @Column(name = "revoked_by")
     private Long revokedBy;
 
+    /**
+     * V91: qaysi qo'ng'iroqlar sinxron qilinadi. {@code KNOWN_ONLY} — CRM'da lid / o'quvchi / ota-onaga mos
+     * kelmagani saqlanmaydi va avto-lid ochilmaydi (shaxsiy telefon). NULL (V91 dan oldingi qator) — {@code ALL}.
+     */
+    @Enumerated(value = EnumType.STRING)
+    @Column(name = "sync_mode", length = 12)
+    private SyncMode syncMode;
+
+    /** V91: bundan oldingi qo'ng'iroq sinxron qilinmaydi (Toshkent vaqti). NULL — chegara yo'q (eski qurilmalar). */
+    @Column(name = "sync_from")
+    private LocalDateTime syncFrom;
+
+    public enum SyncMode { ALL, KNOWN_ONLY }
+
     public boolean isActive() {
         return revokedAt == null;
+    }
+
+    public SyncMode effectiveSyncMode() {
+        return syncMode != null ? syncMode : SyncMode.ALL;
     }
 }

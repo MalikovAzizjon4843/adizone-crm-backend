@@ -206,6 +206,14 @@ public class CallRecordingService {
         return playableOf(call.getId());
     }
 
+    /** Ilova: faqat qurilma egasining o'z qo'ng'irog'i (boshqasiniki — 404, mavjudligi ham bildirilmaydi). */
+    public Playable playableOwn(CallDevicePrincipal principal, Long callId) {
+        PhoneCall call = callRepository.findById(callId)
+            .filter(c -> c.getUserId().equals(principal.userId()))
+            .orElseThrow(() -> CodedException.notFound("calls.notFound"));
+        return playableOf(call.getId());
+    }
+
     public CallDtos.RecordingLink link(Long callId) {
         PhoneCall call = queryService.requireVisible(callId);
         playableOf(call.getId());
@@ -275,6 +283,37 @@ public class CallRecordingService {
                 total++;
             }
         }
+    }
+
+    /**
+     * Yozuv fayllarini diskdan o'chiradi — qatorlar o'chirilgan tranzaksiya COMMIT bo'lgandan KEYIN chaqiriladi
+     * (lid o'chirish, xodim o'z qo'ng'irog'ini o'chirishi). Yo'l {@code recording-dir} dan tashqariga chiqmaydi;
+     * xato yutiladi (log). Qaytaradi — o'chirilgan fayllar soni.
+     */
+    public int deleteFiles(java.util.Collection<String> relativePaths) {
+        if (relativePaths == null || relativePaths.isEmpty()) {
+            return 0;
+        }
+        Path root = root();
+        int n = 0;
+        for (String rel : relativePaths) {
+            if (rel == null || rel.isBlank()) {
+                continue;
+            }
+            Path file = root.resolve(rel).normalize();
+            if (!file.startsWith(root)) {
+                log.warn("Yozuv yo'li katalogdan tashqarida — o'tkazildi: {}", rel);
+                continue;
+            }
+            try {
+                if (Files.deleteIfExists(file)) {
+                    n++;
+                }
+            } catch (IOException e) {
+                log.warn("Yozuv fayli o'chirilmadi: {} — {}", rel, e.getMessage());
+            }
+        }
+        return n;
     }
 
     // ── Yordamchilar ─────────────────────────────────────────────────────

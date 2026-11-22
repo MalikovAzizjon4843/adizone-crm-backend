@@ -2,6 +2,7 @@ package com.crm.controller;
 
 import com.crm.dto.request.LeadAssignRequest;
 import com.crm.dto.request.LeadBulkAssignRequest;
+import com.crm.dto.request.LeadBulkDeleteRequest;
 import com.crm.dto.request.LeadAmountRequest;
 import com.crm.dto.request.LeadCommentRequest;
 import com.crm.dto.request.LeadConvertRequest;
@@ -12,6 +13,7 @@ import com.crm.dto.request.LeadStatusRequest;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.LeadCommentResponse;
 import com.crm.dto.response.LeadBulkAssignResponse;
+import com.crm.dto.response.LeadBulkDeleteResponse;
 import com.crm.dto.response.LeadConvertResponse;
 import com.crm.dto.response.LeadOperatorResponse;
 import com.crm.dto.response.LeadResponse;
@@ -23,7 +25,9 @@ import com.crm.dto.response.LeadWithoutTaskStatsResponse;
 import com.crm.dto.response.LeadTimelineResponse;
 import com.crm.dto.response.PageResponse;
 import com.crm.dto.response.TaskResponse;
+import com.crm.service.LeadAccessService;
 import com.crm.service.LeadBulkAssignService;
+import com.crm.service.LeadHardDeleteService;
 import com.crm.service.LeadService;
 import com.crm.service.LeadTimelineService;
 import com.crm.service.TaskService;
@@ -61,6 +65,8 @@ public class LeadController {
     private final LeadBulkAssignService leadBulkAssignService;
     private final LeadTimelineService leadTimelineService;
     private final TaskService taskService;
+    private final LeadHardDeleteService leadHardDeleteService;
+    private final LeadAccessService leadAccessService;
 
     /** Ochiq forma — sinf darajasidagi rol tekshiruvi bu yerda bekor qilinadi. */
     @PostMapping("/public")
@@ -94,9 +100,11 @@ public class LeadController {
             @RequestParam(name = "unassigned", required = false) Boolean unassigned,
             @RequestParam(name = "fromDate", required = false) String fromDate,
             @RequestParam(name = "toDate", required = false) String toDate,
-            @RequestParam(name = "source", required = false) String source) {
+            @RequestParam(name = "source", required = false) String source,
+            @RequestParam(name = "stageId", required = false) List<Long> stageId) {
         return ResponseEntity.ok(ApiResponse.success(
-                leadService.getAll(page, size, status, search, assignedUserId, unassigned, fromDate, toDate, source)));
+                leadService.getAll(page, size, status, search, assignedUserId, unassigned, fromDate, toDate, source,
+                    stageId)));
     }
 
     @GetMapping("/export")
@@ -194,6 +202,29 @@ public class LeadController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Lidlar biriktirildi",
                 leadBulkAssignService.bulkAssign(request)));
+    }
+
+    /**
+     * Lidni BUTUNLAY o'chirish (faqat SUPER_ADMIN; SecurityConfig da ham). Lid va unga bog'liq hamma narsa
+     * ({@code docs/ops/lead-hard-delete.sql} bilan bir xil). O'quvchiga aylantirilgan / to'lovi bor lid — 409
+     * ({@code lead.delete.converted}, {@code lead.delete.hasPayment}).
+     */
+    @DeleteMapping(value = "/{id:\\d+}")
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<Void>> deleteLead(@PathVariable(name = "id") Long id) {
+        leadHardDeleteService.delete(id, leadAccessService.getCurrentUserOrThrow(),
+                LeadHardDeleteService.Mode.SINGLE);
+        return ResponseEntity.ok(ApiResponse.success("Lid o'chirildi", null));
+    }
+
+    /** Ommaviy o'chirish (faqat SUPER_ADMIN): {@code {leadIds: [1–200]}}; javob — deleted / skipped (sabab bilan). */
+    @PostMapping(value = "/bulk-delete")
+    @PreAuthorize(value = "hasRole('SUPER_ADMIN')")
+    public ResponseEntity<ApiResponse<LeadBulkDeleteResponse>> bulkDelete(
+            @RequestBody LeadBulkDeleteRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                leadHardDeleteService.bulkDelete(request != null ? request.getLeadIds() : null,
+                        leadAccessService.getCurrentUserOrThrow())));
     }
 
     /**

@@ -72,6 +72,8 @@ public class CallDeviceService {
             throw CodedException.badRequest("calls.device.uidInvalid");
         }
         LocalDateTime now = LocalDateTime.now(billingClock);
+        CallDevice.SyncMode requestedMode = parseSyncMode(request.syncMode());
+        LocalDateTime requestedFrom = parseSyncFrom(request.syncFrom(), now);
         String token = newToken();
         String hash = sha256(token);
 
@@ -91,10 +93,13 @@ public class CallDeviceService {
         // Qisman UNIQUE indekslar: revoke UPDATE lari INSERT dan oldin bazaga tushsin (Hibernate avval INSERT qiladi)
         deviceRepository.flush();
 
+        // Sinxron sozlamasi — faqat yangi qatorda (o'sha xodim + o'sha telefon qayta kirsa saqlangani qoladi)
         CallDevice device = same != null ? same : CallDevice.builder()
             .userId(user.getId())
             .deviceUid(uid)
             .createdAt(now)
+            .syncMode(requestedMode != null ? requestedMode : CallDevice.SyncMode.ALL)
+            .syncFrom(requestedFrom != null ? requestedFrom : now.withNano(0))
             .build();
         device.setTokenHash(hash);
         device.setModel(cut(request.model(), 100));
@@ -108,8 +113,65 @@ public class CallDeviceService {
         log.info("Qo'ng'iroqlar: qurilma #{} ro'yxatdan o'tdi (user #{}, {})", device.getId(), user.getId(),
             same != null ? "token yangilandi" : "yangi");
 
-        return new CallDtos.RegisterResponse(device.getId(), token, CallDtos.UserRef.of(user),
-            deviceRepository.lastCallStartedAt(user.getId(), uid), settings());
+        LocalDateTime lastCall = deviceRepository.lastCallStartedAt(user.getId(), uid);
+        LocalDateTime resumeFrom = lastCall == null ? device.getSyncFrom()
+            : device.getSyncFrom() == null || lastCall.isAfter(device.getSyncFrom()) ? lastCall : device.getSyncFrom();
+        return new CallDtos.RegisterResponse(device.getId(), token, CallDtos.UserRef.of(user), resumeFrom, settings(),
+            deviceSettings(device));
+    }
+
+    // ── Qurilma sinxron sozlamasi (GET/PUT app/settings) ─────────────────
+
+    @Transactional(readOnly = true)
+    public CallDtos.DeviceSettings getSettings(CallDevicePrincipal principal) {
+        return deviceSettings(requireActive(principal.deviceId()));
+    }
+
+    /** Berilmagan maydon o'zgarmaydi. {@code syncFrom} kelajakda (> 10 daqiqa) bo'lmasin. */
+    @Transactional
+    public CallDtos.DeviceSettings updateSettings(CallDevicePrincipal principal, CallDtos.DeviceSettingsRequest request) {
+        CallDevice device = requireActive(principal.deviceId());
+        if (request != null) {
+            LocalDateTime now = LocalDateTime.now(billingClock);
+            CallDevice.SyncMode mode = parseSyncMode(request.syncMode());
+            if (mode != null) {
+                device.setSyncMode(mode);
+            }
+            LocalDateTime from = parseSyncFrom(request.syncFrom(), now);
+            if (from != null) {
+                device.setSyncFrom(from);
+            }
+            deviceRepository.save(device);
+            log.info("Qo'ng'iroqlar: qurilma #{} sozlamasi: {} / {}", device.getId(), device.effectiveSyncMode(),
+                device.getSyncFrom());
+        }
+        return deviceSettings(device);
+    }
+
+    static CallDtos.DeviceSettings deviceSettings(CallDevice d) {
+        return new CallDtos.DeviceSettings(d.effectiveSyncMode().name(), d.getSyncFrom());
+    }
+
+    private static CallDevice.SyncMode parseSyncMode(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return CallDevice.SyncMode.valueOf(raw.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw CodedException.badRequest("calls.settings.syncModeInvalid");
+        }
+    }
+
+    private LocalDateTime parseSyncFrom(java.time.OffsetDateTime raw, LocalDateTime now) {
+        if (raw == null) {
+            return null;
+        }
+        LocalDateTime at = raw.atZoneSameInstant(billingClock.getZone()).toLocalDateTime().withNano(0);
+        if (at.isAfter(now.plusMinutes(10))) {
+            throw CodedException.badRequest("calls.settings.syncFromFuture");
+        }
+        return at;
     }
 
     // ── Har so'rovda ─────────────────────────────────────────────────────

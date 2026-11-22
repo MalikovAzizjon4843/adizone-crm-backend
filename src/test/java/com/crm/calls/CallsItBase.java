@@ -72,11 +72,20 @@ abstract class CallsItBase extends AbstractBillingIT {
         return user(u.getUsername()).roles(u.getRole().name());
     }
 
+    /**
+     * Testlar o'tmishdagi qo'ng'iroqlarni yuboradi — ilova "hammasini" tanlagandek {@code syncFrom} = 60 kun oldin
+     * (standart "hozir" eski qo'ng'iroqlarni BEFORE_SYNC_FROM qiladi; u alohida testda).
+     */
     protected ResultActions registerRaw(User u, String deviceUid) throws Exception {
+        return registerRaw(u, deviceUid, ",\"syncFrom\":\"" + clock.instant().minusSeconds(60L * 86_400) + "\"");
+    }
+
+    /** {@code extraJson} — {@code ,"syncMode":"..."} kabi qo'shimcha maydonlar (bo'sh — standartlar). */
+    protected ResultActions registerRaw(User u, String deviceUid, String extraJson) throws Exception {
         return mvc.perform(post("/api/calls/devices/register").with(as(u))
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"deviceUid\":\"" + deviceUid + "\",\"model\":\"Pixel 7\",\"androidVersion\":\"14\","
-                + "\"appVersion\":\"1.0.0\"}"));
+                + "\"appVersion\":\"1.0.0\"" + extraJson + "}"));
     }
 
     /** Ro'yxatdan o'tkazadi va qurilma tokenini qaytaradi. */
@@ -131,6 +140,21 @@ abstract class CallsItBase extends AbstractBillingIT {
             .fullName(name).phone(phone).source("WEBSITE").status("NEW").converted(false)
             .assignedUser(owner != null ? userRepository.findById(owner.getId()).orElseThrow() : null)
             .build()).getId());
+    }
+
+    /** Yozuv yuklaydi (200 kutiladi) va diskdagi nisbiy yo'lini qaytaradi. */
+    protected String uploadRecording(String token, Long callId, byte[] data) throws Exception {
+        String sha = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(data));
+        mvc.perform(device(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                .multipart("/api/calls/app/calls/" + callId + "/recording")
+                .file(new org.springframework.mock.web.MockMultipartFile("file", "rec.m4a", "audio/mp4", data))
+                .param("sha256", sha), token))
+            .andExpect(status().isOk());
+        return jdbc.queryForObject("SELECT path FROM call_recordings WHERE call_id = ?", String.class, callId);
+    }
+
+    protected java.nio.file.Path recordingFile(String relative) {
+        return java.nio.file.Paths.get(callsProperties.getRecordingDir()).toAbsolutePath().normalize().resolve(relative);
     }
 
     protected long count(String table) {

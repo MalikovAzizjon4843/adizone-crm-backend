@@ -71,6 +71,7 @@ spring:
         - classpath:db/migration/V88__salary_rule_kpi_metric_inclusive.sql
         - classpath:db/migration/V89__appeals.sql
         - classpath:db/migration/V90__calls.sql
+        - classpath:db/migration/V91__call_device_sync_settings.sql
         - classpath:pgtest-schema.sql
 
 app:

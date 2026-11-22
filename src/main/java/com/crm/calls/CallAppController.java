@@ -1,9 +1,14 @@
 package com.crm.calls;
 
 import com.crm.dto.response.ApiResponse;
+import com.crm.dto.response.PageResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.Resource;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -36,6 +42,9 @@ public class CallAppController {
     private final CallDeviceService deviceService;
     private final CallsProperties properties;
     private final com.crm.service.LeadStageService leadStageService;
+    private final CallSearchService searchService;
+    private final CallQueryService queryService;
+    private final CallDeleteService deleteService;
 
     @PostMapping(value = "/sync")
     public ApiResponse<CallDtos.SyncResponse> sync(@AuthenticationPrincipal CallDevicePrincipal principal,
@@ -51,6 +60,54 @@ public class CallAppController {
             @RequestParam(name = "sha256") String sha256,
             @RequestParam(name = "durationSec", required = false) Integer durationSec) {
         return ApiResponse.success(recordingService.upload(principal, id, file, sha256, durationSec));
+    }
+
+    // ── Qurilma sinxron sozlamasi (§3.3) ─────────────────────────────────
+
+    @GetMapping(value = "/settings")
+    public ApiResponse<CallDtos.DeviceSettings> settings(@AuthenticationPrincipal CallDevicePrincipal principal) {
+        return ApiResponse.success(deviceService.getSettings(principal));
+    }
+
+    @PutMapping(value = "/settings")
+    public ApiResponse<CallDtos.DeviceSettings> updateSettings(@AuthenticationPrincipal CallDevicePrincipal principal,
+                                                               @RequestBody CallDtos.DeviceSettingsRequest request) {
+        return ApiResponse.success(deviceService.updateSettings(principal, request));
+    }
+
+    // ── Terish ekrani qidiruvi (§4.7) ────────────────────────────────────
+
+    @GetMapping(value = "/search")
+    public ApiResponse<List<CallDtos.SearchItem>> search(@AuthenticationPrincipal CallDevicePrincipal principal,
+                                                         @RequestParam(name = "q") String q) {
+        return ApiResponse.success(searchService.search(principal, q));
+    }
+
+    // ── O'z qo'ng'iroqlari, yozuvi, o'chirish (§4.8) ─────────────────────
+
+    @GetMapping(value = "/calls")
+    public ApiResponse<PageResponse<CallDtos.CallItem>> myCalls(
+            @AuthenticationPrincipal CallDevicePrincipal principal,
+            @RequestParam(name = "recorded", required = false) Boolean recorded,
+            @RequestParam(name = "from", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(name = "to", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size) {
+        return ApiResponse.success(queryService.listForOwner(principal.userId(), recorded, from, to, page, size));
+    }
+
+    /** Oqim; {@code Range} — 206. Faqat o'z qo'ng'irog'i (boshqasiniki — 404). */
+    @GetMapping(value = "/calls/{id}/recording")
+    public ResponseEntity<Resource> myRecording(@AuthenticationPrincipal CallDevicePrincipal principal,
+                                                @PathVariable(name = "id") Long id) {
+        return CallCrmController.playable(recordingService.playableOwn(principal, id));
+    }
+
+    /** Noto'g'ri yuborilgan (shaxsiy) qo'ng'iroq — yozuvi bilan; o'ziniki, 7 kun ichida; bo'sh avto-lid ham. */
+    @DeleteMapping(value = "/calls/{id}")
+    public ApiResponse<CallDtos.DeleteCallResponse> deleteCall(@AuthenticationPrincipal CallDevicePrincipal principal,
+                                                               @PathVariable(name = "id") Long id) {
+        return ApiResponse.success(deleteService.delete(principal, id));
     }
 
     @GetMapping(value = "/lookup")

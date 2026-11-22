@@ -264,6 +264,33 @@ class DashboardSignalsTest extends AbstractBillingIT {
         assertThat(after.getTrialStartedAt()).isEqualTo(d("05.10.2026"));
     }
 
+    /** To'lov darsdan oldin (qabulxonada), davomat keyin belgilansa ham sinov boshlanishi yoziladi. */
+    @Test
+    void attendanceAfterSameDayConversion_stillMarksTrialStart() {
+        Long student = fixtures.student();
+        Long group = fixtures.group(fixtures.course(700_000));
+        Long sg = fixtures.enrollment(student, group).start(d("05.10.2026")).trial().save();
+        inTx(() -> {
+            StudentGroup x = sgRepo.findById(sg).orElseThrow();
+            x.setIsTrial(false);
+            TrialTracking.markConverted(x, d("06.10.2026"));
+            return sgRepo.save(x);
+        });
+
+        attend(student, group, "08.10.2026", AttendanceStatus.PRESENT);       // to'lovli dars — sinov emas
+        assertThat(inTx(() -> sgRepo.findById(sg).orElseThrow()).getTrialStartedAt()).isNull();
+        attend(student, group, "06.10.2026", AttendanceStatus.PRESENT);       // o'tgan kuni — sinov darsi
+        StudentGroup after = inTx(() -> sgRepo.findById(sg).orElseThrow());
+        assertThat(after.getTrialStartedAt()).isEqualTo(d("06.10.2026"));
+        assertThat(after.getTrialOutcome()).isEqualTo(TrialOutcome.CONVERTED);
+
+        // Oddiy (sinov bo'lmagan) yozilma — tegilmaydi
+        Long s2 = fixtures.student();
+        Long sg2 = fixtures.enrollment(s2, group).start(d("05.10.2026")).save();
+        attend(s2, group, "06.10.2026", AttendanceStatus.PRESENT);
+        assertThat(inTx(() -> sgRepo.findById(sg2).orElseThrow()).getTrialStartedAt()).isNull();
+    }
+
     // ── G5: davr qachon yopilgani ───────────────────────────────────────
 
     private static PeriodCoverage.Line line(long id, long amount, String date, Long related, boolean neutral) {

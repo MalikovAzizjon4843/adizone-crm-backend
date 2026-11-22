@@ -198,6 +198,18 @@ public class LeadStageService {
         return getAll();
     }
 
+    /**
+     * Bosqich id lari → kodlar ({@code GET /api/leads?stageId=}). Topilmagan id e'tiborsiz qoldiriladi: bosqich faqat
+     * unda lid bo'lmasa o'chiriladi, ya'ni eskirgan filtr baribir hech narsa topmaydi.
+     */
+    @Transactional(readOnly = true)
+    public List<String> codesByIds(java.util.Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return leadStageRepository.findAllById(ids).stream().map(LeadStage::getCode).distinct().toList();
+    }
+
     // ── Lid oqimi uchun API (keshdan o'qiydi) ──────────────────────────
 
     /**

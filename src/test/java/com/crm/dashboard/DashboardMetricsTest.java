@@ -476,6 +476,71 @@ class DashboardMetricsTest extends AbstractBillingIT {
         assertThat(later.stayed30()).isEqualByComparingTo("100.0");
     }
 
+    /**
+     * Prod holati: {@code trial_started_at} bo'sh (davomat to'lovdan keyin belgilangan yoki umuman belgilanmagan).
+     * Avval kogorta 0 edi; endi boshlanish — birinchi PRESENT/LATE darsi yoki (to'lovliga o'tgan bo'lsa) join_date.
+     */
+    @Test
+    void trials_withoutTrialStartedAt_resolvedFromAttendanceOrJoinDate() {
+        // a) 01.10 da yozilgan, 02.10 da qabulxonada to'lagan, o'qituvchi 02.10 darsini keyin belgilagan
+        Long a = plainTrial("01.10.2026");
+        trialPaid(a, "02.10.2026");
+        jdbc.update("UPDATE student_groups SET trial_outcome = 'CONVERTED', trial_converted_at = ? WHERE id = ?",
+            d("02.10.2026"), a);
+        rawAttendance(a, "02.10.2026", AttendanceStatus.PRESENT);
+        rawAttendance(a, "05.10.2026", AttendanceStatus.PRESENT);            // to'lovli dars — hisobga olinmaydi
+        // b) 03.10 da yozilgan, darsi umuman belgilanmagan, 03.10 da to'lagan (eski to'lov: cash_amount yo'q)
+        Long b = plainTrial("03.10.2026");
+        Long studentB = inTx(() -> sgRepo.findById(b).orElseThrow().getStudent().getId());
+        Long pay = rawPayment(studentB, b, 700_000, "03.10.2026");
+        jdbc.update("UPDATE payments SET cash_amount = NULL WHERE id = ?", pay);
+        jdbc.update("UPDATE student_groups SET is_trial = FALSE WHERE id = ?", b);
+        // c) 02.10 da yozilgan, 04.10 da keldi (davomat signalsiz yozilgan), hali sinovda
+        Long c = plainTrial("02.10.2026");
+        rawAttendance(c, "01.10.2026", AttendanceStatus.PRESENT);            // join_date dan oldin — yo'q
+        rawAttendance(c, "04.10.2026", AttendanceStatus.LATE);
+        // d) 02.10 da yozilgan, kelmadi
+        Long noShow = plainTrial("02.10.2026");
+        rawAttendance(noShow, "04.10.2026", AttendanceStatus.ABSENT);
+        clock.setDate(d("10.10.2026"));
+
+        TrialsSection t = trials.summary(custom("01.10.2026", "05.10.2026"));
+        assertThat(t.cohort()).isEqualTo(3);
+        assertThat(t.buckets().get("D0").count()).isEqualTo(2);               // a (02.10→02.10), b (03.10→03.10)
+        assertThat(t.buckets().get("IN_TRIAL").count()).isEqualTo(1);         // c
+        assertThat(t.noShow()).isEqualTo(1);
+        assertThat(t.conversionRate()).isEqualByComparingTo("100.0");
+        assertThat(t.estimated()).isTrue();                                     // b — join_date dan taxminiy
+
+        List<DirectorDtos.TrialRow> d0 = trials.rows(custom("01.10.2026", "05.10.2026"), TrialMetricsService.Bucket.D0);
+        assertThat(d0).extracting(DirectorDtos.TrialRow::studentGroupId).containsExactly(a, b);
+        assertThat(d0.get(0).trialStartedAt()).isEqualTo(d("02.10.2026"));
+        assertThat(d0.get(0).estimated()).isFalse();
+        assertThat(d0.get(1).trialStartedAt()).isEqualTo(d("03.10.2026"));
+        assertThat(d0.get(1).estimated()).isTrue();
+        assertThat(trials.rows(custom("01.10.2026", "05.10.2026"), TrialMetricsService.Bucket.IN_TRIAL))
+            .singleElement().satisfies(r -> assertThat(r.trialStartedAt()).isEqualTo(d("04.10.2026")));
+        assertThat(trials.rows(custom("01.10.2026", "05.10.2026"), TrialMetricsService.Bucket.NO_SHOW))
+            .singleElement().satisfies(r -> assertThat(r.studentGroupId()).isEqualTo(noShow));
+        // Davr chegarasi: c ning boshlanishi 04.10 — 01–03.10 kogortasiga kirmaydi
+        assertThat(trials.summary(custom("01.10.2026", "03.10.2026")).cohort()).isEqualTo(2);
+    }
+
+    /** Sinov yozilmasi, {@code trial_started_at} SIZ (jonli yo'l: faqat @PrePersist natijasi). */
+    private Long plainTrial(String joined) {
+        return fixtures.enrollment(fixtures.student(), fixtures.group(fixtures.course(700_000)))
+            .start(d(joined)).trial().save();
+    }
+
+    /** Davomat — signalsiz (eski / tuzatilmagan yo'l holatini takrorlash uchun). */
+    private void rawAttendance(Long sgId, String date, AttendanceStatus status) {
+        inTx(() -> {
+            var sg = sgRepo.findById(sgId).orElseThrow();
+            return attendanceRepo.save(Attendance.builder().student(sg.getStudent()).group(sg.getGroup())
+                .attendanceDate(d(date)).status(status).build());
+        });
+    }
+
     // ── §1.6 qolish ─────────────────────────────────────────────────────
 
     @Test

@@ -106,7 +106,7 @@ public class CallCrmController {
         return playable(recordingService.playableSigned(callId, exp, sig));
     }
 
-    private static ResponseEntity<Resource> playable(CallRecordingService.Playable p) {
+    static ResponseEntity<Resource> playable(CallRecordingService.Playable p) {
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType(p.mime()))
             .header(HttpHeaders.ACCEPT_RANGES, "bytes")
