@@ -115,6 +115,18 @@ public class GroupPromotionService {
         });
     }
 
+    /** Kalit bo'yicha saqlangan natija (so'rov mazmuni solishtirilmaydi — chaqiruvchi guruhlarni tekshiradi). */
+    @Transactional(readOnly = true)
+    public Optional<Result> replayByKey(String idempotencyKey) {
+        String key = key(idempotencyKey);
+        if (key == null) {
+            return Optional.empty();
+        }
+        return batchRepository.findByIdempotencyKey(key)
+            .filter(b -> b.getResultJson() != null)
+            .map(b -> read(b.getResultJson()).replay());
+    }
+
     @Transactional
     @Audited(action = AuditAction.TRANSFER, entity = "Group", entityId = "#fromId",
         summary = "'Guruhga ko''chirildi: ' + #result.students().size() + ' ta o''quvchi, guruh '"

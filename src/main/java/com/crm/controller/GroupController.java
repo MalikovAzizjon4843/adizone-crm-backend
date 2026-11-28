@@ -5,6 +5,8 @@ import com.crm.dto.request.GroupRequest;
 import com.crm.dto.request.RemoveStudentRequest;
 import com.crm.dto.request.StudentGroupRequest;
 import com.crm.dto.request.StudentCreateAndAddRequest;
+import com.crm.dto.request.TransferStudentsRequest;
+import com.crm.service.GroupBulkTransferService;
 import com.crm.billing.GroupEndDateService;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.GroupEndDateDtos;
@@ -36,6 +38,7 @@ public class GroupController {
     private final StudentService studentService;
     private final GroupPromotionService promotionService;
     private final GroupEndDateService groupEndDateService;
+    private final GroupBulkTransferService bulkTransferService;
 
     /** Guruhga ko'chirish oldindan ko'rish (phase6-api §5) — hech narsa yozmaydi. */
     @PostMapping("/{fromId}/promote/preview")
@@ -153,10 +156,11 @@ public class GroupController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public ResponseEntity<ApiResponse<String>> addStudentToGroup(
             @Valid @RequestBody StudentGroupRequest request) {
-        groupService.addStudentToGroup(request);
+        var warnings = groupService.addStudentToGroup(request);
         String message = "O'quvchi guruhga qo'shildi";
+        // meta.warnings (USE_TRANSFER) — bloklamaydi; bo'sh bo'lsa javob avvalgidek
         return ResponseEntity.status(HttpStatus.CREATED)
-            .body(ApiResponse.success(message, "OK"));
+            .body(withWarnings(ApiResponse.success(message, "OK"), warnings));
     }
 
     @DeleteMapping("/{groupId}/students/{studentId}")
@@ -172,11 +176,37 @@ public class GroupController {
     public ResponseEntity<ApiResponse<String>> removeStudentWithReason(
             @PathVariable Long groupId,
             @RequestBody RemoveStudentRequest request) {
-        groupService.removeStudentFromGroup(
+        var warnings = groupService.removeStudentFromGroup(
             groupId, request.getStudentId(),
             request.getReason(), request.getNotes(), request.getReasonCode());
         return ResponseEntity.ok(
-            ApiResponse.success("O'quvchi guruhdan chiqarildi", "OK"));
+            withWarnings(ApiResponse.success("O'quvchi guruhdan chiqarildi", "OK"), warnings));
+    }
+
+    /**
+     * Ommaviy ko'chirish (guruh jadvali o'zgarganda): har o'quvchi mavjud transfer oqimi bilan ko'chadi (balans va
+     * to'langan davr ko'chadi, langar uzluksiz). {@code studentIds} berilmasa — guruhning barcha faol (muzlatilmagan)
+     * o'quvchilari. {@code dryRun} standart TRUE — har o'quvchi: ko'chadigan kredit, yangi hisob boshlanishi, o'tkazib
+     * yuborilish sababi. Bloklovchi holatdagi o'quvchilar o'tkazib yuboriladi (qolganlari ko'chadi).
+     */
+    @PostMapping(value = "/{id}/transfer-students")
+    @PreAuthorize(value = "hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<GroupBulkTransferService.Result>> transferStudents(
+            @PathVariable(name = "id") Long id,
+            @RequestParam(name = "dryRun", defaultValue = "true") boolean dryRun,
+            @Valid @RequestBody TransferStudentsRequest request,
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey) {
+        GroupBulkTransferService.Result result = bulkTransferService.transfer(id, request, dryRun, idempotencyKey);
+        return ResponseEntity.ok(ApiResponse.success(
+            dryRun ? "Ko'rib chiqish (hech narsa yozilmadi)" : "Ko'chirildi: " + result.transferred().size(), result));
+    }
+
+    private static <T> ApiResponse<T> withWarnings(ApiResponse<T> response,
+                                                   List<com.crm.dto.response.ManualTransferDtos.TransferWarning> warnings) {
+        if (warnings != null && !warnings.isEmpty()) {
+            response.setMeta(java.util.Map.of("warnings", warnings));
+        }
+        return response;
     }
 
     @PostMapping("/{groupId}/students/create-and-add")

@@ -1,7 +1,14 @@
 package com.crm.controller;
 
 import com.crm.billing.LastPeriodRepairService;
+import com.crm.billing.ManualTransferDetectionService;
+import com.crm.billing.ManualTransferRepairService;
+import com.crm.dto.request.ManualTransferRepairRequest;
 import com.crm.dto.response.ApiResponse;
+import com.crm.dto.response.ManualTransferDtos;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.RequestBody;
+import java.time.LocalDate;
 import com.crm.dto.response.GroupEndDateDtos;
 import com.crm.dto.response.LeadMissingTaskRepairResult;
 import com.crm.exception.CodedException;
@@ -33,6 +40,8 @@ public class AdminRepairController {
     private final LeadService leadService;
     private final LeadTaskRepairService leadTaskRepairService;
     private final LastPeriodRepairService lastPeriodRepairService;
+    private final ManualTransferDetectionService manualTransferDetectionService;
+    private final ManualTransferRepairService manualTransferRepairService;
 
     @PostMapping("/link-teacher-users")
     public ResponseEntity<ApiResponse<Map<String, Object>>> linkTeacherUsers() {
@@ -71,6 +80,32 @@ public class AdminRepairController {
         return ResponseEntity.ok(ApiResponse.success(
             dryRun ? "Ko'rib chiqish (hech narsa yozilmadi)" : "Oxirgi davrlar qayta hisoblandi",
             lastPeriodRepairService.repair(dryRun)));
+    }
+
+    /**
+     * Qo'lda ko'chirishlar (chiqarish TRANSFERRED + ±7 kun ichida boshqa guruhga yozilma): o'quvchi bo'yicha vaqt
+     * tartibida juftliklar va tasnif (TRANSFER_OK / NO_LOSS / AFFECTED / UNCLEAR), jami AFFECTED summasi. Faqat o'qiydi.
+     * SQL ko'rinishi — docs/ops/exit-readd-detect.sql. Standart oraliq — oxirgi 60 kun.
+     */
+    @GetMapping(value = "/manual-transfers")
+    public ResponseEntity<ApiResponse<ManualTransferDtos.Report>> manualTransfers(
+            @RequestParam(name = "from", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(name = "to", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ResponseEntity.ok(ApiResponse.success(manualTransferDetectionService.detect(from, to)));
+    }
+
+    /**
+     * Qo'lda ko'chirishni transfer natijasiga tenglash: {@code pairs} yoki {@code classification = "AFFECTED"}.
+     * {@code dryRun} standart TRUE — aynan o'sha hisob rollback bilan (oldin/keyin holat); {@code false} — har juftlik
+     * alohida tranzaksiyada qo'llanadi. Idempotent. Kassa va to'lovlarga tegmaydi.
+     */
+    @PostMapping(value = "/merge-into-transfer")
+    public ResponseEntity<ApiResponse<ManualTransferDtos.RepairResult>> mergeIntoTransfer(
+            @RequestParam(name = "dryRun", defaultValue = "true") boolean dryRun,
+            @RequestBody ManualTransferRepairRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+            dryRun ? "Ko'rib chiqish (hech narsa yozilmadi)" : "Qo'lda ko'chirishlar transfer'ga tenglandi",
+            manualTransferRepairService.repair(request, dryRun)));
     }
 
     @PostMapping("/migrate-lead-statuses")

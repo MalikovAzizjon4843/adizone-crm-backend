@@ -20,6 +20,18 @@ public interface StudentGroupRepository extends JpaRepository<StudentGroup, Long
     List<StudentGroup> findByStudentId(Long studentId);
 
     /**
+     * Qo'lda ko'chirish aniqlashi (docs/ops/exit-readd-detect.sql): {@code [from, to]} oralig'ida TRANSFERRED sabab bilan
+     * yopilgan (muzlatilmagan) yozilmalarning o'quvchilari.
+     */
+    @Query(value = """
+        SELECT DISTINCT sg.student.id FROM StudentGroup sg
+        WHERE (sg.isActive = false OR sg.isActive IS NULL) AND sg.frozenFrom IS NULL
+          AND (sg.exitReasonCode = com.crm.entity.enums.ExitReasonCode.TRANSFERRED OR UPPER(sg.exitReason) = 'TRANSFERRED')
+          AND COALESCE(sg.exitDate, sg.leaveDate) BETWEEN :from AND :to
+        """)
+    List<Long> findStudentIdsWithTransferredExit(@Param(value = "from") LocalDate from, @Param(value = "to") LocalDate to);
+
+    /**
      * Kutilayotgan to'lovlar (R2, billing-v2 §14.2): hisoblanadigan bo'lishi mumkin bo'lgan yozilmalar — faol,
      * muzlatilmagan, sinovda emas, guruh ACTIVE/FORMING, o'quvchi ACTIVE. Aniq shart — {@code BillingStatusService.isBillingOpen}.
      */

@@ -69,6 +69,7 @@ public class GroupService {
     private final com.crm.billing.StudentStatusService studentStatusService;
     private final GroupEndDateService groupEndDateService;
     private final com.crm.repository.StudyLevelRepository studyLevelRepository;
+    private final com.crm.billing.TransferAdvisor transferAdvisor;
 
     @Transactional(readOnly = true)
     public List<GroupResponse> getAllGroups(GroupStatus status) {
@@ -548,7 +549,7 @@ public class GroupService {
     @Audited(action = AuditAction.CREATE, entity = "StudentGroup",
         summary = "'O''quvchi guruhga qo''shildi'",
         entityId = "#request.groupId")
-    public void addStudentToGroup(StudentGroupRequest request) {
+    public List<com.crm.dto.response.ManualTransferDtos.TransferWarning> addStudentToGroup(StudentGroupRequest request) {
         Student student = studentRepository.findById(request.getStudentId())
             .orElseThrow(() -> new ResourceNotFoundException("Student", request.getStudentId()));
         Group group = findById(request.getGroupId());
@@ -572,6 +573,10 @@ public class GroupService {
         boolean isTrial = Boolean.TRUE.equals(request.getIsTrial());
         PaymentType paymentType = request.getPaymentType() != null
             ? request.getPaymentType() : PaymentType.MONTHLY;
+
+        // Qo'lda ko'chirishning oldini olish (bloklamaydi): boshqa faol / yaqinda yopilgan yozilma — USE_TRANSFER
+        List<com.crm.dto.response.ManualTransferDtos.TransferWarning> warnings =
+            transferAdvisor.addToGroupWarnings(student.getId(), group.getId(), paymentStart);
 
         BigDecimal fee = request.getMonthlyFee() != null
             ? request.getMonthlyFee()
@@ -620,6 +625,7 @@ public class GroupService {
             "Guruhga qo'shildi: " + group.getGroupName());
         log.info("addStudentToGroup student={} sg={} paymentType={} paymentStart={} → student.nextPaymentDate={}",
             student.getId(), sg.getId(), paymentType, paymentStart, studentNext);
+        return warnings;
     }
 
     @Transactional
@@ -644,14 +650,14 @@ public class GroupService {
     @Audited(action = AuditAction.DELETE, entity = "StudentGroup",
         summary = "'O''quvchi guruhdan chiqarildi: ' + #reason",
         entityId = "#groupId")
-    public void removeStudentFromGroup(Long groupId, Long studentId,
-            String reason, String notes, com.crm.entity.enums.ExitReasonCode reasonCode) {
+    public List<com.crm.dto.response.ManualTransferDtos.TransferWarning> removeStudentFromGroup(Long groupId,
+            Long studentId, String reason, String notes, com.crm.entity.enums.ExitReasonCode reasonCode) {
         Student student = studentRepository.findById(studentId)
             .orElseThrow(() -> new ResourceNotFoundException("Student", studentId));
         String previousStatus = student.getStatus() != null ? student.getStatus().name() : "ACTIVE";
         // Billing v2 (§6.10): yopish ledger/accrual bilan — balans SG da qoladi. O'quvchi holati
         // (boshqa faol yozilma qolmasa LEFT / GRADUATED / SUSPENDED) — StudentStatusService, refresh ichida
-        enrollmentLifecycleService.leave(studentId, groupId, reason, notes, reasonCode);
+        StudentGroup closed = enrollmentLifecycleService.leave(studentId, groupId, reason, notes, reasonCode);
 
         // Save to student history
         StudentStatusHistory history = new StudentStatusHistory();
@@ -662,6 +668,8 @@ public class GroupService {
         history.setNotes(notes);
         history.setChangedAt(LocalDateTime.now());
         studentStatusHistoryRepository.save(history);
+        // TRANSFERRED + boshqa faol yozilma — "Guruhga ko'chirish" ishlatilmagan (bloklamaydi)
+        return transferAdvisor.exitWarnings(closed, reason, reasonCode);
     }
 
     /** Daraja (V87): 0 — yo'q (olib tashlash); mavjud bo'lmasa — 404 {@code book.level.notFound}. */

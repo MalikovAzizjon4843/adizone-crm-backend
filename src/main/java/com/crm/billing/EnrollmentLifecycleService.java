@@ -70,6 +70,7 @@ public class EnrollmentLifecycleService {
     private final AttendanceRepository attendanceRepository;
     private final StudentStatusHistoryRepository historyRepository;
     private final StudentStatusService studentStatusService;
+    private final com.crm.repository.EnrollmentTransferLinkRepository transferLinkRepository;
     private final Clock billingClock;
 
     // ════════════════════════════════════════════════════════════════════
@@ -420,6 +421,28 @@ public class EnrollmentLifecycleService {
         // Ikkala SG ham shu tranzaksiyada qulflangan bo'lsin (yangisi hali hech kimga ko'rinmaydi)
         to = locks.lockEnrollmentWithStudent(studentId, to.getId());
 
+        BigDecimal moved = moveBalance(from, to, today);
+
+        from.setIsActive(false);
+        from.setLeaveDate(today);
+        from.setExitDate(today);
+        from.setExitReason(exitReason != null && !exitReason.isBlank() ? exitReason : EXIT_TRANSFERRED);
+        from.setExitReasonCode(ExitReasonCode.TRANSFERRED);
+        from.setExitNotes(exitNote);
+        studentGroupRepository.save(from);
+
+        accrualService.accrueLocked(to, today);
+        snapshotService.refresh(from);
+        snapshotService.refresh(to);
+        return new Transfer(from, to, moved);
+    }
+
+    /**
+     * Eski SG ning butun balansi (ledger) yangi SG ga {@code TRANSFER_OUT}/{@code TRANSFER_IN} juftligi bilan ko'chadi;
+     * qarz ko'chsa — {@code TRANSFER_IN} eski {@code debtSince} sanasi bilan (FIFO qarz sanasi saqlanadi). Guruhga
+     * ko'chirish ({@link #transfer}) va qo'lda ko'chirishni tenglash ({@link #mergeManualTransfer}) — bitta qoida.
+     */
+    private BigDecimal moveBalance(StudentGroup from, StudentGroup to, LocalDate today) {
         BillingSnapshot fromState = statusService.snapshot(from, today);
         BigDecimal moved = Money.nz(fromState.balance());
         if (moved.signum() != 0) {
@@ -442,24 +465,225 @@ public class EnrollmentLifecycleService {
                 .note("Ko'chirildi ← " + groupName(from))
                 .build());
         }
-
-        from.setIsActive(false);
-        from.setLeaveDate(today);
-        from.setExitDate(today);
-        from.setExitReason(exitReason != null && !exitReason.isBlank() ? exitReason : EXIT_TRANSFERRED);
-        from.setExitReasonCode(ExitReasonCode.TRANSFERRED);
-        from.setExitNotes(exitNote);
-        studentGroupRepository.save(from);
-
-        accrualService.accrueLocked(to, today);
-        snapshotService.refresh(from);
-        snapshotService.refresh(to);
-        return new Transfer(from, to, moved);
+        return moved;
     }
 
     /** Preview (guruhga ko'chirish, phase6-api §5): ko'chirilsa yangi SG qaysi sanadan hisoblanadi. Hech narsa yozmaydi. */
     public LocalDate transferAnchor(StudentGroup from) {
         return continuedAnchor(from, statusService.today());
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // Qo'lda ko'chirishni transfer'ga tenglash (chiqarish TRANSFERRED + yangi guruhga qo'shish)
+    // ════════════════════════════════════════════════════════════════════
+
+    /** REANCHOR — aynan transfer natijasi; REFUND_ONLY — yangi SG da langardan keyin boshlangan davr bor, langar surilmaydi. */
+    public enum MergeMode { REANCHOR, REFUND_ONLY }
+
+    /** Yangi SG ning {@code continuedAnchor} dan oldin boshlangan davri va qaytariladigan (hali qaytarilmagan) summasi. */
+    public record MergeRefund(BillingPeriod period, BigDecimal refund) {
+    }
+
+    /**
+     * Qo'lda ko'chirish → transfer tengligi rejasi (yozmaydi). Transfer qoidasi (§6.8): eski SG da yozilgan davrlar o'z
+     * joyida qoladi (proratsiya yo'q), yangi SG {@code continuedAnchor(eski, ko'chirish kuni)} dan hisoblanadi, eski SG
+     * balansi to'liq ko'chadi. Demak yangi SG ning shu langardan oldin boshlangan davrlari — ikki marta hisob (to'liq
+     * qaytariladi), eski SG balansi — ko'chadi.
+     *
+     * @param credit yangi SG ga tushadigan sof kredit = refundTotal + moved ("ishlatilmagan summa"); ≤ 0 — ko'chadigan pul yo'q
+     */
+    public record MergePlan(LocalDate transferDate, LocalDate continuedAnchor, MergeMode mode, boolean reanchor,
+                            List<MergeRefund> refunds, BigDecimal refundTotal, BigDecimal moved, BigDecimal credit,
+                            LocalDate laterPeriodStart) {
+    }
+
+    /** {@link #mergeManualTransfer} natijasi: {@code skipReason == null} — qo'llandi. */
+    public record MergeOutcome(MergePlan plan, String skipReason) {
+        public boolean applied() {
+            return skipReason == null;
+        }
+    }
+
+    /** Eski SG qachon "ko'chdi": chiqish sanasi (yo'q bo'lsa leave_date, u ham yo'q — bugun). */
+    public LocalDate transferDate(StudentGroup from) {
+        if (from.getExitDate() != null) {
+            return from.getExitDate();
+        }
+        return from.getLeaveDate() != null ? from.getLeaveDate() : statusService.today();
+    }
+
+    public MergePlan planMerge(StudentGroup from, StudentGroup to) {
+        LocalDate day = transferDate(from);
+        LocalDate anchor = continuedAnchor(from, day);
+        List<MergeRefund> refunds = new ArrayList<>();
+        LocalDate later = null;
+        for (BillingPeriod p : periodRepository.findByStudentGroupIdOrderByPeriodStartAsc(to.getId())) {
+            if (!p.getPeriodStart().isBefore(anchor)) {
+                if (later == null) {
+                    later = p.getPeriodStart();
+                }
+                continue;
+            }
+            if (p.getStatus() == BillingPeriodStatus.CHARGED || p.getStatus() == BillingPeriodStatus.PARTIALLY_REFUNDED) {
+                BigDecimal open = p.getChargeTxId() != null
+                    ? Money.nz(p.getAmount()).subtract(Money.nz(p.getRefundedAmount())).max(BigDecimal.ZERO)
+                    : BigDecimal.ZERO;
+                refunds.add(new MergeRefund(p, open));
+            }
+        }
+        BigDecimal refundTotal = refunds.stream().map(MergeRefund::refund).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal moved = Money.nz(statusService.snapshot(from, statusService.today()).balance());
+        MergeMode mode = later == null ? MergeMode.REANCHOR : MergeMode.REFUND_ONLY;
+        boolean reanchor = mode == MergeMode.REANCHOR && !isPerLesson(to)
+            && (to.getPaymentStartDate() == null || to.getPaymentStartDate().isBefore(anchor));
+        return new MergePlan(day, anchor, mode, reanchor, refunds, refundTotal, moved, refundTotal.add(moved), later);
+    }
+
+    /**
+     * Juftlik avtomatik tenglanmaydigan holat (null — mumkin): sinov, PER_LESSON / to'lov turi farqi, muzlatish,
+     * billing hold. Aniqlash ({@code ManualTransferDetectionService}) va ta'mirlash shu bitta tekshiruvni ishlatadi.
+     */
+    public String mergeBlocker(StudentGroup from, StudentGroup to) {
+        if (from.getId().equals(to.getId()) || from.getStudent() == null || to.getStudent() == null
+                || !from.getStudent().getId().equals(to.getStudent().getId())) {
+            return "INVALID_PAIR";
+        }
+        if (Boolean.TRUE.equals(from.getIsActive())) {
+            return "OLD_ACTIVE";
+        }
+        if (isFrozen(from)) {
+            return "OLD_FROZEN";
+        }
+        if (Boolean.TRUE.equals(from.getIsTrial()) || Boolean.TRUE.equals(to.getIsTrial())) {
+            return "TRIAL";
+        }
+        if (isPerLesson(from) || isPerLesson(to)) {
+            return "PER_LESSON";
+        }
+        if (to.getFrozenFrom() != null) {
+            return "NEW_FROZEN";
+        }
+        if (Boolean.TRUE.equals(to.getBillingHold())) {
+            return "BILLING_HOLD";
+        }
+        return null;
+    }
+
+    /**
+     * Qo'lda ko'chirishni transfer natijasiga tenglash (REPAIR_MANUAL_TRANSFER). Qadamlar transfer bilan bir xil:
+     * yangi SG ning {@code continuedAnchor} dan oldin boshlangan davrlari to'liq qaytariladi ({@code PERIOD_REFUND},
+     * davr sanasi bilan, asl charge'ga bog'lanib), langar {@code continuedAnchor} ga suriladi (REANCHOR), eski SG
+     * balansi {@link #moveBalance} bilan ko'chadi, yangi SG accrual'i yuritiladi. Kassa va to'lovlarga tegilmaydi.
+     * Idempotent: qo'llangandan keyin qayta rejada kredit 0 bo'ladi, bog'lanish ({@code enrollment_transfer_links})
+     * bo'lsa darhol o'tkazib yuboriladi.
+     *
+     * @param allowRefundOnly REFUND_ONLY rejimini ham qo'llash (faqat aniq ko'rsatilgan juftliklar uchun)
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public MergeOutcome mergeManualTransfer(Long fromSgId, Long toSgId, boolean allowRefundOnly) {
+        gate.requireWritable();
+        LocalDate today = statusService.today();
+        Long studentId = studentGroupRepository.findStudentIdById(fromSgId)
+            .orElseThrow(() -> CodedException.notFound("error.studentGroup.notFound", fromSgId));
+        Long toStudentId = studentGroupRepository.findStudentIdById(toSgId)
+            .orElseThrow(() -> CodedException.notFound("error.studentGroup.notFound", toSgId));
+        if (!studentId.equals(toStudentId) || fromSgId.equals(toSgId)) {
+            return new MergeOutcome(null, "INVALID_PAIR");
+        }
+        StudentGroup from = locks.lockEnrollmentWithStudent(studentId, fromSgId);
+        StudentGroup to = locks.lockEnrollmentWithStudent(studentId, toSgId);
+        if (transferLinkRepository.existsByOldStudentGroupIdAndNewStudentGroupId(fromSgId, toSgId)) {
+            return new MergeOutcome(null, "REPAIRED");
+        }
+        String blocker = mergeBlocker(from, to);
+        if (blocker != null) {
+            return new MergeOutcome(null, blocker);
+        }
+        if (Boolean.TRUE.equals(to.getIsActive())) {
+            accrualService.accrueLocked(to, today);
+        }
+        MergePlan plan = planMerge(from, to);
+        if (plan.credit().signum() <= 0) {
+            return new MergeOutcome(plan, "NO_LOSS");
+        }
+        if (plan.mode() == MergeMode.REFUND_ONLY && !allowRefundOnly) {
+            return new MergeOutcome(plan, "REFUND_ONLY");
+        }
+
+        for (MergeRefund r : plan.refunds()) {
+            BillingPeriod p = r.period();
+            if (r.refund().signum() > 0) {
+                ledger.post(LedgerService.Entry.builder()
+                    .enrollment(to)
+                    .type(BalanceTransactionType.PERIOD_REFUND)
+                    .amount(r.refund())
+                    .effectiveDate(p.getPeriodStart())
+                    .relatedTxId(p.getChargeTxId())
+                    .billingPeriodId(p.getId())
+                    .referenceId(from.getId())
+                    .note("Ko'chirish ta'miri: " + p.getPeriodStart() + "–" + p.getPeriodEnd()
+                        + " eski guruhda (" + groupName(from) + ") qoplangan, hisob " + plan.continuedAnchor() + " dan")
+                    .build());
+                p.setRefundedAmount(Money.nz(p.getRefundedAmount()).add(r.refund()));
+            }
+            p.setStatus(BillingPeriodStatus.REFUNDED);
+            periodRepository.save(p);
+        }
+        if (plan.reanchor()) {
+            to.setPaymentStartDate(plan.continuedAnchor());
+            studentGroupRepository.save(to);
+        }
+        BigDecimal moved = moveBalance(from, to, today);
+        if (Boolean.TRUE.equals(to.getIsActive())) {
+            accrualService.accrueLocked(to, today);
+        }
+        snapshotService.refresh(from);
+        snapshotService.refresh(to);
+        transferLinkRepository.save(com.crm.entity.EnrollmentTransferLink.builder()
+            .studentId(studentId)
+            .oldStudentGroupId(fromSgId)
+            .newStudentGroupId(toSgId)
+            .source("REPAIR_MANUAL_TRANSFER")
+            .mode(plan.mode().name())
+            .continuedAnchor(plan.continuedAnchor())
+            .refundedAmount(plan.refundTotal())
+            .movedAmount(moved)
+            .createdAt(LocalDateTime.now(billingClock))
+            .build());
+        log.info("Qo'lda ko'chirish tenglandi: sg {} → {} ({}), qaytarim {}, ko'chdi {}, langar {}",
+            fromSgId, toSgId, plan.mode(), plan.refundTotal(), moved, plan.continuedAnchor());
+        return new MergeOutcome(plan, null);
+    }
+
+    /**
+     * Yozmasdan: o'quvchi {@code from} dan {@code target} guruhga transfer'siz (qo'lda) qo'shilsa yangi yozilmaga
+     * ikki marta tushadigan / ko'chmay qoladigan summa — {@link #planMerge} bilan bir xil qoida: yangi langar
+     * {@code newAnchor} dan {@code continuedAnchor} gacha boshlanadigan davrlar (accrual hisobi) + eski SG balansi.
+     * Faol {@code from} — "bugun ko'chsa"; yopilgan — o'z chiqish sanasi bilan.
+     */
+    public MergePlan planProspective(StudentGroup from, Group target, LocalDate newAnchor) {
+        LocalDate today = statusService.today();
+        LocalDate day = Boolean.TRUE.equals(from.getIsActive()) ? today : transferDate(from);
+        LocalDate anchor = continuedAnchor(from, day);
+        StudentGroup hypothetical = StudentGroup.builder()
+            .student(from.getStudent())
+            .group(target)
+            .joinDate(newAnchor)
+            .paymentStartDate(newAnchor)
+            .paymentType(PaymentType.MONTHLY)
+            .isTrial(false)
+            .isActive(true)
+            .discountPercentage(BigDecimal.ZERO)
+            .build();
+        BigDecimal overlap = BigDecimal.ZERO;
+        if (!isPerLesson(from) && anchor.isAfter(newAnchor)) {
+            for (AccrualCalculator.DueCharge c : accrualService.plan(hypothetical, anchor.minusDays(1)).charges()) {
+                overlap = overlap.add(c.amount());
+            }
+        }
+        BigDecimal moved = Money.nz(statusService.snapshot(from, today).balance());
+        return new MergePlan(day, anchor, MergeMode.REANCHOR, anchor.isAfter(newAnchor), List.of(), overlap, moved,
+            overlap.add(moved), null);
     }
 
     /**

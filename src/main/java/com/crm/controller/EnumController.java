@@ -3,6 +3,7 @@ package com.crm.controller;
 import com.crm.config.Messages;
 import com.crm.dto.response.ApiResponse;
 import com.crm.dto.response.EnumOptionDto;
+import com.crm.entity.enums.ExitReasonCode;
 import com.crm.entity.enums.PaymentMethod;
 import com.crm.entity.enums.TaskStatus;
 import com.crm.entity.enums.TaskType;
@@ -35,6 +36,23 @@ public class EnumController {
                 .value(m.name())
                 .label(m.getLabel())
                 .icon(m.getIcon())
+                .build())
+            .toList();
+        return ResponseEntity.ok(ApiResponse.success(options));
+    }
+
+    /**
+     * Guruhdan chiqish sabablari ({@code reasonCode}). TRANSFERRED da {@code transferHint = true}: frontend "Guruhga
+     * ko'chirish" ni taklif qilsin — qo'lda chiqarish + qo'shish to'langan davrni ko'chirmaydi.
+     */
+    @GetMapping(value = "/exit-reasons")
+    public ResponseEntity<ApiResponse<List<EnumOptionDto>>> getExitReasons() {
+        List<EnumOptionDto> options = Arrays.stream(ExitReasonCode.values())
+            .filter(c -> c != ExitReasonCode.FROZEN && c != ExitReasonCode.AUTO_ARCHIVE)
+            .map(c -> EnumOptionDto.builder()
+                .value(c.name())
+                .label(c.getLabel())
+                .transferHint(c == ExitReasonCode.TRANSFERRED ? Boolean.TRUE : null)
                 .build())
             .toList();
         return ResponseEntity.ok(ApiResponse.success(options));

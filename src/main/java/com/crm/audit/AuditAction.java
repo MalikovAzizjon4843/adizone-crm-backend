@@ -30,6 +30,8 @@ public final class AuditAction {
     public static final String TASK_DONE = "TASK_DONE";
     /** Guruhga ommaviy ko'chirish (phase6-api §5). */
     public static final String TRANSFER = "TRANSFER";
+    /** Qo'lda ko'chirish (chiqarish + qo'shish) transfer natijasiga tenglandi. */
+    public static final String REPAIR_MANUAL_TRANSFER = "REPAIR_MANUAL_TRANSFER";
 
     private AuditAction() {
     }

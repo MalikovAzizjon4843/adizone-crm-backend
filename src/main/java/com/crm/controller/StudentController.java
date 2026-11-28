@@ -38,6 +38,7 @@ public class StudentController {
     private final FileStorageService fileStorageService;
     private final ImportService importService;
     private final RefundPayoutService refundPayoutService;
+    private final com.crm.billing.TransferAdvisor transferAdvisor;
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<StudentResponse>>> getAllStudents(
@@ -165,6 +166,23 @@ public class StudentController {
     public ResponseEntity<ApiResponse<StudentResponse>> updateStudent(
             @PathVariable Long id, @Valid @RequestBody StudentRequest request) {
         return ResponseEntity.ok(ApiResponse.success("Student updated", studentService.updateStudent(id, request)));
+    }
+
+    /**
+     * Guruhga qo'shishdan oldin tekshiruv (frontend formani saqlashdan oldin): o'quvchi boshqa faol guruhda yoki oxirgi 7
+     * kunda boshqa guruhdan chiqqan va u yerda ishlatilmagan summa qolgan bo'lsa — {@code USE_TRANSFER} ogohlantirishi.
+     * Bloklamaydi, hech narsa yozmaydi.
+     */
+    @GetMapping(value = "/{id:\\d+}/add-to-group-check")
+    @PreAuthorize(value = "hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public ResponseEntity<ApiResponse<ManualTransferDtos.AddToGroupCheck>> addToGroupCheck(
+            @PathVariable(name = "id") Long id,
+            @RequestParam(name = "groupId") Long groupId,
+            @RequestParam(name = "paymentStartDate", required = false)
+            @org.springframework.format.annotation.DateTimeFormat(
+                iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate paymentStartDate) {
+        return ResponseEntity.ok(ApiResponse.success(new ManualTransferDtos.AddToGroupCheck(id, groupId,
+            transferAdvisor.addToGroupWarnings(id, groupId, paymentStartDate))));
     }
 
     @PostMapping("/{id}/transfer-group")
